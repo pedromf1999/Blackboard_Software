@@ -85,7 +85,7 @@ class DrawToolBar(QtWidgets.QWidget):
         # pressed the way the tools above do
         self.find_text = QtWidgets.QToolButton(self)
         self.find_text.setToolTip(
-            'Find text (Ctrl+F), then F3 to cycle through')
+            'Find text (Ctrl+F), then Find Next or F3 for each match')
         self.find_text.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
         self.find_text.setIconSize(
             QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))

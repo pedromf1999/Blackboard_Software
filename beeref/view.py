@@ -121,6 +121,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.welcome_overlay = widgets.welcome_overlay.WelcomeOverlay(self)
         # Built early: a resize can arrive before the end of setup
         self.shortcuts_hint = widgets.shortcuts_hint.ShortcutsHint(self)
+        self.find_bar = widgets.find_bar.FindBar(self, self)
         self.loading_overlay = (
             widgets.loading_overlay.LoadingOverlay(self))
         self.layers_handle = widgets.layers.LayersHandle(self, self)
@@ -1574,14 +1575,23 @@ class BeeGraphicsView(MainControlsMixin,
             self.undo_stack.push(commands.ChangeOutlineColor(items, color))
 
     def on_action_find_text(self):
-        query, ok = QtWidgets.QInputDialog.getText(
-            self, 'Find Text', 'Find:' + chr(10) + 'F3 to cycle through',
-            text=self.text_search_query)
-        if not ok or not query:
+        """Open the find bar, holding the last word looked for."""
+
+        self.find_bar.open(self.text_search_query)
+
+    def find_from_bar(self, query, step=1):
+        """Go to the next match, or the previous one, for the bar's word.
+
+        A different word starts again from its first match instead of
+        carrying on from wherever the last word had got to.
+        """
+
+        if not query:
             return
-        self.text_search_query = query
-        self.text_search_index = -1
-        self.find_next_text_match()
+        if query != self.text_search_query:
+            self.text_search_query = query
+            self.text_search_index = -1
+        self.find_next_text_match(step)
 
     # Room left round something scrolled into sight
     REVEAL_MARGIN = 40
@@ -1592,7 +1602,11 @@ class BeeGraphicsView(MainControlsMixin,
     MATCH_SHARE = 0.15
 
     def on_action_find_next(self):
-        if self.text_search_query:
+        # With the bar open, the word to look for is the one in it, even
+        # if it was typed and not yet looked for
+        if not self.find_bar.isHidden() and self.find_bar.input.text():
+            self.find_from_bar(self.find_bar.input.text())
+        elif self.text_search_query:
             self.find_next_text_match()
         else:
             self.on_action_find_text()
@@ -1615,26 +1629,43 @@ class BeeGraphicsView(MainControlsMixin,
             key=lambda item: (item.sceneBoundingRect().top(),
                               item.sceneBoundingRect().left()))
 
-    def find_next_text_match(self):
-        """Select the next match and centre the view on it."""
+    def find_next_text_match(self, step=1):
+        """Select the next match, or the previous one, and go to it.
+
+        With the find bar open the count goes in the bar, next to the
+        button just pressed, rather than in a notification across the
+        board from it.
+        """
 
         matches = self.get_text_search_matches()
+        bar_open = not self.find_bar.isHidden()
         if not matches:
             self.text_search_index = -1
-            widgets.BeeNotification(
-                self, f'No text matching "{self.text_search_query}"')
+            if bar_open:
+                self.find_bar.show_count(-1, 0)
+            else:
+                widgets.BeeNotification(
+                    self, f'No text matching "{self.text_search_query}"')
             return
 
-        self.text_search_index = (self.text_search_index + 1) % len(matches)
+        if self.text_search_index < 0 and step < 0:
+            # Going back from before the first comes round to the last
+            self.text_search_index = len(matches) - 1
+        else:
+            self.text_search_index = (
+                (self.text_search_index + step) % len(matches))
         item = matches[self.text_search_index]
         logger.debug(f'Text search match {self.text_search_index}: {item}')
         self.scene.deselect_all_items()
         item.setSelected(True)
         self.zoom_to_match(item)
-        widgets.BeeNotification(
-            self,
-            f'Match {self.text_search_index + 1} of {len(matches)}'
-            f' for "{self.text_search_query}" -- F3 to cycle through')
+        if bar_open:
+            self.find_bar.show_count(self.text_search_index, len(matches))
+        else:
+            widgets.BeeNotification(
+                self,
+                f'Match {self.text_search_index + 1} of {len(matches)}'
+                f' for "{self.text_search_query}" -- F3 to cycle through')
 
     def zoom_to_match(self, item):
         """Go to the word itself, not merely to the note holding it.
@@ -2963,6 +2994,8 @@ class BeeGraphicsView(MainControlsMixin,
             self.loading_overlay.resize(self.size())
         if self.shortcuts_hint.isVisible():
             self.shortcuts_hint.reposition()
+        if self.find_bar.isVisible():
+            self.find_bar.reposition()
         if self.layers_handle.isVisible():
             self.layers_handle.reposition()
         if self.legend_handle.isVisible():

@@ -184,18 +184,13 @@ def test_the_search_button_is_on_the_top_bar(view):
     assert view.draw_toolbar.find_text is not None
     assert 'F3' in view.draw_toolbar.find_text.toolTip()
 
-    with patch('PyQt6.QtWidgets.QInputDialog.getText',
-               return_value=('', False)) as dialog:
-        view.draw_toolbar.find_text.click()
-    assert dialog.called
+    view.draw_toolbar.find_text.click()
+    assert view.find_bar.isHidden() is False
 
 
-def test_the_dialog_says_how_to_cycle(view):
-    with patch('PyQt6.QtWidgets.QInputDialog.getText',
-               return_value=('', False)) as dialog:
-        view.on_action_find_text()
-    label = dialog.call_args[0][2]
-    assert 'F3 to cycle through' in label
+def test_the_find_bar_has_a_button_for_the_next_match(view):
+    view.on_action_find_text()
+    assert view.find_bar.next_button.text() == 'Find Next'
 
 
 def test_the_notification_says_it_too(view):

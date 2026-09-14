@@ -1635,39 +1635,37 @@ def test_find_next_text_match_when_no_matches(view):
     assert view.text_search_index == -1
 
 
-@patch('PyQt6.QtWidgets.QInputDialog.getText', return_value=('me', True))
-def test_on_action_find_text(dialog_mock, view):
+def test_on_action_find_text(view):
     item1, item2 = add_text_items(view, 'find me', 'other')
+    view.on_action_find_text()
+    view.find_bar.input.setText('me')
     with patch.object(view, 'centerOn'):
-        view.on_action_find_text()
+        view.find_bar.next_button.click()
     assert view.text_search_query == 'me'
     assert item1.isSelected() is True
 
 
-@patch('PyQt6.QtWidgets.QInputDialog.getText', return_value=('', False))
-def test_on_action_find_text_when_cancelled(dialog_mock, view):
+def test_on_action_find_text_when_closed(view):
     add_text_items(view, 'find me')
     view.text_search_query = 'previous'
     view.on_action_find_text()
+    view.find_bar.close_bar()
     assert view.text_search_query == 'previous'
 
 
-@patch('PyQt6.QtWidgets.QInputDialog.getText', return_value=('me', True))
-def test_on_action_find_next_asks_for_query_when_none_yet(dialog_mock, view):
+def test_on_action_find_next_asks_for_query_when_none_yet(view):
     add_text_items(view, 'find me')
-    with patch.object(view, 'centerOn'):
-        view.on_action_find_next()
-    dialog_mock.assert_called_once()
-    assert view.text_search_query == 'me'
+    view.on_action_find_next()
+    assert view.find_bar.isHidden() is False
+    assert view.text_search_query == ''
 
 
-@patch('PyQt6.QtWidgets.QInputDialog.getText')
-def test_on_action_find_next_reuses_existing_query(dialog_mock, view):
+def test_on_action_find_next_reuses_existing_query(view):
     item1, _ = add_text_items(view, 'find me', 'other')
     view.text_search_query = 'find'
     with patch.object(view, 'centerOn'):
         view.on_action_find_next()
-    dialog_mock.assert_not_called()
+    assert view.find_bar.isHidden() is True
     assert item1.isSelected() is True
 
 
