@@ -23,7 +23,7 @@ import sys
 
 from PyQt6 import QtCore, QtWidgets
 
-from beeref import constants
+from beeref import constants, spacemouse
 from beeref.assets import BeeAssets
 from beeref.config import CommandlineArgs, BeeSettings, logfile_name
 from beeref.utils import create_palette_from_dict
@@ -132,6 +132,10 @@ def main():
     # so menus and panels stay crisp.
     logger.info(f'Canvas font: {BeeAssets().font_family}')
     bee = BeeRefMainWindow(app)  # NOQA:F841
+    # Here rather than in the window, so the test suite's many windows
+    # do not each start listening. Kept on the window: the reader stops
+    # hearing the device once nothing holds on to it.
+    bee.spacemouse = spacemouse.start(bee)
 
     signal.signal(signal.SIGINT, handle_sigint)
     # Repeatedly run python-noop to give the interpreter time to

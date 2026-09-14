@@ -98,6 +98,19 @@ class CommandlineArgs:
             return getattr(self._args, name)
 
 
+def as_bool(value):
+    """A switch as it was saved, read back as True or False.
+
+    An .ini file keeps true and false as the words themselves, and
+    bool() calls any word True, so a switch turned off would come back
+    on the next time Blackboard started.
+    """
+
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', '1', 'yes')
+    return bool(value)
+
+
 class BeeSettingsEvents(QtCore.QObject):
     restore_defaults = QtCore.pyqtSignal()
     restore_keyboard_defaults = QtCore.pyqtSignal()
@@ -169,6 +182,21 @@ class BeeSettings(QtCore.QSettings):
             'validate': lambda x: 5 <= x <= 1000,
             'post_save_callback':
                 lambda value: settings_events.grid_changed.emit(),
+        },
+        # Read afresh on every frame the board moves, so a change here
+        # takes effect straight away; see spacemouse.py
+        'SpaceMouse/speed': {
+            'default': 100,
+            'cast': int,
+            'validate': lambda x: 10 <= x <= 400,
+        },
+        'SpaceMouse/invert_pan': {
+            'default': False,
+            'cast': as_bool,
+        },
+        'SpaceMouse/invert_zoom': {
+            'default': False,
+            'cast': as_bool,
         },
     }
 
