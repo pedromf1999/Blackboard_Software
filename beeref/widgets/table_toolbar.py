@@ -49,6 +49,12 @@ class TableToolBar(PinnedToolBar):
         self.column_delete = self.add_button(
             'table_column_delete', 'Delete this column',
             view.on_action_table_column_remove)
+        self.cells_merge = self.add_button(
+            'table_merge', 'Merge the selected cells',
+            view.on_action_table_cells_merge)
+        self.cell_split = self.add_button(
+            'table_split', 'Split this merged cell',
+            view.on_action_table_cell_split)
         # The two headers stay pressed while they are on, so the bar
         # says which of them the table already has
         self.header_top = self.add_button(
@@ -73,3 +79,9 @@ class TableToolBar(PinnedToolBar):
             return
         self.header_top.setChecked(item.has_header(table))
         self.header_left.setChecked(item.has_header(table, column=True))
+
+    def update_cells(self, item):
+        """Offer merging with cells selected, splitting on a merged one."""
+
+        self.cells_merge.setEnabled(item.can_merge_table_cells())
+        self.cell_split.setEnabled(item.can_split_table_cell())

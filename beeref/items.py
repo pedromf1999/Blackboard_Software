@@ -3437,6 +3437,53 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.spread_column_widths(table)
         self.put_cursor_in_cell(table, row, column)
 
+    def can_merge_table_cells(self):
+        """Whether the selection spans more than one cell to join.
+
+        Dragging across cells selects a block of them; words selected
+        inside a single cell are not that, and leave nothing to merge.
+        """
+
+        cursor = self.textCursor()
+        if not cursor.hasComplexSelection():
+            return False
+        _row, rows, _column, columns = cursor.selectedTableCells()
+        return rows * columns > 1
+
+    def merge_table_cells(self):
+        """Join the selected cells into one, keeping all of their words."""
+
+        if not self.can_merge_table_cells():
+            return
+        cursor = self.textCursor()
+        table = cursor.currentTable()
+        row, _rows, column, _columns = cursor.selectedTableCells()
+        table.mergeCells(cursor)
+        self.put_cursor_in_cell(table, row, column)
+
+    def can_split_table_cell(self):
+        """Whether the cursor is in a cell made by merging others."""
+
+        cell = self.current_cell()
+        return (cell is not None
+                and (cell.rowSpan() > 1 or cell.columnSpan() > 1))
+
+    def split_table_cell(self):
+        """Take a merged cell apart into the cells it covered.
+
+        The words stay in the first of them. Qt can only undo a merge:
+        it cannot share the words out again, nor divide a cell that was
+        never merged.
+        """
+
+        if not self.can_split_table_cell():
+            return
+        cell = self.current_cell()
+        table = self.current_table()
+        row, column = cell.row(), cell.column()
+        table.splitCell(row, column, 1, 1)
+        self.put_cursor_in_cell(table, row, column)
+
     def put_cursor_in_cell(self, table, row, column):
         """Keep the cursor in the table after a row or column goes.
 

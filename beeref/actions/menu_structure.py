@@ -192,6 +192,8 @@ menu_structure = [
             'table_row_remove',
             'table_column_insert',
             'table_column_remove',
+            'table_cells_merge',
+            'table_cell_split',
             'table_header_top',
             'table_header_left',
             'table_cell_color',

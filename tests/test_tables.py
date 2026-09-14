@@ -1,3 +1,6 @@
+from PyQt6 import QtGui
+
+from beeref.actions import actions
 from beeref.items import BeeTextItem
 
 
@@ -137,3 +140,122 @@ def test_the_table_commands_wake_up_when_the_cursor_enters_a_table(view):
     item.setTextCursor(table.cellAt(1, 1).firstCursorPosition())
     item.cursor_may_have_moved()
     assert view.table_toolbar.isHidden() is False
+
+
+def fill(item, words):
+    """Write a word into each cell named: {(row, column): word}."""
+
+    table = item.tables()[0]
+    for (row, column), word in words.items():
+        table.cellAt(row, column).firstCursorPosition().insertText(word)
+
+
+def select_cells(item, first, last):
+    """Drag across a block of cells, from one corner to the other."""
+
+    table = item.tables()[0]
+    cursor = table.cellAt(*first).firstCursorPosition()
+    cursor.setPosition(table.cellAt(*last).lastCursorPosition().position(),
+                       QtGui.QTextCursor.MoveMode.KeepAnchor)
+    item.setTextCursor(cursor)
+    item.cursor_may_have_moved()
+
+
+def cell_words(cell):
+    cursor = cell.firstCursorPosition()
+    cursor.setPosition(cell.lastCursorPosition().position(),
+                       QtGui.QTextCursor.MoveMode.KeepAnchor)
+    return cursor.selectedText()
+
+
+def test_selected_cells_merge_into_one_keeping_their_words(view):
+    item = note_with_table(view)
+    fill(item, {(0, 0): 'Lid', (1, 0): 'Latch'})
+    select_cells(item, (0, 0), (1, 0))
+
+    view.on_action_table_cells_merge()
+
+    cell = item.tables()[0].cellAt(0, 0)
+    assert (cell.rowSpan(), cell.columnSpan()) == (2, 1)
+    words = cell_words(cell)
+    assert 'Lid' in words
+    assert 'Latch' in words
+
+
+def test_one_cell_is_nothing_to_merge(view):
+    """Merging needs a block of cells; the cursor in one is not that."""
+
+    item = note_with_table(view)
+    depth = view.undo_stack.index()
+    assert view.table_toolbar.cells_merge.isEnabled() is False
+    assert actions.actions['table_cells_merge'].qaction.isEnabled() is False
+
+    view.on_action_table_cells_merge()
+    assert view.undo_stack.index() == depth
+    assert item.tables()[0].cellAt(0, 0).rowSpan() == 1
+
+
+def test_merge_is_offered_once_cells_are_selected(view):
+    item = note_with_table(view)
+    select_cells(item, (0, 0), (0, 1))
+    assert view.table_toolbar.cells_merge.isEnabled() is True
+    assert actions.actions['table_cells_merge'].qaction.isEnabled() is True
+
+
+def test_a_merged_cell_splits_back_into_the_cells_it_covered(view):
+    item = note_with_table(view)
+    table = item.tables()[0]
+    rows, columns = table.rows(), table.columns()
+    select_cells(item, (0, 0), (1, 1))
+    view.on_action_table_cells_merge()
+    assert view.table_toolbar.cell_split.isEnabled() is True
+    assert actions.actions['table_cell_split'].qaction.isEnabled() is True
+
+    view.on_action_table_cell_split()
+
+    table = item.tables()[0]
+    assert (table.rows(), table.columns()) == (rows, columns)
+    for row in range(2):
+        for column in range(2):
+            cell = table.cellAt(row, column)
+            assert (cell.rowSpan(), cell.columnSpan()) == (1, 1)
+    assert view.table_toolbar.cell_split.isEnabled() is False
+
+
+def test_a_cell_never_merged_is_not_offered_a_split(view):
+    """Qt can only take a merge apart, not divide an ordinary cell."""
+
+    note_with_table(view)
+    depth = view.undo_stack.index()
+    assert view.table_toolbar.cell_split.isEnabled() is False
+    assert actions.actions['table_cell_split'].qaction.isEnabled() is False
+
+    view.on_action_table_cell_split()
+    assert view.undo_stack.index() == depth
+
+
+def test_a_merge_is_one_step_to_undo(view):
+    item = note_with_table(view)
+    select_cells(item, (0, 0), (0, 1))
+    depth = view.undo_stack.index()
+    view.on_action_table_cells_merge()
+    assert view.undo_stack.index() == depth + 1
+
+    view.undo_stack.undo()
+    assert item.tables()[0].cellAt(0, 0).columnSpan() == 1
+
+
+def test_a_merge_survives_being_saved_and_read_back(view):
+    item = note_with_table(view)
+    select_cells(item, (0, 0), (1, 0))
+    view.on_action_table_cells_merge()
+
+    reloaded = BeeTextItem(html=item.toHtml())
+    assert reloaded.tables()[0].cellAt(0, 0).rowSpan() == 2
+
+
+def test_merge_and_split_are_in_the_right_click_menu(view):
+    menu = [m for m in view.toplevel_menus if m.title() == '&Text'][0]
+    texts = [a.text() for a in menu.actions()]
+    assert 'Mer&ge Cells' in texts
+    assert 'S&plit Cell' in texts

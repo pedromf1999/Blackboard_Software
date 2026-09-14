@@ -420,6 +420,18 @@ actions = ActionList([
         group='active_when_table',
     ),
     Action(
+        id='table_cells_merge',
+        text='Mer&ge Cells',
+        callback='on_action_table_cells_merge',
+        group='active_when_table',
+    ),
+    Action(
+        id='table_cell_split',
+        text='S&plit Cell',
+        callback='on_action_table_cell_split',
+        group='active_when_table',
+    ),
+    Action(
         id='table_header_top',
         text='&Top Header',
         callback='on_action_table_header_top',

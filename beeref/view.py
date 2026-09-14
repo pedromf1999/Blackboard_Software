@@ -1834,6 +1834,13 @@ class BeeGraphicsView(MainControlsMixin,
 
         self.actiongroup_set_enabled('active_when_table',
                                      self.scene.has_table_selection())
+        # Narrower than being in a table: merging wants a block of cells
+        # selected, splitting a cell that was merged
+        item = self.scene.item_with_table()
+        actions.actions['table_cells_merge'].qaction.setEnabled(
+            item is not None and item.can_merge_table_cells())
+        actions.actions['table_cell_split'].qaction.setEnabled(
+            item is not None and item.can_split_table_cell())
 
     def on_action_insert_table(self):
         """Put a table where the text cursor is, or in a new note."""
@@ -1887,6 +1894,24 @@ class BeeGraphicsView(MainControlsMixin,
     def on_action_table_column_remove(self):
         self.table_command(
             lambda: self.scene.item_with_table().remove_table_column())
+
+    def on_action_table_cells_merge(self):
+        """Join the selected cells into one."""
+
+        item = self.scene.item_with_table()
+        # Checked here too, so a command with nothing to do leaves no
+        # empty step on the undo stack and the board not marked changed
+        if item is None or not item.can_merge_table_cells():
+            return
+        self.change_table(item, item.merge_table_cells)
+
+    def on_action_table_cell_split(self):
+        """Take a merged cell apart again."""
+
+        item = self.scene.item_with_table()
+        if item is None or not item.can_split_table_cell():
+            return
+        self.change_table(item, item.split_table_cell)
 
     def on_action_table_header_top(self):
         """Set the first row apart as a heading, or put it back."""
@@ -3011,6 +3036,7 @@ class BeeGraphicsView(MainControlsMixin,
             toolbar.hide()
             return
         toolbar.update_headers(item)
+        toolbar.update_cells(item)
         self.pin_toolbar_to(toolbar, [item],
                             avoid=getattr(self, 'text_toolbar', None))
 
