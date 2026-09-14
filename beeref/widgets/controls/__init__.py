@@ -17,10 +17,11 @@ import logging
 
 from PyQt6 import QtWidgets
 
-from beeref.config import KeyboardSettings
+from beeref.config import BeeSettings, KeyboardSettings
 from beeref.widgets.controls.keyboard import KeyboardShortcutsView
 from beeref.widgets.controls.mouse import MouseView
 from beeref.widgets.controls.mousewheel import MouseWheelView
+from beeref.widgets.controls.spacemouse import SpaceMouseControls
 
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,9 @@ class ControlsDialog(QtWidgets.QDialog):
         wheel_layout.addWidget(table)
         tabs.addTab(mousewheel, 'Mouse &Wheel')
 
+        # SpaceMouse: another way of moving round the board
+        tabs.addTab(SpaceMouseControls(), '&SpaceMouse')
+
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)
         layout.addWidget(tabs)
@@ -89,8 +93,11 @@ class ControlsDialog(QtWidgets.QDialog):
         reply = QtWidgets.QMessageBox.question(
             self,
             'Restore defaults?',
-            'Do you want to restore all keyboard and mouse settings '
-            'to their default values?')
+            'Do you want to restore all keyboard, mouse and SpaceMouse '
+            'settings to their default values?')
 
         if reply == QtWidgets.QMessageBox.StandardButton.Yes:
+            # First, so the SpaceMouse tab already holds its defaults when
+            # the keyboard's restore tells the controls to show theirs
+            BeeSettings().restore_controls_defaults()
             KeyboardSettings().restore_defaults()

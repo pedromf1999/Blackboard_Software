@@ -211,13 +211,52 @@ def test_a_switch_read_back_from_the_file_is_what_was_chosen(settings):
     assert settings.valueOrDefault('SpaceMouse/invert_pan') is True
 
 
-def test_the_settings_have_a_spacemouse_tab(view):
-    from beeref.widgets.settings import SettingsDialog
-    dialog = SettingsDialog(view)
+def tab_names(dialog):
     tabs = dialog.findChild(QtWidgets.QTabWidget)
-    names = [tabs.tabText(i) for i in range(tabs.count())]
+    return [tabs.tabText(i) for i in range(tabs.count())]
+
+
+def test_its_settings_are_with_keyboard_and_mouse_not_the_general_ones(
+        view):
+    """A SpaceMouse is a way of moving round the board, like the wheel."""
+
+    from beeref.widgets.controls import ControlsDialog
+    from beeref.widgets.settings import SettingsDialog
+    controls = ControlsDialog(view)
+    general = SettingsDialog(view)
+    try:
+        assert '&SpaceMouse' in tab_names(controls)
+        assert '&SpaceMouse' not in tab_names(general)
+    finally:
+        controls.close()
+        general.close()
+
+
+def test_keyboard_and_mouse_restore_defaults_puts_it_back(view, settings):
+    from beeref.widgets.controls import ControlsDialog
+    from beeref.widgets.controls.spacemouse import SpaceMouseSpeedWidget
+    settings.setValue('SpaceMouse/speed', 250)
+    settings.setValue('SpaceMouse/invert_pan', True)
+    dialog = ControlsDialog(view)
+    assert dialog.findChild(SpaceMouseSpeedWidget).input.value() == 250
+
+    with patch('PyQt6.QtWidgets.QMessageBox.question',
+               return_value=QtWidgets.QMessageBox.StandardButton.Yes), \
+            patch('PyQt6.QtGui.QAction.setShortcuts'):
+        dialog.on_restore_defaults()
+    assert settings.valueOrDefault('SpaceMouse/speed') == 100
+    assert settings.valueOrDefault('SpaceMouse/invert_pan') is False
+    # And the tab shows it, not what it said before
+    assert dialog.findChild(SpaceMouseSpeedWidget).input.value() == 100
     dialog.close()
-    assert '&SpaceMouse' in names
+
+
+def test_the_general_restore_defaults_leaves_it_alone(settings):
+    settings.setValue('SpaceMouse/speed', 250)
+    settings.setValue('Items/arrange_gap', 40)
+    settings.restore_defaults()
+    assert settings.valueOrDefault('SpaceMouse/speed') == 250
+    assert settings.valueOrDefault('Items/arrange_gap') == 0
 
 
 # --- Windows ----------------------------------------------------------------

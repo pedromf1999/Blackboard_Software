@@ -255,31 +255,6 @@ class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
     KEY = 'Save/confirm_close_unsaved'
 
 
-class SpaceMouseSpeedWidget(IntegerGroup):
-    TITLE = 'Speed (%):'
-    HELPTEXT = ('How fast a 3Dconnexion SpaceMouse moves the board: slide the'
-                ' cap to pan, push it down or pull it up to zoom. A SpaceMouse'
-                ' plugged in while Blackboard is open is found the next time'
-                ' it starts.')
-    KEY = 'SpaceMouse/speed'
-    MIN = 10
-    MAX = 400
-
-
-class SpaceMouseInvertPanWidget(SingleCheckboxGroup):
-    TITLE = 'Pan Direction:'
-    HELPTEXT = 'For when sliding the cap moves the board the wrong way.'
-    LABEL = 'Pan the other way'
-    KEY = 'SpaceMouse/invert_pan'
-
-
-class SpaceMouseInvertZoomWidget(SingleCheckboxGroup):
-    TITLE = 'Zoom Direction:'
-    HELPTEXT = 'For when pushing the cap down zooms out instead of in.'
-    LABEL = 'Zoom the other way'
-    KEY = 'SpaceMouse/invert_zoom'
-
-
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -312,15 +287,6 @@ class SettingsDialog(QtWidgets.QDialog):
         view_layout.addWidget(GridSizeWidget(), 1, 0)
         view_layout.addWidget(GridStyleWidget(), 1, 1)
         tabs.addTab(view, '&View')
-
-        # SpaceMouse
-        spacemouse = QtWidgets.QWidget()
-        spacemouse_layout = QtWidgets.QGridLayout()
-        spacemouse.setLayout(spacemouse_layout)
-        spacemouse_layout.addWidget(SpaceMouseSpeedWidget(), 0, 0, 1, 2)
-        spacemouse_layout.addWidget(SpaceMouseInvertPanWidget(), 1, 0)
-        spacemouse_layout.addWidget(SpaceMouseInvertZoomWidget(), 1, 1)
-        tabs.addTab(spacemouse, '&SpaceMouse')
 
         layout = QtWidgets.QVBoxLayout()
         self.setLayout(layout)

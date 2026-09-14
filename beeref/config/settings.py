@@ -264,15 +264,35 @@ class BeeSettings(QtCore.QSettings):
 
         return self.valueOrDefault(key) != self.FIELDS[key]['default']
 
+    # Kept here with the rest, but shown and put back with the keyboard
+    # and mouse controls: a SpaceMouse is a way of moving round the board
+    CONTROLS_PREFIX = 'SpaceMouse/'
+
     def restore_defaults(self):
         """Restore all the values specified in FILEDS to their default values
         by removing them from the settings file.
+
+        All but the ones the Keyboard & Mouse dialog restores; see
+        restore_controls_defaults.
         """
 
         logger.debug('Restoring settings to defaults')
         for key in self.FIELDS.keys():
-            self.remove(key)
+            if not key.startswith(self.CONTROLS_PREFIX):
+                self.remove(key)
         settings_events.restore_defaults.emit()
+
+    def restore_controls_defaults(self):
+        """Restore the settings shown among the keyboard and mouse controls.
+
+        Tells nobody: the keyboard's own restore, which follows it, says
+        so for all the controls at once.
+        """
+
+        logger.debug('Restoring SpaceMouse settings to defaults')
+        for key in self.FIELDS.keys():
+            if key.startswith(self.CONTROLS_PREFIX):
+                self.remove(key)
 
     def fileName(self):
         return os.path.normpath(super().fileName())
