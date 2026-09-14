@@ -36,7 +36,6 @@ menu_structure = [
             'save',
             'save_as',
             'compact_file',
-            'shrink_images',
             'export_scene',
             'export_images',
             MENU_SEPARATOR,

@@ -485,7 +485,6 @@ class SQLiteIO:
         if self.worker:
             self.worker.finished.emit(self.filename, [])
 
-    @handle_sqlite_errors
     def shrink_images(self):
         """Store again, as photographs, the pictures kept losslessly.
 
@@ -493,14 +492,13 @@ class SQLiteIO:
         anything in it is see-through, and that alone had it kept as
         PNG. Boards written before that was noticed are full of them.
         Pictures that really are cut out are left alone, and so is
-        anything already stored as a photograph.
+        anything already stored as a photograph. A picture keeps its
+        size in pixels; only how it is stored changes.
 
         Lossy and not undoable, which is why it is asked for rather
-        than done while saving.
-
-        How much was saved is logged rather than returned: the errors
-        are handled by a wrapper that has no value to hand back, and
-        the caller can see the file's size for itself anyway.
+        than done while saving. Part of compact(), which handles its
+        errors; how much was saved is logged, since the caller can see
+        the file's size for itself.
         """
 
         if self.readonly:
@@ -553,7 +551,6 @@ class SQLiteIO:
                 (f'{pathlib.Path(name).stem}.jpg', len(data), data, item_id))
         return size - len(data)
 
-    @handle_sqlite_errors
     def vacuum(self):
         """Rewrite the file without the space deleted items left behind.
 
@@ -569,8 +566,31 @@ class SQLiteIO:
         logger.debug(f'Compacting {self.filename}')
         self.ex('VACUUM')
         self.connection.commit()
+
+    @handle_sqlite_errors
+    def compact(self):
+        """Make the file as small as it will go.
+
+        The pictures kept losslessly for no reason are stored as
+        photographs, then the whole file is written again without the
+        space that frees. One step rather than two in a row, so an error
+        in the first stops the second and is reported once.
+        """
+
+        self.shrink_images()
+        self.vacuum()
         if self.worker:
             self.worker.finished.emit(self.filename, [])
+
+    def lossless_image_count(self):
+        """How many pictures are stored as PNG, going by their names.
+
+        A picture is stored under a name ending in its format, so this
+        needs no picture read, even on a board of several gigabytes.
+        """
+
+        return self.fetchone(
+            "SELECT COUNT(*) FROM sqlar WHERE name LIKE '%.png'")[0]
 
     def delete_items(self, to_delete):
         to_delete = [(pk,) for pk in to_delete]

@@ -66,22 +66,31 @@ def read_thumbnail(filename):
 
 
 def compact_bee(filename, scene, worker=None):
-    """Rewrite a file without the free space deletions left in it."""
+    """Make a file as small as it will go.
+
+    Pictures kept losslessly for no reason are stored as photographs,
+    then the file is written again without its free space.
+    """
 
     logger.info(f'Compacting file {filename}...')
     io = SQLiteIO(filename, scene, worker=worker)
-    io.vacuum()
+    io.compact()
     logger.info('End compact')
 
 
-def shrink_images_bee(filename, scene, worker=None):
-    """Store the pictures kept losslessly as photographs instead."""
+def has_lossless_images(filename):
+    """Whether compacting a file could store some of its pictures again.
 
-    logger.info(f'Shrinking the images in {filename}...')
-    io = SQLiteIO(filename, scene, worker=worker)
-    io.shrink_images()
-    io.vacuum()
-    logger.info('End shrinking')
+    Any file that cannot be read says no: compacting it will report
+    what is wrong, which a question about its pictures would not.
+    """
+
+    io = SQLiteIO(filename, None, readonly=True)
+    try:
+        return io.lossless_image_count() > 0
+    except Exception:
+        logger.debug(f'Could not look at the pictures in {filename}')
+        return False
 
 
 def load_images(filenames, pos, scene, worker=None, fit_size=None):

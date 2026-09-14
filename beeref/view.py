@@ -2215,13 +2215,20 @@ class BeeGraphicsView(MainControlsMixin,
         self.worker.start()
 
     def on_action_compact_file(self):
-        """Give back the disk space deleted items left behind.
+        """Make the file as small as it will go.
 
-        Saving stopped doing this: it rewrites the whole file, which on
-        a big board takes far longer than the save itself. The space is
-        reused by whatever is added next either way, so this only
-        matters when a board has lost a lot and is not going to gain it
-        back.
+        Once two commands, Compact File and Shrink Images; anyone asking
+        for a smaller file wants both. Pictures kept losslessly for no
+        reason are stored as photographs: a screenshot arrives with an
+        alpha channel whether or not anything in it is see-through, and
+        that alone had it kept as PNG -- one board in use came to three
+        and a quarter gigabytes that way, its pictures 99.97 per cent
+        opaque. Then the file is written again without the space that
+        frees, and the space deleted items left behind.
+
+        Asked for rather than done while saving: writing the whole file
+        again takes far longer than a save, and a picture stored as a
+        photograph cannot be taken back.
         """
 
         if not self.filename:
@@ -2234,6 +2241,30 @@ class BeeGraphicsView(MainControlsMixin,
                 'Save your changes before compacting the file.')
             return
 
+        # Only asked when there is a picture it could store again: a
+        # board of photographs has nothing to lose
+        self.compacting_pictures = fileio.has_lossless_images(self.filename)
+        if self.compacting_pictures:
+            answer = QtWidgets.QMessageBox.warning(
+                self,
+                'Compact the file?',
+                'Pictures on this board that are stored losslessly will be '
+                'stored as photographs instead, at ninety per cent quality. '
+                'They keep their size in pixels.' + chr(10) * 2 +
+                'On a board of screenshots this makes the file dozens of '
+                'times smaller. It cannot be undone: the pictures are '
+                'written again and what the encoding leaves out is gone. '
+                'Pictures that really use transparency are left alone.'
+                + chr(10) * 2 +
+                'Copy the file first if you want to keep what it looks '
+                'like now.',
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.Cancel,
+                QtWidgets.QMessageBox.StandardButton.Cancel)
+            if answer != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+
+        self.before_compacting = self.file_size(self.filename)
         self.worker = fileio.ThreadedIO(
             fileio.compact_bee, self.filename, self.scene)
         self.worker.finished.connect(self.on_compacting_finished)
@@ -2248,73 +2279,25 @@ class BeeGraphicsView(MainControlsMixin,
         if errors:
             QtWidgets.QMessageBox.warning(
                 self, 'Compacting failed', errors[0])
-
-    def on_action_shrink_images(self):
-        """Store the pictures kept losslessly as photographs instead.
-
-        A screenshot arrives with an alpha channel whether or not
-        anything in it is see-through, and that alone had it kept as
-        PNG. Boards written before that was noticed carry it: one in
-        use came to three and a quarter gigabytes, of which the
-        pictures were 3.28 and measured 99.97 per cent opaque.
-
-        Asked for rather than done while saving, because it cannot be
-        taken back.
-        """
-
-        if not self.filename:
-            self.on_action_save_as()
             return
-        if not self.undo_stack.isClean():
-            QtWidgets.QMessageBox.information(
-                self,
-                'Save first',
-                'Save your changes before shrinking the images.')
+        after = self.file_size(filename)
+        if self.before_compacting is None or after is None:
             return
+        message = (f'{self.human_size(self.before_compacting)} became '
+                   f'{self.human_size(after)}.')
+        if self.compacting_pictures:
+            message += (chr(10) * 2 + 'Open the board again to see the '
+                        'pictures as they are now stored.')
+        QtWidgets.QMessageBox.information(self, 'File compacted', message)
 
-        answer = QtWidgets.QMessageBox.warning(
-            self,
-            'Shrink the images?',
-            'The pictures on this board that are stored losslessly will '
-            'be stored as photographs instead, at ninety per cent '
-            'quality.' + chr(10) * 2 +
-            'On a board of screenshots this makes the file dozens of '
-            'times smaller. It cannot be undone: the pictures are '
-            'written again and what the encoding leaves out is gone. '
-            'Pictures that really use transparency are left alone.'
-            + chr(10) * 2 +
-            'Copy the file first if you want to keep what it looks like '
-            'now.',
-            QtWidgets.QMessageBox.StandardButton.Yes
-            | QtWidgets.QMessageBox.StandardButton.Cancel,
-            QtWidgets.QMessageBox.StandardButton.Cancel)
-        if answer != QtWidgets.QMessageBox.StandardButton.Yes:
-            return
+    @staticmethod
+    def file_size(filename):
+        """The size of a file, or None if it cannot be looked at."""
 
-        self.before_shrinking = os.path.getsize(self.filename)
-        self.worker = fileio.ThreadedIO(
-            fileio.shrink_images_bee, self.filename, self.scene)
-        self.worker.finished.connect(self.on_shrinking_finished)
-        self.progress = widgets.BeeProgressDialog(
-            f'Shrinking the images in {self.filename}',
-            worker=self.worker,
-            parent=self)
-        self.worker.start()
-
-    def on_shrinking_finished(self, filename, errors):
-        self.progress.deleteLater()
-        if errors:
-            QtWidgets.QMessageBox.warning(
-                self, 'Shrinking failed', errors[0])
-            return
-        after = os.path.getsize(self.filename)
-        QtWidgets.QMessageBox.information(
-            self,
-            'Images shrunk',
-            f'{self.human_size(self.before_shrinking)} became '
-            f'{self.human_size(after)}.' + chr(10) * 2 +
-            'Open the board again to see the pictures as they are now '
-            'stored.')
+        try:
+            return os.path.getsize(filename)
+        except OSError:
+            return None
 
     @staticmethod
     def human_size(size):

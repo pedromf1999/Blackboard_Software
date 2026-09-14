@@ -129,13 +129,8 @@ actions = ActionList([
     ),
     Action(
         id='compact_file',
-        text='&Compact File',
+        text='&Compact File...',
         callback='on_action_compact_file',
-    ),
-    Action(
-        id='shrink_images',
-        text='S&hrink Images...',
-        callback='on_action_shrink_images',
     ),
     Action(
         id='save_as',
