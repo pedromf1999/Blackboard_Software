@@ -2589,8 +2589,7 @@ class BeeGraphicsView(MainControlsMixin,
         item.setPlainText('')
         table = item.insert_table(len(rows), len(rows[0]))
         widths = tables.board_widths(
-            getattr(rows, 'widths', ()), item.TABLE_COLUMN_WIDTH,
-            narrowest=4 * item.TABLE_PADDING)
+            rows, item.TABLE_COLUMN_WIDTH, narrowest=4 * item.TABLE_PADDING)
         if widths:
             item.set_column_widths(table, widths)
         # Merged before anything is written: what a merge covers is

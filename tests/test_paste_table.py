@@ -606,33 +606,41 @@ def column_widths_of(table):
             for width in table.format().columnWidthConstraints()]
 
 
-def test_the_empty_margins_round_a_sheet_are_left_behind(view):
-    """Copied along with the table, they put it in the middle of a grid
-    of empty cells. Only the edges go: the empty row between the two
-    parts is part of the layout."""
+def test_the_empty_cells_selected_round_a_table_come_across(view):
+    """What was selected is what arrives: the margins a sheet keeps
+    round its table come with it when they were selected."""
 
     rows = tables.table_from_html(BUDGET)
 
-    assert rows == [['Budget Overview', '', ''],
-                    ['', 'Actual', 'Difference'],
-                    ['Balance', '$ 268', '#REF!'],
-                    ['', '', ''],
-                    ['Income summary', '', '']]
-    assert rows.merges == [(0, 0, 1, 3)]
+    empty = [''] * 7
+    assert rows == [empty,
+                    ['', '', 'Budget Overview', '', '', '', ''],
+                    ['', '', '', 'Actual', 'Difference', '', ''],
+                    ['', '', 'Balance', '$ 268', '#REF!', '', ''],
+                    empty,
+                    ['', '', 'Income summary', '', '', '', ''],
+                    empty]
+    assert rows.merges == [(1, 2, 1, 3)]
 
 
 def test_the_columns_keep_the_widths_the_sheet_gave_them(view):
-    assert tables.table_from_html(BUDGET).widths == [168, 114, 114]
+    assert tables.table_from_html(BUDGET).widths == [
+        24, 24, 168, 114, 114, 24, 24]
 
 
 def test_pasted_columns_keep_their_proportions(view):
+    """Margins come out narrow, as they were in the sheet, rather than
+    as wide as every other column."""
+
     paste_with_picture(view, html=BUDGET)
     widths = column_widths_of(pasted_table(view))
 
-    assert widths[1] == pytest.approx(widths[2])
-    assert widths[0] / widths[1] == pytest.approx(168 / 114)
-    # The middle-sized column there is as wide as a column usually is here
-    assert widths[1] == pytest.approx(BeeTextItem.TABLE_COLUMN_WIDTH)
+    # The middle-sized of the columns holding words is as wide as a
+    # column usually is here; the rest keep their proportion to it
+    assert widths[3] == pytest.approx(BeeTextItem.TABLE_COLUMN_WIDTH)
+    assert widths[4] == pytest.approx(widths[3])
+    assert widths[2] / widths[3] == pytest.approx(168 / 114)
+    assert widths[0] / widths[3] == pytest.approx(24 / 114)
 
 
 def test_a_table_that_gave_no_widths_keeps_the_usual_ones(view):
@@ -657,14 +665,12 @@ def test_a_width_in_points_is_turned_into_pixels(view):
     assert tables.table_from_html(html).widths == [100, None]
 
 
-def test_a_table_holding_no_words_at_all_is_not_a_table(view):
+def test_a_selection_of_empty_cells_is_still_a_table(view):
     html = '<table><tr><td>&nbsp;</td><td></td></tr></table>'
 
-    assert tables.table_from_html(html) is None
+    assert tables.table_from_html(html) == [['', '']]
 
 
-def test_plain_text_leaves_its_empty_edges_behind_too(view):
-    """What Excel puts beside the HTML has the same margins in it."""
-
-    assert tables.table_from_text('\t\t\n\tA\tB\n\t1\t2\n\t\t\n') == [
-        ['A', 'B'], ['1', '2']]
+def test_plain_text_keeps_the_empty_cells_that_were_selected(view):
+    assert tables.table_from_text('\t\t\n\tA\tB') == [
+        ['', '', ''], ['', 'A', 'B']]
