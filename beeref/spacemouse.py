@@ -83,10 +83,17 @@ class SpaceMouseNavigator(QtCore.QObject):
     """Pans and zooms the view for as long as the cap is pushed.
 
     The device says where the cap is, not how far it has moved, and a
-    cap held still may say nothing more until it moves again. So the
-    last position is kept and applied on a timer, scaled by the time
-    that has really passed: held to one side, the board glides at a
-    steady speed until the cap is let go, however busy the board is.
+    cap held still may say nothing more until it moves again. So where
+    the cap was last seen is kept, and the board is moved on a timer by
+    the time that has really passed.
+
+    What the device reports is not steady, though: a cap held down reads
+    a few units more or less from one report to the next, and a light
+    touch comes and goes across the dead zone. Used as it arrived, that
+    made the zoom stutter and jump. So the board's speed follows the cap
+    rather than copying it, catching up over a fraction of a second, and
+    eases into moving and out of it instead of starting and stopping
+    dead.
     """
 
     INTERVAL = 16
@@ -98,21 +105,40 @@ class SpaceMouseNavigator(QtCore.QObject):
     PAN_SPEED = 1600
     # How many times closer the board comes in a second, pushed all the way
     ZOOM_PER_SECOND = 3.0
+    # How long the speed takes to come most of the way to where the cap
+    # is: long enough to smooth over a noisy report and an unsteady hand,
+    # short enough that the board does not seem to drag behind
+    FOLLOW_TIME = 0.08
+    # A speed this much of a full push is taken as stopped, so easing to
+    # a halt comes to an end
+    STOPPED = 0.002
     # A frame that comes very late moves no further than this much time
     # would, so a stall does not throw the board across the screen
     MAX_ELAPSED = 0.1
     # How many reports go into the log, so a device that behaves oddly
     # on someone else's desk can be worked out from what it sent
     REPORTS_LOGGED = 30
+    # How many ignored wheel turns go into the log; see ignore_wheel
+    WHEEL_TURNS_LOGGED = 5
 
     def __init__(self, view):
         super().__init__(view)
         self.view = view
+        # Asked by the view before it acts on a wheel turn
+        view.spacemouse = self
         self.settings = BeeSettings()
-        self.translation = (0, 0, 0)
+        # Where the cap is, as a share of a full push along each axis,
+        # and the speed the board moves at, following it
+        self.target = [0.0, 0.0, 0.0]
+        self.velocity = [0.0, 0.0, 0.0]
         self.last_step = None
         self.reports_logged = 0
+        self.wheel_turns_logged = 0
         self.timer = QtCore.QTimer(self)
+        # To the millisecond: the coarse timer Windows gives otherwise
+        # fires after 15 or 31 milliseconds by turns, and the board
+        # moved unevenly with it
+        self.timer.setTimerType(QtCore.Qt.TimerType.PreciseTimer)
         self.timer.setInterval(self.INTERVAL)
         self.timer.timeout.connect(self.step)
 
@@ -125,34 +151,58 @@ class SpaceMouseNavigator(QtCore.QObject):
             logger.debug(f'SpaceMouse buttons held: {report["buttons"]:b}')
         if 'translation' not in report:
             return
-        self.translation = report['translation']
-        if self.is_pushed() and not self.timer.isActive():
+        self.target = [self.share(value) for value in report['translation']]
+        if self.is_moving() and not self.timer.isActive():
             self.last_step = time.perf_counter()
             self.timer.start()
 
-    def is_pushed(self):
-        return any(abs(value) > self.DEAD_ZONE for value in self.translation)
+    def is_moving(self):
+        """Whether the cap is pushed, or the board still easing to a stop."""
+
+        return (any(self.target)
+                or any(abs(speed) > self.STOPPED for speed in self.velocity))
+
+    def stop(self):
+        self.target = [0.0, 0.0, 0.0]
+        self.velocity = [0.0, 0.0, 0.0]
+        self.timer.stop()
 
     def step(self):
         """One frame of movement, by the clock."""
 
         now = time.perf_counter()
         elapsed = 0 if self.last_step is None else now - self.last_step
+        elapsed = min(elapsed, self.MAX_ELAPSED)
         self.last_step = now
-        if not self.is_pushed() or not self.view.window().isActiveWindow():
-            # Let go, or Blackboard is no longer the window in front and
-            # so no longer hears the device: a push remembered from
-            # before must not keep the board moving
-            self.translation = (0, 0, 0)
-            self.timer.stop()
+        if not self.view.window().isActiveWindow():
+            # Blackboard is no longer the window in front, and so no
+            # longer hears the device: a push remembered from before
+            # must not keep the board moving
+            self.stop()
             return
-        self.apply(min(elapsed, self.MAX_ELAPSED))
+        self.follow(elapsed)
+        if not self.is_moving():
+            self.stop()
+            return
+        self.apply(elapsed)
+
+    def follow(self, elapsed):
+        """Bring the board's speed towards the cap, for this much time."""
+
+        catch_up = 1 - math.exp(-elapsed / self.FOLLOW_TIME)
+        for axis, target in enumerate(self.target):
+            current = self.velocity[axis]
+            speed = current + (target - current) * catch_up
+            if not target and abs(speed) <= self.STOPPED:
+                speed = 0.0
+            self.velocity[axis] = speed
 
     def share(self, value):
         """How much of a full push this is, from -1 to 1.
 
         Squared past the dead zone, so a light touch moves slowly enough
-        to aim with while a firm push still covers ground.
+        to aim with while a firm push still covers ground. Nothing at the
+        edge of the dead zone, so crossing it starts nothing with a jump.
         """
 
         size = abs(value) - self.DEAD_ZONE
@@ -169,7 +219,7 @@ class SpaceMouseNavigator(QtCore.QObject):
             'SpaceMouse/invert_pan') else 1)
         zoom_sign = (-1 if self.settings.valueOrDefault(
             'SpaceMouse/invert_zoom') else 1)
-        x, y, z = (self.share(value) for value in self.translation)
+        x, y, z = self.velocity
 
         # The cap pushed right looks further right, and pulled towards
         # you looks further down the board, as a camera would move
@@ -191,6 +241,21 @@ class SpaceMouseNavigator(QtCore.QObject):
         if zoom:
             self.view.zoom(
                 zoom, QtCore.QPointF(self.view.viewport().rect().center()))
+
+    def ignore_wheel(self):
+        """Note a wheel turn the view left alone while the board moved.
+
+        3DxWare can turn a push of the cap into turns of the mouse wheel
+        as well. Zooming by those notches on top of the gliding zoom
+        makes it jump, so the view ignores the wheel while the SpaceMouse
+        is moving the board. The first few go into the log, so a driver
+        doing it can be spotted from there.
+        """
+
+        if self.wheel_turns_logged < self.WHEEL_TURNS_LOGGED:
+            self.wheel_turns_logged += 1
+            logger.info('Ignored a mouse wheel turn while the SpaceMouse '
+                        'was moving the board')
 
 
 # --- Windows ---------------------------------------------------------------

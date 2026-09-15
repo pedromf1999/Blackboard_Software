@@ -2846,6 +2846,14 @@ class BeeGraphicsView(MainControlsMixin,
         return 1 - (1 - self.ZOOM_SMOOTHING) ** intervals
 
     def wheelEvent(self, event):
+        spacemouse = getattr(self, 'spacemouse', None)
+        if spacemouse is not None and spacemouse.is_moving():
+            # 3DxWare can turn a push of the cap into wheel turns too,
+            # and zooming by notches on top of the glide makes it jump;
+            # see SpaceMouseNavigator.ignore_wheel
+            spacemouse.ignore_wheel()
+            event.accept()
+            return
         action, inverted\
             = self.keyboard_settings.mousewheel_action_for_event(event)
 
