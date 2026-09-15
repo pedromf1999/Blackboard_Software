@@ -23,6 +23,11 @@ Blackboard table has no colours, borders or fonts to give the rest to.
 A merged cell is carried across as a merge: where it reaches decides
 which column everything after it belongs in, and a table of areas and
 their parts reads as one only when the area spans its parts.
+
+How wide the columns are is carried across in proportion, and the empty
+rows and columns a sheet keeps round its edges as margins are left
+behind. With them, a sheet laid out as a page came in as a grid of
+equal empty cells with the table lost somewhere in the middle.
 """
 
 import logging
@@ -77,6 +82,9 @@ class TableReader(HTMLParser):
         self.spans = (1, 1)
         self.skipping = False
         self.hidden_row = False
+        # How wide the cell being read, and each column described, is
+        self.width = None
+        self.col_widths = []
 
     def handle_starttag(self, tag, attrs):
         if tag in IGNORED:
@@ -100,6 +108,9 @@ class TableReader(HTMLParser):
             self.cell = []
             self.skipping = self.hidden_row or is_furniture(attrs)
             self.spans = (span_of(attrs, 'rowspan'), span_of(attrs, 'colspan'))
+            self.width = width_of(attrs)
+        elif tag == 'col':
+            self.col_widths.extend([width_of(attrs)] * span_of(attrs, 'span'))
         elif tag == 'br' and self.cell is not None:
             self.cell.append(' ')
 
@@ -139,9 +150,11 @@ class TableReader(HTMLParser):
             # A cell outside any row: give it one, rather than losing it
             self.row = []
         rows, columns = self.spans
-        self.row.append((tidy(''.join(self.cell)), rows, columns))
+        self.row.append(
+            (tidy(''.join(self.cell)), rows, columns, self.width))
         self.cell = None
         self.spans = (1, 1)
+        self.width = None
 
     def close_row(self):
         self.close_cell()
@@ -189,6 +202,33 @@ def span_of(attrs, name):
     return 1
 
 
+def width_of(attrs):
+    """How wide a column or cell was drawn, in pixels, or None.
+
+    From its width attribute, or failing that from a width in its
+    style, where Word writes points. A width given as a share of the
+    page says nothing about the column, so it counts as none.
+    """
+
+    for key, value in attrs:
+        if key.lower() == 'width' and value:
+            match = re.fullmatch(r'\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*',
+                                 str(value))
+            if match:
+                return float(match.group(1))
+    for key, value in attrs:
+        if key.lower() == 'style' and value:
+            match = re.search(
+                r'(?<![-\w])width\s*:\s*(\d+(?:\.\d+)?)\s*(pt|px)',
+                str(value), re.IGNORECASE)
+            if match:
+                size = float(match.group(1))
+                if match.group(2).lower() == 'pt':
+                    size = size * 4 / 3
+                return size
+    return None
+
+
 def put(row, column, words):
     """Set a cell, making room for it if the row is short."""
 
@@ -198,16 +238,19 @@ def put(row, column, words):
 
 
 class Table(list):
-    """The rows of a table, and where its cells are merged.
+    """The rows of a table, where its cells are merged, and how wide.
 
     A list of rows of words, so it can be read as one, that also knows
     which cells reach across or down: ``merges`` holds a
-    ``(row, column, rows, columns)`` for each.
+    ``(row, column, rows, columns)`` for each. ``widths`` holds how wide
+    each column was drawn where it came from, or None where that was
+    not said.
     """
 
-    def __init__(self, rows, merges=()):
+    def __init__(self, rows, merges=(), widths=()):
         super().__init__(rows)
         self.merges = list(merges)
+        self.widths = list(widths)
 
 
 def laid_out(rows):
@@ -218,17 +261,19 @@ def laid_out(rows):
     hole is shunts everything left: a table of areas and their parts
     came out with the parts in the column the areas belong in. What a
     merge covers is left empty, and the merge itself is handed on so
-    the table can be put back together the way it was.
+    the table can be put back together the way it was. Each column's
+    width is the one given by the first cell standing in it alone.
     """
 
     grid = []
     merges = []
+    widths = {}
     # Column to how many more rows a cell above still covers it
     held = {}
     for cells in rows:
         row = []
         column = 0
-        for words, down, across in cells:
+        for words, down, across, width in cells:
             while held.get(column, 0):
                 put(row, column, '')
                 column += 1
@@ -239,12 +284,14 @@ def laid_out(rows):
                     held[column + offset] = down
             if down > 1 or across > 1:
                 merges.append((len(grid), column, down, across))
+            if across == 1 and width and column not in widths:
+                widths[column] = width
             column += across
         grid.append(row)
         # A row has gone by, so everything held covers one row less
         held = {column: rows_left - 1
                 for column, rows_left in held.items() if rows_left > 1}
-    return grid, merges
+    return grid, merges, widths
 
 
 def merges_that_fit(merges, rows, columns):
@@ -259,6 +306,69 @@ def merges_that_fit(merges, rows, columns):
         if down > 1 or across > 1:
             kept.append((row, column, down, across))
     return kept
+
+
+def column_widths(col_widths, cell_widths, columns):
+    """How wide each column was drawn, in pixels, or None where unsaid.
+
+    From the columns the table describes, where it describes them as
+    Excel and Sheets do, and otherwise from its cells, as Word does.
+    """
+
+    return [col_widths[column]
+            if column < len(col_widths) and col_widths[column]
+            else cell_widths.get(column)
+            for column in range(columns)]
+
+
+def without_empty_edges(grid, merges, widths):
+    """The table without the empty rows and columns round its edges.
+
+    A sheet laid out as a page keeps empty rows and columns at its
+    edges as margins. Copied along with what they frame, they put the
+    table in the middle of a grid of empty cells. Only the edges go: an
+    empty row between two parts of a table is part of how it is laid
+    out. A cell covered by a merge that holds words counts as holding
+    them.
+    """
+
+    filled = set()
+    for r, row in enumerate(grid):
+        for c, words in enumerate(row):
+            if words:
+                filled.add((r, c))
+    for row, column, down, across in merges:
+        if (row, column) in filled:
+            filled.update((r, c) for r in range(row, row + down)
+                          for c in range(column, column + across))
+    if not filled:
+        return [], [], []
+    top = min(r for r, c in filled)
+    bottom = max(r for r, c in filled)
+    left = min(c for r, c in filled)
+    right = max(c for r, c in filled)
+    kept = [row[left:right + 1] for row in grid[top:bottom + 1]]
+    moved = [(row - top, column - left, down, across)
+             for row, column, down, across in merges
+             if top <= row <= bottom and left <= column <= right]
+    return kept, moved, widths[left:right + 1]
+
+
+def board_widths(widths, usual, narrowest):
+    """Column widths for the board, in proportion to the ones given.
+
+    Each application measures in its own way, so the middle-sized column
+    comes out as wide as a column here usually is, and the rest keep
+    their proportion to it. A column given no width is taken to be of
+    that middle size. None when no widths were given at all.
+    """
+
+    known = sorted(width for width in widths if width)
+    if not known:
+        return None
+    middle = known[len(known) // 2]
+    return [max(narrowest, (width or middle) * usual / middle)
+            for width in widths]
 
 
 def squared_off(rows):
@@ -287,11 +397,16 @@ def table_from_html(html):
                      exc_info=True)
         return None
     reader.close_row()
-    grid, merges = laid_out(reader.rows)
+    grid, merges, cell_widths = laid_out(reader.rows)
+    widths = column_widths(reader.col_widths, cell_widths,
+                           max((len(row) for row in grid), default=0))
+    grid, merges, widths = without_empty_edges(grid, merges, widths)
     grid = squared_off(grid)
     if not grid:
         return None
-    return Table(grid, merges_that_fit(merges, len(grid), len(grid[0])))
+    rows, columns = len(grid), len(grid[0])
+    return Table(grid, merges_that_fit(merges, rows, columns),
+                 widths[:columns])
 
 
 def table_from_text(text):
@@ -311,7 +426,9 @@ def table_from_text(text):
     columns = len(rows[0])
     if columns < 2 or any(len(row) != columns for row in rows):
         return None
-    return squared_off([[tidy(cell) for cell in row] for row in rows])
+    grid, _merges, _widths = without_empty_edges(
+        [[tidy(cell) for cell in row] for row in rows], [], [])
+    return squared_off(grid)
 
 
 def table_from_mimedata(mimedata):

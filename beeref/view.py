@@ -2580,13 +2580,19 @@ class BeeGraphicsView(MainControlsMixin,
     def paste_table(self, rows, pos):
         """Put a table copied from another application on the board.
 
-        Only its shape and its words: a table here has no colours,
-        merged cells or column widths to give the rest to.
+        Its shape, its words, its merged cells, and how wide its columns
+        are next to each other. Colours, borders and row heights stay
+        behind: a table here has nowhere to put them.
         """
 
         item = BeeTextItem()
         item.setPlainText('')
         table = item.insert_table(len(rows), len(rows[0]))
+        widths = tables.board_widths(
+            getattr(rows, 'widths', ()), item.TABLE_COLUMN_WIDTH,
+            narrowest=4 * item.TABLE_PADDING)
+        if widths:
+            item.set_column_widths(table, widths)
         # Merged before anything is written: what a merge covers is
         # empty, so nothing is run together by joining the cells
         for row, column, down, across in getattr(rows, 'merges', ()):

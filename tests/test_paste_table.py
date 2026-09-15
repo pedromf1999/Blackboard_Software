@@ -1,9 +1,10 @@
 from unittest.mock import patch
 
+import pytest
 from PyQt6 import QtCore, QtGui
 
 from beeref import tables
-from beeref.items import BeePixmapItem
+from beeref.items import BeePixmapItem, BeeTextItem
 
 
 WORD = '''<html xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -549,3 +550,121 @@ def test_a_table_from_plain_text_has_no_merges(view):
 
     assert rows == [['a', 'b'], ['c', 'd']]
     assert getattr(rows, 'merges', []) == []
+
+
+# The start of the owner's budget sheet, the way Excel lays out a sheet
+# as a page: narrow empty columns and empty rows round it as margins,
+# a title merged across, an empty row between two parts, and the hidden
+# row Excel adds under it all
+BUDGET = '''<table border=0 cellpadding=0 cellspacing=0 width=492
+ style='border-collapse:collapse;table-layout:fixed;width:370pt'>
+ <col class=xl65 width=24 span=2 style='mso-width-source:userset;mso-width-alt:
+ 682;width:18pt'>
+ <col class=xl69 width=168 style='mso-width-source:userset;width:126pt'>
+ <col class=xl66 width=114 span=2 style='mso-width-source:userset;width:86pt'>
+ <col class=xl65 width=24 span=2 style='mso-width-source:userset;width:18pt'>
+ <tr height=24>
+  <td height=24 width=24></td><td width=24></td><td width=168></td>
+  <td width=114></td><td width=114></td><td width=24></td><td width=24></td>
+ </tr>
+ <tr class=xl67 height=160>
+  <td height=160></td><td>&nbsp;</td>
+  <td colspan=3 width=396>Budget<br />
+    Overview</td>
+  <td>&nbsp;</td><td>&nbsp;</td>
+ </tr>
+ <tr height=40>
+  <td height=40></td><td>&nbsp;</td><td>&nbsp;</td>
+  <td>Actual</td><td>Difference</td><td>&nbsp;</td><td>&nbsp;</td>
+ </tr>
+ <tr height=40>
+  <td height=40></td><td>&nbsp;</td><td>Balance</td>
+  <td>$ 268 </td><td>#REF!</td><td>&nbsp;</td><td>&nbsp;</td>
+ </tr>
+ <tr height=26>
+  <td height=26></td><td>&nbsp;</td><td>&nbsp;</td>
+  <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+ </tr>
+ <tr height=40>
+  <td height=40></td><td>&nbsp;</td><td>Income summary</td>
+  <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+ </tr>
+ <tr height=33>
+  <td height=33></td><td></td><td></td><td></td><td></td><td></td><td></td>
+ </tr>
+ <![if supportMisalignedColumns]>
+ <tr height=0 style='display:none'>
+  <td width=24></td><td width=24></td><td width=168></td>
+  <td width=114></td><td width=114></td><td width=24></td><td width=24></td>
+ </tr>
+ <![endif]>
+</table>'''
+
+
+def column_widths_of(table):
+    return [width.rawValue()
+            for width in table.format().columnWidthConstraints()]
+
+
+def test_the_empty_margins_round_a_sheet_are_left_behind(view):
+    """Copied along with the table, they put it in the middle of a grid
+    of empty cells. Only the edges go: the empty row between the two
+    parts is part of the layout."""
+
+    rows = tables.table_from_html(BUDGET)
+
+    assert rows == [['Budget Overview', '', ''],
+                    ['', 'Actual', 'Difference'],
+                    ['Balance', '$ 268', '#REF!'],
+                    ['', '', ''],
+                    ['Income summary', '', '']]
+    assert rows.merges == [(0, 0, 1, 3)]
+
+
+def test_the_columns_keep_the_widths_the_sheet_gave_them(view):
+    assert tables.table_from_html(BUDGET).widths == [168, 114, 114]
+
+
+def test_pasted_columns_keep_their_proportions(view):
+    paste_with_picture(view, html=BUDGET)
+    widths = column_widths_of(pasted_table(view))
+
+    assert widths[1] == pytest.approx(widths[2])
+    assert widths[0] / widths[1] == pytest.approx(168 / 114)
+    # The middle-sized column there is as wide as a column usually is here
+    assert widths[1] == pytest.approx(BeeTextItem.TABLE_COLUMN_WIDTH)
+
+
+def test_a_table_that_gave_no_widths_keeps_the_usual_ones(view):
+    paste(view, html=TEAMS)
+
+    assert column_widths_of(pasted_table(view)) == [
+        BeeTextItem.TABLE_COLUMN_WIDTH] * 2
+
+
+def test_the_cells_say_how_wide_when_no_columns_are_described(view):
+    """Word gives each cell a width rather than describing columns."""
+
+    html = ('<table><tr><td width=200>a</td><td width=100>b</td></tr>'
+            '<tr><td colspan=2 width=300>c</td></tr></table>')
+
+    assert tables.table_from_html(html).widths == [200, 100]
+
+
+def test_a_width_in_points_is_turned_into_pixels(view):
+    html = "<table><tr><td style='width:75pt'>a</td><td>b</td></tr></table>"
+
+    assert tables.table_from_html(html).widths == [100, None]
+
+
+def test_a_table_holding_no_words_at_all_is_not_a_table(view):
+    html = '<table><tr><td>&nbsp;</td><td></td></tr></table>'
+
+    assert tables.table_from_html(html) is None
+
+
+def test_plain_text_leaves_its_empty_edges_behind_too(view):
+    """What Excel puts beside the HTML has the same margins in it."""
+
+    assert tables.table_from_text('\t\t\n\tA\tB\n\t1\t2\n\t\t\n') == [
+        ['A', 'B'], ['1', '2']]
