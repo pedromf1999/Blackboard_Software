@@ -76,6 +76,7 @@ class TableReader(HTMLParser):
         self.finished = False
         self.spans = (1, 1)
         self.skipping = False
+        self.hidden_row = False
 
     def handle_starttag(self, tag, attrs):
         if tag in IGNORED:
@@ -93,10 +94,11 @@ class TableReader(HTMLParser):
         if tag == 'tr':
             self.close_row()
             self.row = []
+            self.hidden_row = is_hidden(attrs)
         elif tag in ('td', 'th'):
             self.close_cell()
             self.cell = []
-            self.skipping = is_furniture(attrs)
+            self.skipping = self.hidden_row or is_furniture(attrs)
             self.spans = (span_of(attrs, 'rowspan'), span_of(attrs, 'colspan'))
         elif tag == 'br' and self.cell is not None:
             self.cell.append(' ')
@@ -146,6 +148,22 @@ class TableReader(HTMLParser):
         if self.row:
             self.rows.append(self.row)
         self.row = None
+        self.hidden_row = False
+
+
+def is_hidden(attrs):
+    """Whether this row is kept out of sight.
+
+    Excel adds one under cells merged out of line with the rest, hidden
+    so that it never shows; read as a row, it put an empty one under
+    the table.
+    """
+
+    for key, value in attrs:
+        if key.lower() == 'style' and value:
+            if 'display:none' in re.sub(r'\s+', '', str(value).lower()):
+                return True
+    return False
 
 
 def is_furniture(attrs):

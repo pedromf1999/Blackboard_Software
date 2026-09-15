@@ -2547,6 +2547,15 @@ class BeeGraphicsView(MainControlsMixin,
             self.scene.paste_from_internal_clipboard(pos)
             return
 
+        # A table before a picture: Excel puts a picture of the cells on
+        # the clipboard beside the cells themselves, and whoever copied
+        # cells wants the cells. A picture copied on its own comes with
+        # no table, so it still arrives as a picture.
+        rows = tables.table_from_mimedata(clipboard.mimeData())
+        if rows:
+            self.paste_table(rows, pos)
+            return
+
         img = clipboard.image()
         if not img.isNull():
             item = BeePixmapItem(without_pointless_alpha(img))
@@ -2555,10 +2564,6 @@ class BeeGraphicsView(MainControlsMixin,
             if len(self.scene.items()) == 1:
                 # This is the first image in the scene
                 self.on_action_fit_scene()
-            return
-        rows = tables.table_from_mimedata(clipboard.mimeData())
-        if rows:
-            self.paste_table(rows, pos)
             return
 
         text = clipboard.text()

@@ -148,19 +148,117 @@ def test_html_that_holds_no_table_is_pasted_as_a_note(view):
     assert items[0].tables() == []
 
 
-def test_a_picture_on_the_clipboard_still_wins(view):
-    img = QtGui.QImage(40, 30, QtGui.QImage.Format.Format_RGB32)
-    img.fill(QtGui.QColor('red'))
-    clipboard = QtGui.QGuiApplication.clipboard()
-    with patch.object(type(clipboard), 'image', return_value=img):
-        with patch.object(type(clipboard), 'mimeData',
-                          return_value=clipboard_with(html=SHEETS)):
-            view.on_action_paste()
+# As Excel writes it: an Office page around the cells, a line break
+# inside a cell, and the hidden row it adds under cells merged out of
+# line. On the clipboard it has a picture of the cells beside it.
+EXCEL = '''<html xmlns:v="urn:schemas-microsoft-com:vml"
+xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=utf-8">
+<meta name=ProgId content=Excel.Sheet>
+<meta name=Generator content="Microsoft Excel 15">
+<style>
+<!--table
+  {mso-displayed-decimal-separator:"\\,";}
+br
+  {mso-data-placement:same-cell;}
+.xl65
+  {font-weight:700;}
+-->
+</style>
+</head>
+<body link="#0563C1" vlink="#954F72">
+<table border=0 cellpadding=0 cellspacing=0 width=256 style='border-collapse:
+ collapse;width:192pt'>
+<!--StartFragment-->
+ <col width=64 span=4 style='width:48pt'>
+ <tr height=20 style='height:15.0pt'>
+  <td height=20 class=xl65 width=64 style='height:15.0pt;width:48pt'>CODE</td>
+  <td class=xl65 width=64 style='width:48pt'>AREA</td>
+  <td class=xl65 width=64 style='width:48pt'>CODE</td>
+  <td class=xl65 width=64 style='width:48pt'>PART</td>
+ </tr>
+ <tr height=20 style='height:15.0pt'>
+  <td rowspan=2 height=40 style='height:30.0pt'>A1</td>
+  <td rowspan=2>Structural<br style='mso-data-placement:same-cell'>
+    Assembly</td>
+  <td>A1.1</td>
+  <td align=right x:num>7,45</td>
+ </tr>
+ <tr height=20 style='height:15.0pt'>
+  <td height=20 style='height:15.0pt'>A1.2</td>
+  <td>Rear Shell</td>
+ </tr>
+ <![if supportMisalignedColumns]>
+ <tr height=0 style='display:none'>
+  <td width=64 style='width:48pt'></td>
+  <td width=64 style='width:48pt'></td>
+  <td width=64 style='width:48pt'></td>
+  <td width=64 style='width:48pt'></td>
+ </tr>
+ <![endif]>
+<!--EndFragment-->
+</table>
+</body>
+</html>'''
 
-    assert len(list(view.scene.items_by_type('pixmap'))) == 1
+EXCEL_TEXT = ('CODE\tAREA\tCODE\tPART\r\n'
+              'A1\t"Structural\nAssembly"\tA1.1\t7,45\r\n'
+              '\t\tA1.2\tRear Shell\r\n')
+
+
+def paste_with_picture(view, html=None, text=None):
+    """Paste the way Excel fills the clipboard: what was copied, and a
+    picture of it beside."""
+
+    picture = QtGui.QImage(64, 40, QtGui.QImage.Format.Format_RGB32)
+    picture.fill(QtGui.QColor('white'))
+    data = clipboard_with(html, text)
+    data.setImageData(picture)
+    clipboard = QtGui.QGuiApplication.clipboard()
+    with patch.object(type(clipboard), 'image', return_value=picture):
+        with patch.object(type(clipboard), 'mimeData', return_value=data):
+            with patch.object(type(clipboard), 'text',
+                              return_value=text or ''):
+                view.on_action_paste()
+
+
+def test_an_excel_table_comes_across_as_a_table_not_a_picture(view):
+    """Excel puts a picture of the cells beside the cells themselves,
+    and the picture used to be taken first."""
+
+    paste_with_picture(view, html=EXCEL, text=EXCEL_TEXT)
+
+    assert list(view.scene.items_by_type('pixmap')) == []
+    table = pasted_table(view)
+    assert (table.rows(), table.columns()) == (3, 4)
+    assert cells_of(table)[0] == ['CODE', 'AREA', 'CODE', 'PART']
+    assert cells_of(table)[1] == ['A1', 'Structural Assembly', 'A1.1',
+                                  '7,45']
+    assert table.cellAt(1, 0).rowSpan() == 2
+
+
+def test_the_hidden_row_excel_adds_is_left_behind(view):
+    rows = tables.table_from_html(EXCEL)
+
+    assert rows == [['CODE', 'AREA', 'CODE', 'PART'],
+                    ['A1', 'Structural Assembly', 'A1.1', '7,45'],
+                    ['', '', 'A1.2', 'Rear Shell']]
+    assert rows.merges == [(1, 0, 2, 1), (1, 1, 2, 1)]
+
+
+def test_a_picture_with_no_table_beside_it_is_still_a_picture(view):
+    """Copy Image in a browser offers the picture and a line of HTML
+    naming it. That is no table, so the picture is what comes in."""
+
+    paste_with_picture(view, html='<img src="https://example.com/a.png">')
+
+    pictures = list(view.scene.items_by_type('pixmap'))
+    assert len(pictures) == 1
+    assert isinstance(pictures[0], BeePixmapItem)
     assert list(view.scene.items_by_type('text')) == []
-    assert isinstance(list(view.scene.items_by_type('pixmap'))[0],
-                      BeePixmapItem)
 
 
 # Reading the clipboard, without a board to put the result on

@@ -749,7 +749,11 @@ def test_on_action_paste_external_new_scene(
         clipboard_mock, clear_mock, fit_mock, view, imgfilename3x3):
     clipboard_mock.return_value = QtGui.QImage(imgfilename3x3)
     view.cancel_active_modes = MagicMock()
-    view.on_action_paste()
+    # Nothing beside the picture: a table is looked for first, and the
+    # machine's own clipboard could be holding one
+    with patch('PyQt6.QtGui.QClipboard.mimeData',
+               return_value=QtCore.QMimeData()):
+        view.on_action_paste()
     assert len(view.scene.items()) == 1
     assert view.scene.items()[0].isSelected() is True
     fit_mock.assert_called_once_with()
@@ -764,7 +768,9 @@ def test_on_action_paste_external_existing_scene(
     view.scene.addItem(item)
     view.cancel_active_modes = MagicMock()
     clipboard_mock.return_value = QtGui.QImage(imgfilename3x3)
-    view.on_action_paste()
+    with patch('PyQt6.QtGui.QClipboard.mimeData',
+               return_value=QtCore.QMimeData()):
+        view.on_action_paste()
     assert len(view.scene.items()) == 2
     assert view.scene.items()[0].isSelected() is True
     assert view.scene.items()[1].isSelected() is False
@@ -3274,7 +3280,9 @@ def test_pasted_image_arrives_at_half_the_window(view):
     # whole machine, and whatever else is running can empty it
     clipboard = MagicMock()
     clipboard.image.return_value = img
-    clipboard.mimeData.return_value.data.return_value = QtCore.QByteArray()
+    # Real, and empty: a table is looked for before the picture, and a
+    # stand-in answers yes to every question about what it holds
+    clipboard.mimeData.return_value = QtCore.QMimeData()
     with patch('PyQt6.QtWidgets.QApplication.clipboard',
                return_value=clipboard):
         view.on_action_paste()
