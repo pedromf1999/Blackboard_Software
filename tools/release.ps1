@@ -17,10 +17,12 @@
 $ErrorActionPreference = 'Stop'
 
 # --- expected test baseline -------------------------------------------------
-# Nine tests fail on unmodified upstream code too (see CLAUDE.md). Anything
-# beyond that is a real regression and stops the release.
-$ExpectedPassed    = 1456
-$MaxAllowedFailed  = 9
+# Every test passes. Nine inherited from BeeRef used to fail on Windows, on
+# assumptions only Linux met, and were put right in the tests themselves (see
+# CLAUDE.md). A failing test is now a real regression and stops the release;
+# the floor on passes catches tests that quietly stop being run.
+$ExpectedPassed    = 2165
+$MaxAllowedFailed  = 0
 
 function Fail($message) {
     Write-Host "RELEASE STOPPED: $message" -ForegroundColor Red
@@ -100,7 +102,7 @@ if ($summary) {
 Write-Host "   $passed passed, $failed failed"
 if ($failed -gt $MaxAllowedFailed) {
     $testOutput | Select-String -Pattern '^FAILED' | ForEach-Object { Write-Host $_ }
-    Fail "$failed failing tests, more than the $MaxAllowedFailed known failures"
+    Fail "$failed failing tests; a release needs every test to pass"
 }
 if ($passed -lt $ExpectedPassed) {
     Fail "only $passed tests passed, fewer than the expected $ExpectedPassed. Did some fail to run?"

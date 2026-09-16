@@ -1,6 +1,6 @@
 import os
 import stat
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 
 from PyQt6 import QtGui
@@ -213,18 +213,31 @@ def test_images_to_directory_exporter_export_with_worker_when_file_exists(
     worker.user_input_required.emit.assert_called_once_with(imgfilename)
 
 
+def a_folder_not_to_be_looked_into():
+    """What the system says of a folder the user may not open.
+
+    Said directly rather than by taking the folder's permissions away:
+    only Linux and macOS refuse then. Windows lets files be written into
+    a folder marked read-only, and the export simply went ahead.
+    """
+
+    return patch('pathlib.Path.exists',
+                 side_effect=PermissionError(13, 'Permission denied'))
+
+
 def test_images_to_directory_exporter_export_when_dir_not_writeable(
         view, tmpdir, imgdata3x3, imgfilename3x3,):
 
     item = BeePixmapItem(QtGui.QImage(imgfilename3x3))
     view.scene.addItem(item)
 
-    os.chmod(tmpdir, stat.S_IREAD)
     exporter = ImagesToDirectoryExporter(view.scene, tmpdir)
 
-    with pytest.raises(BeeFileIOError) as e:
-        exporter.export()
-        assert e.filename == tmpdir
+    with a_folder_not_to_be_looked_into():
+        with pytest.raises(BeeFileIOError) as e:
+            exporter.export()
+    # Outside the block: inside it, after the error, it never ran
+    assert e.value.filename == str(tmpdir)
 
 
 def test_images_to_directory_exporter_export_when_dir_not_writeable_w_worker(
@@ -233,11 +246,11 @@ def test_images_to_directory_exporter_export_when_dir_not_writeable_w_worker(
     item = BeePixmapItem(QtGui.QImage(imgfilename3x3))
     view.scene.addItem(item)
 
-    os.chmod(tmpdir, stat.S_IREAD)
     exporter = ImagesToDirectoryExporter(view.scene, tmpdir)
     worker = MagicMock(canceled=False)
 
-    exporter.export(worker)
+    with a_folder_not_to_be_looked_into():
+        exporter.export(worker)
     worker.begin_processing.emit.assert_called_once_with(1)
     worker.finished.emit.assert_called_once()
     args = worker.finished.emit.call_args.args

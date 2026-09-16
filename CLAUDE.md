@@ -129,11 +129,15 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **1456 passing, 9 failing**. The nine fail on unmodified
-upstream code too — two in `tests/fileio/test_export_images_to_directory.py`
-about a directory not being writeable, seven in `tests/test_view.py` about
-window flags, move-window mouse handling and `\` vs `/` path separators. Treat
-that as the pass mark; anything beyond those nine is a real regression.
+Current baseline: **2165 passing, 0 failing**. Nine tests inherited from
+upstream used to fail on Windows. Each assumed something only a Linux test run
+gives — a read-only folder refusing new files, the window sitting in the top
+left corner of the screen, `/` in paths, patches on `QWidget` being seen from
+the main window. The program was right in every case, so the tests were put
+right. Any failure is now a real regression, with one exception from outside
+the code: while another program holds the Windows clipboard, the three tests
+that copy something fail. Free the clipboard and run them again; never work
+round it in the tests.
 
 ## Planned features, in intended order
 

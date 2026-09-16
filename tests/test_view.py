@@ -938,24 +938,33 @@ def test_on_action_sample_color_when_multi_selection(view, item):
                                 .assert_called_once_with()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_always_on_top_checked(
-        show_mock, destroy_mock, create_mock, view):
-    view.on_action_always_on_top(True)
+def rebuilding(window):
+    """Stand-ins for what rebuilds a window around its new flags.
+
+    On the window's own class, which is where they are looked up first.
+    Put on QWidget instead, the calls went unseen on Windows, and the
+    tests failed while the window was being rebuilt just as it should.
+    """
+
+    kind = type(window)
+    return (patch.object(kind, 'show'), patch.object(kind, 'destroy'),
+            patch.object(kind, 'create'))
+
+
+def test_on_action_always_on_top_checked(view):
+    show, destroy, create = rebuilding(view.parent)
+    with show as show_mock, destroy as destroy_mock, create as create_mock:
+        view.on_action_always_on_top(True)
     assert view.parent.windowFlags() & Qt.WindowType.WindowStaysOnTopHint
     show_mock.assert_called_once()
     destroy_mock.assert_called_once()
     create_mock.assert_called_once()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_always_on_top_unchecked(
-        show_mock, destroy_mock, create_mock, view):
-    view.on_action_always_on_top(False)
+def test_on_action_always_on_top_unchecked(view):
+    show, destroy, create = rebuilding(view.parent)
+    with show as show_mock, destroy as destroy_mock, create as create_mock:
+        view.on_action_always_on_top(False)
     assert not (view.parent.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
     show_mock.assert_called_once()
     destroy_mock.assert_called_once()
@@ -970,24 +979,20 @@ def test_on_action_show_menubar(view):
     assert view.parent.menuBar().actions() == []
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_show_titlebar_checked(
-        show_mock, destroy_mock, create_mock, view):
-    view.on_action_show_titlebar(True)
+def test_on_action_show_titlebar_checked(view):
+    show, destroy, create = rebuilding(view.parent)
+    with show as show_mock, destroy as destroy_mock, create as create_mock:
+        view.on_action_show_titlebar(True)
     assert not (view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint)
     show_mock.assert_called_once()
     destroy_mock.assert_called_once()
     create_mock.assert_called_once()
 
 
-@patch('PyQt6.QtWidgets.QWidget.create')
-@patch('PyQt6.QtWidgets.QWidget.destroy')
-@patch('PyQt6.QtWidgets.QWidget.show')
-def test_on_action_show_titlebar_unchecked(
-        show_mock, destroy_mock, create_mock, view):
-    view.on_action_show_titlebar(False)
+def test_on_action_show_titlebar_unchecked(view):
+    show, destroy, create = rebuilding(view.parent)
+    with show as show_mock, destroy as destroy_mock, create as create_mock:
+        view.on_action_show_titlebar(False)
     assert view.parent.windowFlags() & Qt.WindowType.FramelessWindowHint
     show_mock.assert_called_once()
     destroy_mock.assert_called_once()
@@ -2282,7 +2287,10 @@ def test_mouse_press_move_window(cursor_mock, mouse_event_mock, view):
     view.mousePressEvent(event)
     assert view.active_mode is None
     assert view.movewin_active is True
-    assert view.event_start == view.mapToGlobal(QtCore.QPointF(10.0, 20.0))
+    # Where the cursor is on the screen, as it gives it. Mapping that to
+    # the screen again only came to the same point with the window in
+    # the top left corner, where the tests happen to put it on Linux.
+    assert view.event_start == QtCore.QPointF(10.0, 20.0)
     mouse_event_mock.assert_not_called()
     event.accept.assert_called_once_with()
 
@@ -2388,12 +2396,21 @@ def test_mouse_move_sample_color(mouse_event_mock, view):
 @patch('PyQt6.QtWidgets.QGraphicsView.mouseMoveEvent')
 @patch('PyQt6.QtWidgets.QWidget.move')
 def test_mouse_move_movewin(move_mock, mouse_event_mock, view):
+    """The window follows the mouse by as far as the mouse moved.
+
+    Wherever the window is: the test used to expect it at the top left
+    corner of the screen, as the tests have it on Linux.
+    """
+
     view.movewin_active = True
-    view.event_start = QtCore.QPointF(10.0, 20.0)
+    # Where the mouse was on the screen, and where it is now in the
+    # view: five to the right of there and two up
+    view.event_start = view.mapToGlobal(QtCore.QPointF(10.0, 20.0))
     event = MagicMock()
     event.position.return_value = QtCore.QPointF(15.0, 18.0)
+    x, y = view.main_window.x(), view.main_window.y()
     view.mouseMoveEvent(event)
-    move_mock.assert_called_once_with(5, -2)
+    move_mock.assert_called_once_with(x + 5, y - 2)
     mouse_event_mock.assert_not_called()
     event.accept.assert_called_once_with()
 
@@ -2509,7 +2526,11 @@ def test_drop_when_url_beefile_and_scene_empty(open_mock, view):
     event.position.return_value = QtCore.QPointF(10.0, 20.0)
 
     view.dropEvent(event)
-    open_mock.assert_called_once_with(filename)
+    open_mock.assert_called_once()
+    # The same file however its separators are written: Qt hands a local
+    # file over with forward slashes, which Windows opens just the same
+    assert (os.path.normpath(open_mock.call_args.args[0])
+            == os.path.normpath(filename))
 
 
 @patch('beeref.view.BeeGraphicsView.do_insert_images')
