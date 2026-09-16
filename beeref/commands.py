@@ -88,6 +88,46 @@ class MoveItemsBy(QtGui.QUndoCommand):
             item.moveBy(-self.delta.x(), -self.delta.y())
 
 
+class KeepGroupBoxes(QtGui.QUndoCommand):
+    """Put every group's box back exactly as it was, around a drag.
+
+    Letting go of a drag refits the boxes of the groups involved, and
+    undoing it only put the items back: a box grown to follow an item
+    dragged past its edge stayed grown. Refitting again on undo would
+    not do either, since a box fitted with its items selected takes in
+    their handles and one fitted without does not.
+
+    So a drag's steps are wrapped in two of these. The first remembers
+    the boxes from before and puts them back when the drag is undone --
+    its undo runs last. The second remembers them from after and puts
+    them back when the drag is redone -- its redo runs last.
+    """
+
+    BEFORE = 'before'
+    AFTER = 'after'
+
+    def __init__(self, scene, when):
+        super().__init__('Keep group boxes')
+        self.scene = scene
+        self.when = when
+        self.rects = {group: group.rect()
+                      for group in scene.items_by_type('group')}
+
+    def put_back(self):
+        for group, rect in self.rects.items():
+            if group.scene() is self.scene and group.rect() != rect:
+                group.prepareGeometryChange()
+                group.setRect(rect)
+
+    def redo(self):
+        if self.when == self.AFTER:
+            self.put_back()
+
+    def undo(self):
+        if self.when == self.BEFORE:
+            self.put_back()
+
+
 class ScaleItemsBy(QtGui.QUndoCommand):
     """Scale items by a given factor around the given anchor."""
 

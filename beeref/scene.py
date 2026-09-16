@@ -827,6 +827,30 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
     def clear_drop_target(self):
         self.update_drop_target([])
 
+    def moved_by_drag(self, items):
+        """The selected items that a drag moved in their own right.
+
+        Qt moves an item that sits inside a selected group along with
+        the group, not on its own as well. Recorded as moved in its own
+        right too, undoing the drag took it back twice -- once with its
+        group and once alone -- and left it out of place.
+        """
+
+        chosen = set(items)
+        movable = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        moved = []
+        for item in items:
+            parent = item.parentItem()
+            carried = False
+            while parent is not None:
+                if parent in chosen and parent.flags() & movable:
+                    carried = True
+                    break
+                parent = parent.parentItem()
+            if not carried:
+                moved.append(item)
+        return moved
+
     def mouseReleaseEvent(self, event):
         if self.active_mode == self.RUBBERBAND_MODE:
             self.end_rubberband_mode()
@@ -838,15 +862,22 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 and self.selectedItems()[0].active_mode is None):
             delta = event.scenePos() - self.event_start
             if not delta.isNull():
+                moved = self.moved_by_drag(self.selectedItems())
                 self.undo_stack.beginMacro('Move items')
+                # Around the rest, so the boxes come back exactly as they
+                # were whichever way the drag is undone or redone
+                self.undo_stack.push(commands.KeepGroupBoxes(
+                    self, commands.KeepGroupBoxes.BEFORE))
                 self.undo_stack.push(
-                    commands.MoveItemsBy(self.selectedItems(),
+                    commands.MoveItemsBy(moved,
                                          delta,
                                          ignore_first_redo=True))
                 self.update_group_membership(
-                    self.selectedItems(user_only=True),
+                    [item for item in moved if hasattr(item, 'save_id')],
                     detach=bool(event.modifiers()
                                 & Qt.KeyboardModifier.AltModifier))
+                self.undo_stack.push(commands.KeepGroupBoxes(
+                    self, commands.KeepGroupBoxes.AFTER))
                 self.undo_stack.endMacro()
         self.active_mode = None
         super().mouseReleaseEvent(event)

@@ -1456,9 +1456,15 @@ def test_mouse_release_event_when_move_active(mouse_mock, view, item):
     view.scene.undo_stack = MagicMock(push=MagicMock())
 
     view.scene.mouseReleaseEvent(event)
-    view.scene.undo_stack.push.assert_called_once()
-    args = view.scene.undo_stack.push.call_args_list[0][0]
-    cmd = args[0]
+    pushed = [call[0][0]
+              for call in view.scene.undo_stack.push.call_args_list]
+    # The move, between the group boxes kept from before and after it
+    assert [type(command) for command in pushed] == [
+        commands.KeepGroupBoxes, commands.MoveItemsBy,
+        commands.KeepGroupBoxes]
+    assert pushed[0].when == commands.KeepGroupBoxes.BEFORE
+    assert pushed[2].when == commands.KeepGroupBoxes.AFTER
+    cmd = pushed[1]
     assert isinstance(cmd, commands.MoveItemsBy)
     assert cmd.items == [item]
     assert cmd.ignore_first_redo is True
