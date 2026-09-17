@@ -2638,6 +2638,20 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     # this makes the toolbar behave the same way.
     TEXT_MARGIN_FRACTION = 4 / 15
 
+    # Lists, the way Word makes them: a dash and a space typed at the
+    # start of a line turn it into a list item, marked with a dash.
+    LIST_START = '- '
+    LIST_MARKER = '–'
+    # How far each level of a list pushes its lines along, and the gap
+    # between a dash and the words after it, as fractions of the height
+    # of a line
+    LIST_INDENT_FRACTION = 1.5
+    LIST_MARKER_GAP_FRACTION = 0.35
+    # The lists drawn with a dash. Numbered ones keep their numbers.
+    LIST_BULLETS = (QtGui.QTextListFormat.Style.ListDisc,
+                    QtGui.QTextListFormat.Style.ListCircle,
+                    QtGui.QTextListFormat.Style.ListSquare)
+
     # The box drawn behind text by default: fully opaque, so text stays
     # readable whatever is behind it
     DEFAULT_BOX_COLOR = (0, 0, 0, 255)
@@ -2970,10 +2984,19 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return path
 
     def update_document_margin(self):
-        """Keep the gap around the text in proportion to the text."""
+        """Keep the gap around the text in proportion to the text.
 
-        self.document().setDocumentMargin(
-            self.text_line_height() * self.TEXT_MARGIN_FRACTION)
+        The step a list is pushed along by as well: a fixed step would
+        be lost next to big letters and swallow small ones.
+        """
+
+        height = self.text_line_height()
+        document = self.document()
+        document.setDocumentMargin(height * self.TEXT_MARGIN_FRACTION)
+        indent = height * self.LIST_INDENT_FRACTION
+        if abs(document.indentWidth() - indent) > 0.01:
+            # Only when it changes: setting it lays the text out again
+            document.setIndentWidth(indent)
 
     def one_line_height(self):
         """The height this box would have if it held a single line."""
@@ -3017,7 +3040,19 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         painter.drawPath(self.text_box_path())
         self.paint_header(painter)
         option.state = QtWidgets.QStyle.StateFlag.State_Enabled
-        super().paint(painter, option, widget)
+        markers = self.list_markers()
+        if markers:
+            # Qt puts a dot in front of every list item and cannot be
+            # asked for anything else, so the dots are left out and a
+            # dash is drawn where each one would have gone
+            painter.save()
+            painter.setClipPath(self.path_without_markers(option, markers),
+                                Qt.ClipOperation.IntersectClip)
+            super().paint(painter, option, widget)
+            painter.restore()
+            self.paint_list_markers(painter, markers)
+        else:
+            super().paint(painter, option, widget)
         self.paint_selectable(painter, option, widget)
 
     # How close to a boundary counts as grabbing it, and how small a
@@ -3784,6 +3819,223 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     def has_selection_handles(self):
         return super().has_selection_handles() and not self.edit_mode
 
+    def list_level(self, block):
+        """How deep in a list a paragraph is: 0 when it is in none."""
+
+        text_list = block.textList()
+        return text_list.format().indent() if text_list is not None else 0
+
+    def text_container(self, block):
+        """What a paragraph sits in: a table cell, or None for the note."""
+
+        cursor = QtGui.QTextCursor(block)
+        table = cursor.currentTable()
+        if table is None:
+            return None
+        cell = table.cellAt(cursor)
+        return (table.firstPosition(), cell.row(), cell.column())
+
+    def list_above(self, block, level):
+        """The list the items above a paragraph are in, at this level.
+
+        None when something else comes first -- a paragraph outside any
+        list, a shallower item, or the edge of a table cell -- since the
+        list ended there and this item starts a new one.
+        """
+
+        container = self.text_container(block)
+        previous = block.previous()
+        while (previous.isValid()
+               and self.text_container(previous) == container):
+            level_above = self.list_level(previous)
+            if level_above == level:
+                return previous.textList()
+            if level_above < level:
+                return None
+            previous = previous.previous()
+        return None
+
+    def set_list_level(self, block, level):
+        """Put a paragraph at a level of list, or 0 to take it out.
+
+        It joins the list the items above it are in, so that a list
+        stays one list -- which is what other programs are handed when
+        it is copied -- rather than a string of lists of one.
+        """
+
+        cursor = QtGui.QTextCursor(block)
+        cursor.beginEditBlock()
+        current = block.textList()
+        if current is not None:
+            current.remove(block)
+        # Qt leaves a paragraph taken out of a list pushed along as far
+        # as the list was, which is not what leaving a list looks like
+        fmt = cursor.blockFormat()
+        fmt.setIndent(0)
+        cursor.setBlockFormat(fmt)
+        if level > 0:
+            above = self.list_above(block, level)
+            if above is not None:
+                above.add(block)
+            else:
+                list_format = QtGui.QTextListFormat()
+                list_format.setStyle(QtGui.QTextListFormat.Style.ListDisc)
+                list_format.setIndent(level)
+                cursor.createList(list_format)
+        cursor.endEditBlock()
+
+    def start_list_if_typed(self):
+        """Turn a line begun with a dash and a space into a list item."""
+
+        cursor = self.textCursor()
+        block = cursor.block()
+        typed = block.text()[:cursor.positionInBlock()]
+        if (cursor.hasSelection() or typed != self.LIST_START
+                or block.textList() is not None):
+            return
+        edit = QtGui.QTextCursor(block)
+        # A step of its own, so that undoing it gives back the dash and
+        # the space just as they were typed
+        edit.beginEditBlock()
+        edit.movePosition(QtGui.QTextCursor.MoveOperation.NextCharacter,
+                          QtGui.QTextCursor.MoveMode.KeepAnchor,
+                          len(self.LIST_START))
+        edit.removeSelectedText()
+        # A line still pushed along from an item it used to be goes back
+        # in at that depth
+        self.set_list_level(block, max(1, block.blockFormat().indent()))
+        edit.endEditBlock()
+
+    def list_key_press(self, event):
+        """Answer the keys that work differently in a list item.
+
+        Returns whether the key was answered here. Enter on an item with
+        words in it is left to Qt, which already starts the next item;
+        so is Backspace at the start of one, which already takes its
+        dash away.
+        """
+
+        cursor = self.textCursor()
+        block = cursor.block()
+        level = self.list_level(block)
+        if level == 0 or cursor.hasSelection():
+            return False
+        key = event.key()
+        modifiers = event.modifiers()
+        plain = modifiers == Qt.KeyboardModifier.NoModifier
+        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and plain
+                and not block.text()):
+            # Enter on an empty item ends the list, or steps back out of
+            # a list inside a list
+            self.set_list_level(block, level - 1)
+            return True
+        if key == Qt.Key.Key_Tab and plain and cursor.atBlockStart():
+            self.set_list_level(block, level + 1)
+            return True
+        # Shift+Tab usually arrives as a key of its own, Backtab, but not
+        # always
+        if (key == Qt.Key.Key_Backtab
+                or (key == Qt.Key.Key_Tab
+                    and modifiers == Qt.KeyboardModifier.ShiftModifier)):
+            if level > 1:
+                self.set_list_level(block, level - 1)
+            # Answered even at the top level, where there is nowhere to
+            # go, so that it does not move the focus off the note
+            return True
+        return False
+
+    def list_markers(self):
+        """The dash in front of each list item, and the room it takes.
+
+        One entry per item: the stretch in front of its first line that
+        is kept clear of Qt's dot, where the dash starts on the line's
+        baseline, and the font and colour to draw it in.
+        """
+
+        markers = []
+        block = self.document().begin()
+        while block.isValid():
+            text_list = block.textList()
+            if (text_list is not None
+                    and text_list.format().style() in self.LIST_BULLETS
+                    and block.layout().lineCount() > 0):
+                markers.append(self.list_marker(block))
+            block = block.next()
+        return markers
+
+    def list_marker(self, block):
+        document = self.document()
+        layout = block.layout()
+        line = layout.lineAt(0)
+        origin = layout.position()
+        text_left = origin.x() + line.naturalTextRect().left()
+        top = origin.y() + line.y()
+
+        # Qt sizes its dot by the paragraph's own format, which need not
+        # be the size of the words in it
+        dot_metrics = QtGui.QFontMetricsF(
+            block.charFormat().font().resolve(document.defaultFont()))
+        dot_reach = (dot_metrics.horizontalAdvance(' ')
+                     + dot_metrics.lineSpacing() / 3 + 2)
+        reach = max(document.indentWidth() * self.list_level(block),
+                    dot_reach)
+        height = max(line.height(), dot_metrics.height())
+        # Stopping just short of the words leaves the text cursor whole
+        # when it stands in front of them
+        clear = QtCore.QRectF(text_left - reach, top - 1,
+                              reach - 0.5, height + 2)
+
+        font, color = self.list_marker_look(block)
+        metrics = QtGui.QFontMetricsF(font)
+        start = QtCore.QPointF(
+            text_left - metrics.height() * self.LIST_MARKER_GAP_FRACTION
+            - metrics.horizontalAdvance(self.LIST_MARKER),
+            top + line.ascent())
+        return clear, start, font, color
+
+    def list_marker_look(self, block):
+        """The font and colour of an item's first letter.
+
+        So the dash grows with the words it stands in front of, and is
+        as readable as they are on the box.
+        """
+
+        fmt = block.charFormat()
+        it = block.begin()
+        while not it.atEnd():
+            fragment = it.fragment()
+            it += 1
+            if fragment.isValid():
+                fmt = fragment.charFormat()
+                break
+        font = fmt.font().resolve(self.document().defaultFont())
+        brush = fmt.foreground()
+        if brush.style() == Qt.BrushStyle.NoBrush:
+            return font, QtGui.QColor(self.defaultTextColor())
+        return font, brush.color()
+
+    def path_without_markers(self, option, markers):
+        """Everything the text may be drawn over, less the dashes' room."""
+
+        area = self.boundingRect().united(option.exposedRect)
+        # Well beyond the box, so that a word too long for its line
+        # still hangs over the edge the way it does without a list
+        spare = max(area.width(), area.height())
+        path = QtGui.QPainterPath()
+        path.addRect(area.adjusted(-spare, -spare, spare, spare))
+        room = QtGui.QPainterPath()
+        for clear, _start, _font, _color in markers:
+            room.addRect(clear)
+        return path.subtracted(room)
+
+    def paint_list_markers(self, painter, markers):
+        painter.save()
+        for _clear, start, font, color in markers:
+            painter.setFont(font)
+            painter.setPen(color)
+            painter.drawText(start, self.LIST_MARKER)
+        painter.restore()
+
     def keyPressEvent(self, event):
         # Enter starts a new paragraph, the way it does when typing
         # anywhere else. Editing ends by clicking outside the item, or
@@ -3793,8 +4045,24 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.exit_edit_mode(commit=False)
             event.accept()
             return
-        super().keyPressEvent(event)
+        if self.list_key_press(event):
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+            if event.key() == Qt.Key.Key_Space:
+                self.start_list_if_typed()
         self.cursor_may_have_moved()
+
+    def sceneEvent(self, event):
+        # Qt hands Tab and Shift+Tab straight to the text, past
+        # keyPressEvent, so a list would never hear of them
+        if (event.type() == QtCore.QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+                and self.list_key_press(event)):
+            event.accept()
+            self.cursor_may_have_moved()
+            return True
+        return super().sceneEvent(event)
 
     def add_to_mimedata(self, mimedata):
         mimedata.setText(self.toPlainText())
