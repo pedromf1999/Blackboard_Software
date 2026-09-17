@@ -3053,6 +3053,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.paint_list_markers(painter, markers)
         else:
             super().paint(painter, option, widget)
+        self.paint_url_underlines(painter)
         self.paint_selectable(painter, option, widget)
 
     # How close to a boundary counts as grabbing it, and how small a
@@ -3985,7 +3986,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         clear = QtCore.QRectF(text_left - reach, top - 1,
                               reach - 0.5, height + 2)
 
-        font, color = self.list_marker_look(block)
+        # Looking like the item's first letter, the dash grows with the
+        # words it stands in front of and is as readable as they are
+        font, color = self.char_look(block)
         metrics = QtGui.QFontMetricsF(font)
         start = QtCore.QPointF(
             text_left - metrics.height() * self.LIST_MARKER_GAP_FRACTION
@@ -3993,19 +3996,20 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             top + line.ascent())
         return clear, start, font, color
 
-    def list_marker_look(self, block):
-        """The font and colour of an item's first letter.
+    def char_look(self, block, offset=0):
+        """The font and colour of a letter in a paragraph.
 
-        So the dash grows with the words it stands in front of, and is
-        as readable as they are on the box.
+        An empty paragraph has no letters, and answers with the look the
+        next letter typed into it would have.
         """
 
+        position = block.position() + offset
         fmt = block.charFormat()
         it = block.begin()
         while not it.atEnd():
             fragment = it.fragment()
             it += 1
-            if fragment.isValid():
+            if fragment.isValid() and fragment.contains(position):
                 fmt = fragment.charFormat()
                 break
         font = fmt.font().resolve(self.document().defaultFont())
@@ -4034,6 +4038,62 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             painter.setFont(font)
             painter.setPen(color)
             painter.drawText(start, self.LIST_MARKER)
+        painter.restore()
+
+    def url_underlines(self):
+        """The lines under the web addresses in the note.
+
+        Drawn rather than stored as formatting. The addresses are found
+        afresh each time, so one being typed is underlined the moment it
+        becomes an address, and nothing typed after it picks the
+        underline up. Returns (line, thickness, colour) for each line of
+        text an address sits on.
+        """
+
+        underlines = []
+        block = self.document().begin()
+        while block.isValid():
+            if block.layout().lineCount() > 0:
+                for match in self.URL_RE.finditer(block.text()):
+                    # The same address a ctrl+click opens, without the
+                    # sentence's punctuation after it
+                    url = match.group().rstrip(self.URL_TRAILING_CHARS)
+                    underlines.extend(self.underline_parts(
+                        block, match.start(), match.start() + len(url)))
+            block = block.next()
+        return underlines
+
+    def underline_parts(self, block, start, end):
+        """An underline for this stretch of a paragraph, line by line."""
+
+        layout = block.layout()
+        origin = layout.position()
+        font, color = self.char_look(block, start)
+        metrics = QtGui.QFontMetricsF(font)
+        parts = []
+        for number in range(layout.lineCount()):
+            line = layout.lineAt(number)
+            first = max(start, line.textStart())
+            last = min(end, line.textStart() + line.textLength())
+            if first >= last:
+                continue
+            y = origin.y() + line.y() + line.ascent() + metrics.underlinePos()
+            left = origin.x() + line.cursorToX(first)[0]
+            right = origin.x() + line.cursorToX(last)[0]
+            parts.append((QtCore.QLineF(left, y, right, y),
+                          metrics.lineWidth(), color))
+        return parts
+
+    def paint_url_underlines(self, painter):
+        underlines = self.url_underlines()
+        if not underlines:
+            return
+        painter.save()
+        for line, thickness, color in underlines:
+            pen = QtGui.QPen(color, thickness)
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            painter.setPen(pen)
+            painter.drawLine(line)
         painter.restore()
 
     def keyPressEvent(self, event):
