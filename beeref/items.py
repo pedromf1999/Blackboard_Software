@@ -133,6 +133,13 @@ def text_at_screen_size(painter, rect, size):
 # what the engine can do.
 SAFE_FONT_SIZE = 2000
 
+# Letters smaller than this are not drawn at all. They cover less than
+# a pixel, so there is nothing to read, and Windows will not make them:
+# it writes "GetGlyphRunOutline failed" once per word -- thousands of
+# lines of log for a board with a band on every group -- and then draws
+# nothing anyway. Measured: below 0.4 point it refuses, above it does not.
+UNREADABLE_SIZE = 0.5
+
 BAND_SCALE_MIN = 0.25
 BAND_SCALE_MAX = 10
 
@@ -155,9 +162,14 @@ class BandTextMixin:
 
         return BAND_SCALE_MAX
 
+    def min_band_scale(self):
+        """How much smaller than its natural size they may be made."""
+
+        return BAND_SCALE_MIN
+
     def set_band_text_scale(self, scale):
         self.band_scale = min(self.max_band_scale(),
-                              max(BAND_SCALE_MIN, scale))
+                              max(self.min_band_scale(), scale))
         self.band_text_changed()
 
     def grow_band_text(self, factor):
@@ -1088,7 +1100,12 @@ class TitleBandMixin:
         inset = self.title_inset()
         room = band.adjusted(inset, 0, -inset, 0)
         room, size = text_at_screen_size(painter, room, self.title_size())
-        font = self.title_font_of_size(max(size, 0.1))
+        if size < UNREADABLE_SIZE:
+            # A board this far away shows the band as a line and the
+            # words as nothing; see UNREADABLE_SIZE
+            painter.restore()
+            return
+        font = self.title_font_of_size(size)
         painter.setFont(font)
         painter.setPen(QtGui.QPen(readable_grey(self.visible_header_color())))
         if self.TITLE_WRAPS:
@@ -1395,6 +1412,18 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         width = self.rect().width()
         natural = max(self.TITLE_MIN_SIZE, width * self.TITLE_FRACTION)
         return max(BAND_SCALE_MAX, self.title_ceiling_for(width) / natural)
+
+    def min_band_scale(self):
+        """As far below the natural size as the box allows above it.
+
+        A quarter was the floor for every band, which was ample while a
+        title stopped at eight thousand point. Measured from the box
+        instead, a quarter of the natural size on a group millions of
+        units across is still a banner, so there was no way back down
+        to a discreet title.
+        """
+
+        return 1 / self.max_band_scale()
 
     def title_size(self):
         return self.title_size_for(self.rect().width())
@@ -2101,8 +2130,14 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         inset = self.caption_inset()
         room = band.adjusted(inset, inset, -inset, -inset)
         room, size = text_at_screen_size(painter, room, self.caption_size())
+        if size < UNREADABLE_SIZE:
+            # Nothing to read at this distance; see UNREADABLE_SIZE.
+            # Twice: this painter is saved here and again in there
+            painter.restore()
+            painter.restore()
+            return
         font = self.caption_font()
-        font.setPointSizeF(max(size, 0.1))
+        font.setPointSizeF(size)
         painter.setFont(font)
         painter.setPen(QtGui.QPen(
             readable_grey(self.visible_caption_color())))

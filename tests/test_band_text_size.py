@@ -1,4 +1,5 @@
 import os
+from unittest.mock import MagicMock
 
 import pytest
 from PyQt6 import QtGui
@@ -73,7 +74,9 @@ def test_the_title_size_has_a_floor_and_a_ceiling(view):
 
     for _ in range(40):
         view.on_action_size_decrease()
-    assert group.band_scale == BAND_SCALE_MIN
+    # The floor, like the ceiling, is what the box can show
+    assert group.band_scale == group.min_band_scale()
+    assert group.min_band_scale() <= BAND_SCALE_MIN
 
     for _ in range(80):
         view.on_action_size_increase()
@@ -446,6 +449,77 @@ def very_large_group(view, title='Enclosure'):
     group = item.parentItem()
     group.title = title
     return group
+
+
+def test_a_very_large_group_can_be_given_a_small_title(view):
+    """A quarter of the natural size was as small as any band could go,
+    which was ample while a title stopped at eight thousand point. On a
+    group millions of units across a quarter is still a banner."""
+
+    from beeref.items import BAND_SCALE_MIN
+
+    group = very_large_group(view)
+    group.setSelected(True)
+
+    for _ in range(200):
+        view.on_action_size_decrease()
+
+    assert group.band_scale == group.min_band_scale()
+    assert group.min_band_scale() < BAND_SCALE_MIN
+    natural = group.rect().width() * group.TITLE_FRACTION
+    assert group.title_size() < natural / 10
+
+
+def test_a_pictures_caption_keeps_the_floor_it_had(view):
+    from beeref.items import BAND_SCALE_MIN
+
+    item = captioned(view)
+
+    assert item.min_band_scale() == BAND_SCALE_MIN
+
+
+def far_away():
+    """A painter showing a board from far enough that a band is a line."""
+
+    painter = MagicMock()
+    painter.combinedTransform.return_value = QtGui.QTransform.fromScale(
+        1e-05, 1e-05)
+    return painter
+
+
+def test_a_title_too_small_to_read_is_not_drawn(view):
+    """Under half a point Windows refuses to make the letters at all --
+    "GetGlyphRunOutline failed" once per word, thousands of lines of
+    log -- and draws nothing anyway."""
+
+    group = very_large_group(view)
+    painter = far_away()
+
+    group.paint_title_text(painter)
+
+    painter.drawText.assert_not_called()
+    assert painter.restore.call_count == painter.save.call_count
+
+
+def test_a_caption_too_small_to_read_is_not_drawn(view):
+    item = captioned(view)
+    item.setScale(20000)
+    painter = far_away()
+
+    item.paint_caption(painter)
+
+    painter.drawText.assert_not_called()
+    assert painter.restore.call_count == painter.save.call_count
+
+
+def test_a_title_big_enough_to_read_is_still_drawn(view):
+    group = titled_group(view)
+    painter = MagicMock()
+    painter.combinedTransform.return_value = QtGui.QTransform.fromScale(1, 1)
+
+    group.paint_title_text(painter)
+
+    painter.drawText.assert_called_once()
 
 
 def test_a_very_large_group_gets_a_title_in_proportion(view):
