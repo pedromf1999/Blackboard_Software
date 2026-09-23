@@ -3097,6 +3097,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             path.addRect(self.header_rect())
         if self.shows_done_bar():
             path.addRect(self.done_bar_rect())
+        # Every rectangle counts as inside. Under Qt's usual rule one
+        # laid inside another is a hole instead, and the strip sits
+        # inside the words once the finished tasks are opened out --
+        # so pressing it to fold them away again did nothing at all.
+        path.setFillRule(Qt.FillRule.WindingFill)
         return path
 
     def update_document_margin(self):

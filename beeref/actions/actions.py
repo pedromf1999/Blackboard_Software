@@ -167,13 +167,13 @@ actions = ActionList([
     Action(
         id='insert_text',
         text='&Text',
-        shortcuts=['Ctrl+Shift+T'],
+        shortcuts=['Ctrl+T'],
         callback='on_action_insert_text',
     ),
     Action(
         id='insert_tasks',
         text='Task &List',
-        shortcuts=['Ctrl+T'],
+        shortcuts=['Ctrl+Shift+T'],
         callback='on_action_insert_tasks',
     ),
     Action(

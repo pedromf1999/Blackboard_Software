@@ -95,7 +95,7 @@ class DrawToolBar(QtWidgets.QWidget):
         layout.addWidget(self.find_text)
 
         self.insert_tasks = QtWidgets.QToolButton(self)
-        self.insert_tasks.setToolTip('Start a task list (Ctrl+T)')
+        self.insert_tasks.setToolTip('Start a task list (Ctrl+Shift+T)')
         self.insert_tasks.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
         self.insert_tasks.setIconSize(
             QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))

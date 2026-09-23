@@ -62,8 +62,8 @@ def click(item, pos, button=Qt.MouseButton.LeftButton):
 
 
 def test_the_shortcuts_are_the_ones_asked_for():
-    assert actions['insert_tasks'].shortcuts == ['Ctrl+T']
-    assert actions['insert_text'].shortcuts == ['Ctrl+Shift+T']
+    assert actions['insert_tasks'].shortcuts == ['Ctrl+Shift+T']
+    assert actions['insert_text'].shortcuts == ['Ctrl+T']
     assert actions['insert_table'].shortcuts == ['Alt+T']
 
 
@@ -182,6 +182,21 @@ def test_ticking_a_task_off_is_one_step_that_can_be_undone(view):
     view.undo_stack.undo()
     assert item.done_count() == 0
     assert [line[0] for line in lines(item)] == ['one', 'two', 'three']
+
+
+def test_the_strip_can_be_pressed_in_both_states(view):
+    """Opened out, the strip sits inside the words, and a rectangle
+    inside another is a hole under Qt's usual fill rule: presses on it
+    went straight through the note."""
+
+    item = task_note(view)
+    item.exit_edit_mode()
+    item.set_task_done(blocks(item)[0], True)
+
+    assert item.shape().contains(item.done_bar_rect().center()) is True
+
+    item.set_tasks_collapsed(False)
+    assert item.shape().contains(item.done_bar_rect().center()) is True
 
 
 def test_clicking_the_strip_opens_and_closes_it(view):
