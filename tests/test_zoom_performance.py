@@ -160,6 +160,24 @@ def test_words_are_drawn_at_the_size_they_are_seen_at(view):
     assert round(smaller.width()) == 108
 
 
+def test_the_font_engine_is_never_asked_for_more_than_it_can_draw(view):
+    """Brought down to what the screen shows, a title on a very large
+    group is still hundreds of thousands of point. Windows then writes
+    "GetGlyphRunOutline failed" and draws nothing at all."""
+
+    from beeref.items import text_at_screen_size, SAFE_FONT_SIZE
+
+    room = QtCore.QRectF(0, 0, 14000000, 1000000)
+    for zoom in (0.9, 0.5, 0.1, 0.01, 0.0001):
+        painter = MagicMock()
+        painter.combinedTransform.return_value = QtGui.QTransform.fromScale(
+            zoom, zoom)
+
+        _smaller, size = text_at_screen_size(painter, room, 562000)
+
+        assert size <= SAFE_FONT_SIZE
+
+
 def test_a_title_at_its_own_size_is_left_alone(view):
     """Scaling up a rasterised letter is worse than asking for a big
     one, so this only ever makes them smaller."""

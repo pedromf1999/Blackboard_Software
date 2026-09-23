@@ -99,15 +99,21 @@ def text_at_screen_size(painter, rect, size):
     painter.save()
     transform = painter.combinedTransform()
     scale = math.hypot(transform.m11(), transform.m12())
-    if not 0 < scale < 1:
+    if scale <= 0:
+        scale = 1
+    if size > SAFE_FONT_SIZE:
+        # Brought down to what the screen shows, the letters can still
+        # be more than the engine will draw: a title on a very large
+        # group asks for hundreds of thousands of point, and a board
+        # half zoomed out still leaves hundreds of thousands. Windows
+        # then writes "GetGlyphRunOutline failed" once per word and
+        # draws nothing. The painter makes up whatever is left over.
+        scale = min(scale, SAFE_FONT_SIZE / size)
+    if scale >= 1:
         # Drawn at its own size or larger: nothing to gain from a
         # smaller font, and scaling up a rasterised letter is worse
-        # than asking for a big one -- unless the size asked for is one
-        # the engine cannot make at all, and then the painter has to
-        # make up the difference the other way round
-        if size <= SAFE_FONT_SIZE:
-            return rect, size
-        scale = SAFE_FONT_SIZE / size
+        # than asking for a big one
+        return rect, size
     painter.scale(1 / scale, 1 / scale)
     smaller = QtCore.QRectF(rect.x() * scale, rect.y() * scale,
                             rect.width() * scale, rect.height() * scale)
