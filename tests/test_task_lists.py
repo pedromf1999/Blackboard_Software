@@ -199,6 +199,32 @@ def test_the_strip_can_be_pressed_in_both_states(view):
     assert item.shape().contains(item.done_bar_rect().center()) is True
 
 
+def test_dragging_on_from_a_box_does_not_take_the_note_with_it(view):
+    """The press is answered by the box, so it never reaches the part
+    that moves a note about -- which then had no drag to follow and
+    raised an error on the first movement."""
+
+    item = task_note(view)
+    item.exit_edit_mode()
+    item.setPos(0, 0)
+    box = item.list_markers()[0]['box']
+    click(item, box.center())
+
+    move = MagicMock()
+    move.pos.return_value = box.center() + QtCore.QPointF(40, 40)
+    move.scenePos.return_value = QtCore.QPointF(40, 40)
+    move.buttons.return_value = Qt.MouseButton.LeftButton
+    move.modifiers.return_value = Qt.KeyboardModifier.NoModifier
+    item.mouseMoveEvent(move)
+
+    assert item.pos() == QtCore.QPointF(0, 0)
+
+    release = MagicMock()
+    release.button.return_value = Qt.MouseButton.LeftButton
+    item.mouseReleaseEvent(release)
+    assert item.pressed_on_task is False
+
+
 def test_clicking_the_strip_opens_and_closes_it(view):
     item = task_note(view)
     item.exit_edit_mode()

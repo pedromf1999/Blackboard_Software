@@ -2788,6 +2788,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.box_color = QtGui.QColor(*(box_color or self.DEFAULT_BOX_COLOR))
         self.setFont(self.get_text_font())
         self.table_drag = None
+        # Whether the press being answered landed on a box to tick off
+        # or on the strip of finished tasks, which the note does not
+        # then get dragged about by
+        self.pressed_on_task = False
         # Finished tasks are kept out of sight until they are asked for,
         # the way they are in Google Keep. Set before any text arrives:
         # putting text in is what hides them.
@@ -3328,11 +3332,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # A box is ticked off with one press, without opening the
             # note for writing first
             if self.toggle_task_at(event.pos()):
+                self.pressed_on_task = True
                 event.accept()
                 return
             if (self.shows_done_bar()
                     and self.done_bar_rect().contains(event.pos())):
                 self.set_tasks_collapsed(not self.tasks_collapsed)
+                self.pressed_on_task = True
                 event.accept()
                 return
             grip = self.table_grip_at(event.pos())
@@ -3372,6 +3378,12 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.drag_table_boundary(event.pos())
             event.accept()
             return
+        if getattr(self, 'pressed_on_task', False):
+            # A box or the strip was pressed, so the press never reached
+            # the part that moves a note about: there is no drag to
+            # follow, and asking it to follow one raised an error
+            event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def drag_table_boundary(self, pos):
@@ -3389,6 +3401,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 table, drag['index'], drag['size'] + moved)
 
     def mouseReleaseEvent(self, event):
+        if getattr(self, 'pressed_on_task', False):
+            self.pressed_on_task = False
+            event.accept()
+            return
         drag = getattr(self, 'table_drag', None)
         if drag:
             self.table_drag = None
