@@ -167,8 +167,14 @@ actions = ActionList([
     Action(
         id='insert_text',
         text='&Text',
-        shortcuts=['Ctrl+T'],
+        shortcuts=['Ctrl+Shift+T'],
         callback='on_action_insert_text',
+    ),
+    Action(
+        id='insert_tasks',
+        text='Task &List',
+        shortcuts=['Ctrl+T'],
+        callback='on_action_insert_tasks',
     ),
     Action(
         id='undo',
@@ -381,8 +387,13 @@ actions = ActionList([
     Action(
         id='insert_table',
         text='Insert Ta&ble',
-        shortcuts=['Ctrl+Shift+T'],
+        shortcuts=['Alt+T'],
         callback='on_action_insert_table',
+    ),
+    Action(
+        id='text_tasks',
+        text='Boxes to Tic&k Off',
+        callback='on_action_text_tasks',
     ),
     Action(
         id='table_row_insert_above',

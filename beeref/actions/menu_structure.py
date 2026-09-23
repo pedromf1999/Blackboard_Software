@@ -87,6 +87,7 @@ menu_structure = [
         'items': [
             'insert_images',
             'insert_text',
+            'insert_tasks',
             'insert_table',
         ],
     },
@@ -185,6 +186,7 @@ menu_structure = [
             'text_title_align_center',
             MENU_SEPARATOR,
             'text_tool',
+            'text_tasks',
             'insert_table',
             'table_row_insert_above',
             'table_row_insert',

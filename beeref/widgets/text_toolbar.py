@@ -57,6 +57,9 @@ class TextToolBar(PinnedToolBar):
             view.on_action_text_highlight_color)
         self.box_color = self.add_button(
             'color', 'Box colour', self.on_color, keep_colors=True)
+        self.tasks = self.add_button(
+            'tasks', 'Put a box to tick off on these lines, or take it off',
+            view.on_action_text_tasks)
         self.title = self.add_button(
             'title', 'Write a title', view.on_action_text_title)
         self.align_left = self.add_button(

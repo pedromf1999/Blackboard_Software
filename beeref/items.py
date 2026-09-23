@@ -2726,6 +2726,19 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                     QtGui.QTextListFormat.Style.ListCircle,
                     QtGui.QTextListFormat.Style.ListSquare)
 
+    # A task list: a list whose lines carry a box to tick off. The box
+    # is drawn where the dash would go, and its size and the weight of
+    # its lines are fractions of the height of a line, so it grows with
+    # the words beside it.
+    TASK_BOX_FRACTION = 0.56
+    TASK_BOX_PEN_FRACTION = 0.07
+    # How much larger than the box the area that answers a click is
+    TASK_BOX_REACH = 1.5
+    # The strip at the foot of a note holding the finished tasks, and
+    # the arrow on it, both as fractions of the height of a line
+    DONE_BAR_FRACTION = 1.5
+    DONE_ARROW_FRACTION = 0.3
+
     # The box drawn behind text by default: fully opaque, so text stays
     # readable whatever is behind it
     DEFAULT_BOX_COLOR = (0, 0, 0, 255)
@@ -2744,7 +2757,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
     def __init__(self, text=None, html=None, box_color=None,
                  text_width=None, title=None, header_color=None,
-                 title_align=None, title_size=None, **kwargs):
+                 title_align=None, title_size=None, tasks_collapsed=None,
+                 **kwargs):
         super().__init__(text or "Text")
         self.save_id = None
         logger.debug(f'Initialized {self}')
@@ -2774,6 +2788,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.box_color = QtGui.QColor(*(box_color or self.DEFAULT_BOX_COLOR))
         self.setFont(self.get_text_font())
         self.table_drag = None
+        # Finished tasks are kept out of sight until they are asked for,
+        # the way they are in Google Keep. Set before any text arrives:
+        # putting text in is what hides them.
+        self.tasks_collapsed = True if tasks_collapsed is None else (
+            bool(tasks_collapsed))
         # Whatever changes the text can change how big it is, so the
         # margin is kept up to date from one place rather than from
         # every caller that might resize a word
@@ -2883,6 +2902,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         data = {'text': self.toPlainText(),
                 'html': self.toHtml(),
                 'box_color': self.box_color.getRgb()}
+        if self.has_tasks() and not self.tasks_collapsed:
+            # Only when it differs from how a note opens, so a note
+            # without tasks saves exactly as it did before
+            data['tasks_collapsed'] = False
         data.update(self.title_save_data())
         if self._title_size:
             data['title_size'] = self._title_size
@@ -3003,6 +3026,21 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return half_rounded_path(
             self.header_rect(), self.corner_radius(), top=True)
 
+    def box_rect(self):
+        """The whole box drawn behind the note.
+
+        The words, and under them the strip of finished tasks when the
+        note has any: the strip is part of the note rather than
+        something laid beside it.
+        """
+
+        rect = self.text_rect()
+        if self.shows_done_bar() and self.tasks_collapsed:
+            # Opened out, the strip sits in a gap inside the text, so
+            # the note is already as tall as it needs to be
+            rect.setHeight(rect.height() + self.done_bar_height())
+        return rect
+
     def text_box_path(self):
         """The box behind the words.
 
@@ -3011,7 +3049,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         the canvas showing through it.
         """
 
-        rect = self.text_rect()
+        rect = self.box_rect()
         radius = self.corner_radius()
         if not self.shows_header():
             path = QtGui.QPainterPath()
@@ -3043,18 +3081,22 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         rect = super().boundingRect()
         if self.shows_header():
             rect = rect.adjusted(0, -self.header_height(), 0, 0)
+        if self.shows_done_bar() and self.tasks_collapsed:
+            rect = rect.adjusted(0, 0, 0, self.done_bar_height())
         return rect
 
     def shape(self):
-        """The note, and the band sitting on top of it.
+        """The note, the band on top of it and the strip beneath.
 
-        So that the band can be clicked and double-clicked like part of
-        the note.
+        So that both can be clicked and double-clicked like part of the
+        note.
         """
 
         path = super().shape()
         if self.shows_header():
             path.addRect(self.header_rect())
+        if self.shows_done_bar():
+            path.addRect(self.done_bar_rect())
         return path
 
     def update_document_margin(self):
@@ -3127,6 +3169,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.paint_list_markers(painter, markers)
         else:
             super().paint(painter, option, widget)
+        self.paint_done_bar(painter)
         self.paint_url_underlines(painter)
         self.paint_selectable(painter, option, widget)
 
@@ -3277,6 +3320,16 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
         if (event.button() == Qt.MouseButton.LeftButton
                 and not event.modifiers()):
+            # A box is ticked off with one press, without opening the
+            # note for writing first
+            if self.toggle_task_at(event.pos()):
+                event.accept()
+                return
+            if (self.shows_done_bar()
+                    and self.done_bar_rect().contains(event.pos())):
+                self.set_tasks_collapsed(not self.tasks_collapsed)
+                event.accept()
+                return
             grip = self.table_grip_at(event.pos())
             if grip is not None:
                 self.start_table_drag(grip, event.pos())
@@ -3832,6 +3885,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     def create_copy(self):
         item = BeeTextItem(html=self.toHtml(),
                            box_color=self.box_color.getRgb(),
+                           tasks_collapsed=self.tasks_collapsed,
                            text_width=(self.textWidth()
                                        if self.textWidth() > 0 else None),
                            title=self.title,
@@ -3947,6 +4001,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # as the list was, which is not what leaving a list looks like
         fmt = cursor.blockFormat()
         fmt.setIndent(0)
+        if level == 0:
+            # A box to tick belongs to a line in a list; out of the
+            # list, there is nothing for it to sit in front of
+            fmt.setMarker(self.NO_MARK)
         cursor.setBlockFormat(fmt)
         if level > 0:
             above = self.list_above(block, level)
@@ -4004,6 +4062,14 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # a list inside a list
             self.set_list_level(block, level - 1)
             return True
+        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and plain
+                and self.task_is_done(block)):
+            # The line begun under a finished task is a task still to
+            # do, and it is not struck through. Made here rather than
+            # tidied up after Qt, which puts the line it makes in the
+            # hands of the one above it.
+            self.start_task_under(block)
+            return True
         if key == Qt.Key.Key_Tab and plain and cursor.atBlockStart():
             self.set_list_level(block, level + 1)
             return True
@@ -4019,19 +4085,255 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             return True
         return False
 
+    # Tasks: lines with a box to tick off. Qt has a mark of its own for
+    # them, which is what a file keeps, and it draws a box nobody can
+    # size or click; the box here is drawn and answered for instead.
+
+    NO_MARK = QtGui.QTextBlockFormat.MarkerType.NoMarker
+    TO_DO = QtGui.QTextBlockFormat.MarkerType.Unchecked
+    DONE = QtGui.QTextBlockFormat.MarkerType.Checked
+
+    def is_task(self, block):
+        return block.blockFormat().marker() != self.NO_MARK
+
+    def task_is_done(self, block):
+        return block.blockFormat().marker() == self.DONE
+
+    def task_blocks(self, done=None):
+        """The lines carrying a box, or only the ticked or unticked ones."""
+
+        blocks = []
+        block = self.document().begin()
+        while block.isValid():
+            if self.is_task(block) and (done is None
+                                        or self.task_is_done(block) == done):
+                blocks.append(block)
+            block = block.next()
+        return blocks
+
+    def has_tasks(self):
+        return bool(self.task_blocks())
+
+    def done_count(self):
+        return len(self.task_blocks(done=True))
+
+    def set_tasks_collapsed(self, collapsed):
+        """Fold the finished tasks away, or show them."""
+
+        self.tasks_collapsed = bool(collapsed)
+        self.refresh_tasks()
+
+    def refresh_tasks(self):
+        """Hide the finished tasks, or bring them back.
+
+        Called wherever text arrives -- a file being opened, an undo, an
+        edit thrown away -- because which lines are hidden is not
+        something the text itself can carry.
+        """
+
+        self.prepareGeometryChange()
+        document = self.document()
+        changed = False
+        wanted = not self.tasks_collapsed
+        # Room for the strip itself above the first finished task, so
+        # that opened out they appear under it rather than over it --
+        # and the note's own margin above that, or the line across the
+        # top of the strip would sit on the words before it
+        gap = 0 if self.tasks_collapsed else (
+            self.done_bar_height() + document.documentMargin())
+        for block in self.task_blocks(done=False):
+            # A task put back on the list shows again wherever it was
+            if not block.isVisible():
+                block.setVisible(True)
+                changed = True
+        for number, block in enumerate(self.task_blocks(done=True)):
+            if block.isVisible() != wanted:
+                block.setVisible(wanted)
+                changed = True
+            room = gap if number == 0 else 0
+            fmt = block.blockFormat()
+            if abs(fmt.topMargin() - room) > 0.01:
+                fmt.setTopMargin(room)
+                QtGui.QTextCursor(block).setBlockFormat(fmt)
+        if changed:
+            document.markContentsDirty(0, document.characterCount())
+        self.update()
+
+    def setHtml(self, html):
+        # Every way of putting text back into a note comes through here
+        super().setHtml(html)
+        if hasattr(self, 'tasks_collapsed'):
+            self.refresh_tasks()
+
+    def make_tasks(self, on):
+        """Put a box on the lines being written, or take it off.
+
+        The lines the selection touches, or the line the cursor is in.
+        A line with a box is a list item as well, so that the words line
+        up beside the box rather than under it.
+        """
+
+        cursor = self.textCursor()
+        start = self.document().findBlock(cursor.selectionStart())
+        end = self.document().findBlock(cursor.selectionEnd())
+        block = start
+        edit = QtGui.QTextCursor(self.document())
+        edit.beginEditBlock()
+        while block.isValid():
+            self.set_task(block, on)
+            if block.position() >= end.position():
+                break
+            block = block.next()
+        edit.endEditBlock()
+        self.refresh_tasks()
+
+    def set_task(self, block, on):
+        """Give one line a box to tick off, or take its box away."""
+
+        if on == self.is_task(block):
+            return
+        if on:
+            if self.list_level(block) == 0:
+                self.set_list_level(block, 1)
+            block = self.document().findBlock(block.position())
+        fmt = block.blockFormat()
+        fmt.setMarker(self.TO_DO if on else self.NO_MARK)
+        cursor = QtGui.QTextCursor(block)
+        cursor.setBlockFormat(fmt)
+        if not on:
+            self.strike_through(block, False)
+
+    def start_task_list(self):
+        """Turn an empty note into a task list, ready to type into."""
+
+        cursor = self.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.Start)
+        self.setTextCursor(cursor)
+        self.make_tasks(True)
+
+    def set_task_done(self, block, done):
+        """Tick a task off, or put it back on the list.
+
+        A finished task drops to the foot of the tasks, where the
+        finished ones gather; an unfinished one comes back to the end of
+        those still to do. The words keep the formatting they were given.
+        """
+
+        if not self.is_task(block) or self.task_is_done(block) == done:
+            return
+        home = self.task_home(block, done)
+        edit = QtGui.QTextCursor(self.document())
+        edit.beginEditBlock()
+        self.strike_through(block, done)
+        block = self.document().findBlock(block.position())
+        if home is not False:
+            block = self.move_block(block, home)
+        fmt = block.blockFormat()
+        fmt.setMarker(self.DONE if done else self.TO_DO)
+        QtGui.QTextCursor(block).setBlockFormat(fmt)
+        edit.endEditBlock()
+        self.refresh_tasks()
+
+    def task_home(self, block, done):
+        """Which line a task should follow once it is ticked, or unticked.
+
+        A finished task follows the last of the tasks, where the
+        finished ones gather; an unfinished one follows the last task
+        still to do. False when it already sits there, and None when it
+        belongs in front of everything.
+        """
+
+        tasks = [other for other in self.task_blocks()
+                 if other.position() != block.position()]
+        if not tasks:
+            return False
+        if done:
+            after = tasks[-1]
+        else:
+            to_do = [other for other in tasks if not self.task_is_done(other)]
+            after = to_do[-1] if to_do else None
+        if after is None:
+            first = self.document().firstBlock()
+            return False if block.position() == first.position() else None
+        previous = block.previous()
+        if previous.isValid() and previous.position() == after.position():
+            return False
+        return after
+
+    def move_block(self, block, after):
+        """Take a line out of the text and put it back after another.
+
+        ``after`` is the line it should follow, or None to put it in
+        front of everything. Returns the line in its new place: the
+        words are carried over as they are, bold and highlight and all.
+        """
+
+        fmt = block.blockFormat()
+        char_fmt = block.charFormat()
+        home = QtGui.QTextCursor(
+            after if after is not None else self.document().firstBlock())
+        if after is None:
+            # A line can only be put back after another one, so an empty
+            # one is made in front for it to follow, and taken away again
+            home.movePosition(QtGui.QTextCursor.MoveOperation.StartOfBlock)
+            home.insertBlock(fmt)
+            home.movePosition(QtGui.QTextCursor.MoveOperation.PreviousBlock)
+        home.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
+
+        cutter = QtGui.QTextCursor(block)
+        cutter.select(QtGui.QTextCursor.SelectionType.BlockUnderCursor)
+        words = cutter.selection()
+        at_start = block.position() == self.document().firstBlock().position()
+        cutter.removeSelectedText()
+        if at_start:
+            # Nothing above it to take the paragraph mark from
+            cutter.deleteChar()
+            if after is not None:
+                # And so the piece carries none either: without a
+                # paragraph of its own it would land inside its new
+                # neighbour's words
+                home.insertBlock(fmt)
+
+        home.insertFragment(words)
+        home.setBlockFormat(fmt)
+        # So that what is typed at the end of the line carries on the
+        # way the line was written
+        home.setBlockCharFormat(char_fmt)
+        if after is not None:
+            return home.block()
+        tidy = QtGui.QTextCursor(self.document())
+        tidy.movePosition(QtGui.QTextCursor.MoveOperation.Start)
+        tidy.deleteChar()
+        return self.document().firstBlock()
+
+    def strike_through(self, block, on):
+        """Draw a line through a finished task's words, or take it off."""
+
+        cursor = QtGui.QTextCursor(block)
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.StartOfBlock)
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock,
+                            QtGui.QTextCursor.MoveMode.KeepAnchor)
+        fmt = QtGui.QTextCharFormat()
+        fmt.setFontStrikeOut(on)
+        cursor.mergeCharFormat(fmt)
+        # So that what is typed next carries on the same way
+        block_fmt = block.charFormat()
+        block_fmt.setFontStrikeOut(on)
+        QtGui.QTextCursor(block).setBlockCharFormat(block_fmt)
+
     def list_markers(self):
-        """The dash in front of each list item, and the room it takes.
+        """What goes in front of each list item, and the room it takes.
 
         One entry per item: the stretch in front of its first line that
-        is kept clear of Qt's dot, where the dash starts on the line's
-        baseline, and the font and colour to draw it in.
+        is kept clear of Qt's own dot, and what to draw there instead --
+        a dash, or a box to tick off on a line that carries one.
         """
 
         markers = []
         block = self.document().begin()
         while block.isValid():
             text_list = block.textList()
-            if (text_list is not None
+            if (text_list is not None and block.isVisible()
                     and text_list.format().style() in self.LIST_BULLETS
                     and block.layout().lineCount() > 0):
                 markers.append(self.list_marker(block))
@@ -4060,15 +4362,25 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         clear = QtCore.QRectF(text_left - reach, top - 1,
                               reach - 0.5, height + 2)
 
-        # Looking like the item's first letter, the dash grows with the
-        # words it stands in front of and is as readable as they are
+        # Looking like the item's first letter, whatever goes in front
+        # grows with the words it stands before and is as readable
         font, color = self.char_look(block)
         metrics = QtGui.QFontMetricsF(font)
-        start = QtCore.QPointF(
-            text_left - metrics.height() * self.LIST_MARKER_GAP_FRACTION
-            - metrics.horizontalAdvance(self.LIST_MARKER),
-            top + line.ascent())
-        return clear, start, font, color
+        gap = metrics.height() * self.LIST_MARKER_GAP_FRACTION
+        marker = {'clear': clear, 'font': font, 'color': color,
+                  'position': block.position(), 'box': None,
+                  'done': self.task_is_done(block)}
+        if self.is_task(block):
+            side = metrics.height() * self.TASK_BOX_FRACTION
+            marker['box'] = QtCore.QRectF(
+                text_left - gap - side,
+                top + (line.height() - side) / 2, side, side)
+            marker['pen'] = metrics.height() * self.TASK_BOX_PEN_FRACTION
+        else:
+            marker['start'] = QtCore.QPointF(
+                text_left - gap - metrics.horizontalAdvance(self.LIST_MARKER),
+                top + line.ascent())
+        return marker
 
     def char_look(self, block, offset=0):
         """The font and colour of a letter in a paragraph.
@@ -4102,17 +4414,167 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         path = QtGui.QPainterPath()
         path.addRect(area.adjusted(-spare, -spare, spare, spare))
         room = QtGui.QPainterPath()
-        for clear, _start, _font, _color in markers:
-            room.addRect(clear)
+        for marker in markers:
+            room.addRect(marker['clear'])
         return path.subtracted(room)
 
     def paint_list_markers(self, painter, markers):
         painter.save()
-        for _clear, start, font, color in markers:
+        for marker in markers:
+            if marker['box'] is not None:
+                self.paint_task_box(painter, marker)
+                continue
+            painter.setFont(marker['font'])
+            painter.setPen(marker['color'])
+            painter.drawText(marker['start'], self.LIST_MARKER)
+        painter.restore()
+
+    def paint_task_box(self, painter, marker):
+        """The box in front of a task, ticked or waiting."""
+
+        box = marker['box']
+        pen = QtGui.QPen(marker['color'], marker['pen'])
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        radius = box.width() * 0.2
+        painter.drawRoundedRect(box, radius, radius)
+        if not marker['done']:
+            return
+        # The tick, drawn across the box rather than fitted to it, so
+        # that it looks the same at every size
+        tick = QtGui.QPainterPath()
+        tick.moveTo(box.x() + box.width() * 0.23,
+                    box.y() + box.height() * 0.53)
+        tick.lineTo(box.x() + box.width() * 0.43,
+                    box.y() + box.height() * 0.74)
+        tick.lineTo(box.x() + box.width() * 0.79,
+                    box.y() + box.height() * 0.28)
+        painter.drawPath(tick)
+
+    def shows_done_bar(self):
+        """Whether the note has finished tasks to show a strip for."""
+
+        return self.done_count() > 0
+
+    def done_bar_height(self):
+        return self.text_line_height() * self.DONE_BAR_FRACTION
+
+    def done_bar_rect(self):
+        """The strip that heads the finished tasks.
+
+        Under the words while they are folded away, and in the gap kept
+        above the first of them once they are open.
+        """
+
+        rect = self.text_rect()
+        height = self.done_bar_height()
+        top = rect.bottom()
+        if not self.tasks_collapsed:
+            done = self.task_blocks(done=True)
+            if done:
+                # The block's own box starts after the room kept above
+                # it, which is exactly where the strip goes
+                top = self.document().documentLayout().blockBoundingRect(
+                    done[0]).top() - height
+        return QtCore.QRectF(rect.x(), top, rect.width(), height)
+
+    def done_bar_text(self):
+        count = self.done_count()
+        return f'{count} completed' if count != 1 else '1 completed'
+
+    def done_bar_font(self):
+        """The interface font, a little smaller than the note's lines."""
+
+        font = self.get_text_font()
+        metrics = QtGui.QFontMetricsF(font)
+        size = QtGui.QFontInfo(font).pointSizeF()
+        if metrics.height() > 0:
+            font.setPointSizeF(
+                size * self.text_line_height() * 0.75 / metrics.height())
+        return font
+
+    def paint_done_bar(self, painter):
+        """Draw the strip of finished tasks, folded away or open."""
+
+        if not self.shows_done_bar():
+            return
+        bar = self.done_bar_rect()
+        inset = self.document().documentMargin()
+        line_height = self.text_line_height()
+        color = QtGui.QColor(self.defaultTextColor())
+
+        painter.save()
+        faint = QtGui.QColor(color)
+        faint.setAlphaF(0.4)
+        painter.setPen(QtGui.QPen(faint, max(line_height * 0.04, 0.05)))
+        painter.drawLine(QtCore.QPointF(bar.x() + inset, bar.y()),
+                         QtCore.QPointF(bar.right() - inset, bar.y()))
+
+        # The arrow: pointing along while the finished tasks are folded
+        # away, pointing down at them while they are open
+        arrow = line_height * self.DONE_ARROW_FRACTION
+        middle = bar.center().y()
+        left = bar.x() + inset
+        path = QtGui.QPainterPath()
+        if self.tasks_collapsed:
+            path.moveTo(left, middle - arrow)
+            path.lineTo(left + arrow, middle)
+            path.lineTo(left, middle + arrow)
+        else:
+            path.moveTo(left - arrow / 2, middle - arrow / 2)
+            path.lineTo(left + arrow * 1.5, middle - arrow / 2)
+            path.lineTo(left + arrow / 2, middle + arrow)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawPath(path)
+        painter.restore()
+
+        room = QtCore.QRectF(left + arrow * 2.2, bar.y(),
+                             bar.width() - 2 * inset - arrow * 2.2,
+                             bar.height())
+        font = self.done_bar_font()
+        room, size = text_at_screen_size(
+            painter, room, QtGui.QFontInfo(font).pointSizeF())
+        if size >= UNREADABLE_SIZE:
+            font.setPointSizeF(size)
             painter.setFont(font)
             painter.setPen(color)
-            painter.drawText(start, self.LIST_MARKER)
+            painter.drawText(
+                room,
+                int(Qt.AlignmentFlag.AlignVCenter
+                    | Qt.AlignmentFlag.AlignLeft),
+                self.done_bar_text())
         painter.restore()
+
+    def toggle_task_at(self, pos):
+        """Tick off the box at this point, if there is one.
+
+        Returns whether there was. The box answers a little beyond
+        itself, so that a small box on a note is still easy to hit.
+        """
+
+        for marker in self.list_markers():
+            box = marker['box']
+            if box is None:
+                continue
+            reach = box.width() * (self.TASK_BOX_REACH - 1) / 2
+            if box.adjusted(-reach, -reach, reach, reach).contains(pos):
+                block = self.document().findBlock(marker['position'])
+                self.change_task(block, not self.task_is_done(block))
+                return True
+        return False
+
+    def change_task(self, block, done):
+        """Tick a task off, or put it back, as one undoable step."""
+
+        old_html = self.toHtml()
+        self.set_task_done(block, done)
+        scene = self.scene()
+        if scene is not None:
+            scene.undo_stack.push(commands.ChangeTextFormat(
+                [self], [self.toHtml()], [old_html]))
 
     def url_underlines(self):
         """The lines under the web addresses in the note.
@@ -4185,7 +4647,33 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             super().keyPressEvent(event)
             if event.key() == Qt.Key.Key_Space:
                 self.start_list_if_typed()
+            self.tidy_task()
         self.cursor_may_have_moved()
+
+    def tidy_task(self):
+        """Keep a box and the line it sits on in step, after a key press.
+
+        Qt's own Backspace takes a line out of its list without knowing
+        about the box in front of it.
+        """
+
+        block = self.textCursor().block()
+        if self.is_task(block) and self.list_level(block) == 0:
+            self.set_task(block, False)
+
+    def start_task_under(self, block):
+        """Begin a fresh task on the line after a finished one."""
+
+        fmt = block.blockFormat()
+        fmt.setMarker(self.TO_DO)
+        fmt.setTopMargin(0)
+        char_fmt = QtGui.QTextCharFormat(block.charFormat())
+        char_fmt.setFontStrikeOut(False)
+        cursor = self.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
+        cursor.insertBlock(fmt, char_fmt)
+        self.setTextCursor(cursor)
+        self.refresh_tasks()
 
     def sceneEvent(self, event):
         # Qt hands Tab and Shift+Tab straight to the text, past

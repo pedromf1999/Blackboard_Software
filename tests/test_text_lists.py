@@ -304,7 +304,7 @@ def test_qts_dot_is_not_drawn_in_front_of_an_item(view):
     item.setPos(0, 0)
     # Nothing in place of the dot, so all that shows there is the box
     item.LIST_MARKER = ''
-    clear = item.list_markers()[0][0]
+    clear = item.list_markers()[0]['clear']
 
     image = render(item)
     assert colours_in(image, clear) == {item.box_color.rgba()}
@@ -316,7 +316,7 @@ def test_the_dash_is_drawn_in_front_of_an_item(view):
     item.exit_edit_mode()
     item.setSelected(False)
     item.setPos(0, 0)
-    clear = item.list_markers()[0][0]
+    clear = item.list_markers()[0]['clear']
 
     image = render(item)
     assert len(colours_in(image, clear)) > 1

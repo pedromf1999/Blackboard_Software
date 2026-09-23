@@ -22,7 +22,7 @@ def test_insert_table_is_offered_under_insert(view):
     entry = [a for a in menu.actions() if a.text() == 'Insert Ta&ble']
     assert len(entry) == 1
     # The menu says how to do it without the menu
-    assert entry[0].shortcut().toString() == 'Ctrl+Shift+T'
+    assert entry[0].shortcut().toString() == 'Alt+T'
 
 
 def test_the_top_bar_can_insert_one(view):

@@ -94,8 +94,17 @@ class DrawToolBar(QtWidgets.QWidget):
         layout.addSpacing(6)
         layout.addWidget(self.find_text)
 
+        self.insert_tasks = QtWidgets.QToolButton(self)
+        self.insert_tasks.setToolTip('Start a task list (Ctrl+T)')
+        self.insert_tasks.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        self.insert_tasks.setIconSize(
+            QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.insert_tasks.setIcon(BeeAssets().tool_icon('tasks'))
+        self.insert_tasks.clicked.connect(self.view.on_action_insert_tasks)
+        layout.addWidget(self.insert_tasks)
+
         self.insert_table = QtWidgets.QToolButton(self)
-        self.insert_table.setToolTip('Insert a table (Ctrl+Shift+T)')
+        self.insert_table.setToolTip('Insert a table (Alt+T)')
         self.insert_table.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
         self.insert_table.setIconSize(
             QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))

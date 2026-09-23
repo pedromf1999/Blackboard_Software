@@ -1885,13 +1885,37 @@ class BeeGraphicsView(MainControlsMixin,
             item.textCursor().removeSelectedText()
         self.change_table(item, lambda: item.insert_table())
 
-    def change_table(self, item, change):
-        """Run a change to a table, recording it as one undoable step."""
+    def on_action_insert_tasks(self):
+        """Put a task list on the board, ready to be typed into."""
+
+        self.on_action_insert_text()
+        item = self.scene.edit_item
+        # Empty rather than holding the placeholder word: the first task
+        # is waiting to be written
+        item.textCursor().removeSelectedText()
+        item.start_task_list()
+
+    def on_action_text_tasks(self):
+        """Put boxes on the lines being written, or take them off."""
+
+        item = self.scene.edit_item
+        if item is None or getattr(item, 'TYPE', None) != 'text':
+            return
+        wanted = not item.is_task(item.textCursor().block())
+        self.change_note(item, lambda: item.make_tasks(wanted))
+
+    def change_note(self, item, change):
+        """Run a change to a note's text, recording it as one step."""
 
         old_html = item.toHtml()
         change()
         self.undo_stack.push(commands.ChangeTextFormat(
             [item], [item.toHtml()], [old_html]))
+
+    def change_table(self, item, change):
+        """Run a change to a table, recording it as one undoable step."""
+
+        self.change_note(item, change)
         # A table that has just appeared, grown or shrunk changes what
         # the buttons and the menu should offer
         self.update_table_actions()
