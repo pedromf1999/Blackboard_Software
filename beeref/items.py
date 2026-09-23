@@ -140,8 +140,18 @@ class BandTextMixin:
 
     band_scale = 1
 
+    def max_band_scale(self):
+        """How much bigger than its natural size the words may be made.
+
+        Up to the item. A group answers with what its box can show, so
+        that the answer is never a number somebody has to guess at.
+        """
+
+        return BAND_SCALE_MAX
+
     def set_band_text_scale(self, scale):
-        self.band_scale = min(BAND_SCALE_MAX, max(BAND_SCALE_MIN, scale))
+        self.band_scale = min(self.max_band_scale(),
+                              max(BAND_SCALE_MIN, scale))
         self.band_text_changed()
 
     def grow_band_text(self, factor):
@@ -834,11 +844,10 @@ class TitleBandMixin:
     # Room above and below the letters, as a fraction of their size
     TITLE_PADDING_FRACTION = 0.35
     TITLE_MIN_SIZE = 7
-    # Qt's font engine overflows somewhere above ten thousand point:
-    # the metrics come back negative, the band works out to nothing and
-    # the title is nowhere to be seen. A title is sized from the item,
-    # and one on a real board reaches hundreds of thousands of units
-    # across, which asked for twenty-five thousand point.
+    # The most a note's heading can be set to. Its size is in points
+    # rather than a share of anything, so it needs an end somewhere; a
+    # group's title is held by its own box instead, which is what a
+    # very large group needs -- see BeeGroupItem.title_ceiling_for.
     TITLE_MAX_SIZE = 8000
 
     # Whether a title too long for its band goes onto another row or is
@@ -1346,16 +1355,40 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         Measured from the width because the band is added to the height:
         taking it from the shorter side would have the size depend on
         the band and the band depend on the size.
+
+        The size is a share of the width whatever the width is. It used
+        to stop at eight thousand point, which is as far as the font
+        engine could once go, and a box on a real board asks for far
+        more than that: the bigger the group, the smaller its title
+        looked, until at thirteen million units across it was a
+        hundredth of the size a title is meant to be. Letters are
+        measured in miniature and the answer scaled by arithmetic now,
+        so nothing is held back by what the engine can do.
         """
 
-        # The cap is on what the box gives, not on what is asked for:
-        # a box on a real board asks for far more point than the font
-        # engine can draw, and holding the natural size there is what
-        # keeps a very large group looking as it always did. The share
-        # is applied after, so a title can still be made bigger.
-        natural = min(self.TITLE_MAX_SIZE,
-                      max(self.TITLE_MIN_SIZE, width * self.TITLE_FRACTION))
-        return max(self.TITLE_MIN_SIZE, natural * self.band_scale)
+        natural = max(self.TITLE_MIN_SIZE, width * self.TITLE_FRACTION)
+        return max(self.TITLE_MIN_SIZE,
+                   min(natural * self.band_scale,
+                       self.title_ceiling_for(width)))
+
+    def title_ceiling_for(self, width):
+        """The biggest a title may be made on a box this wide.
+
+        One row of letters as tall as the box is wide. Past that the
+        band is not a heading over the group any more, it is the group.
+        Measured from the font rather than assumed, since how tall a row
+        stands for its point size is the font's business.
+        """
+
+        per_point = self.line_height_for(SAFE_FONT_SIZE) / SAFE_FONT_SIZE
+        return width / max(per_point, 0.01)
+
+    def max_band_scale(self):
+        """As far as the box can show, never less than every board had."""
+
+        width = self.rect().width()
+        natural = max(self.TITLE_MIN_SIZE, width * self.TITLE_FRACTION)
+        return max(BAND_SCALE_MAX, self.title_ceiling_for(width) / natural)
 
     def title_size(self):
         return self.title_size_for(self.rect().width())

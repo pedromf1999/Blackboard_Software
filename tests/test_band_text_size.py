@@ -77,7 +77,21 @@ def test_the_title_size_has_a_floor_and_a_ceiling(view):
 
     for _ in range(80):
         view.on_action_size_increase()
-    assert group.band_scale == BAND_SCALE_MAX
+    # The ceiling is what the box can show rather than a number, and it
+    # is never less than every board has always been allowed
+    assert group.band_scale == group.max_band_scale()
+    assert group.max_band_scale() >= BAND_SCALE_MAX
+
+
+def test_the_title_stops_when_a_row_is_as_tall_as_the_box_is_wide(view):
+    group = titled_group(view)
+    group.setSelected(True)
+
+    for _ in range(80):
+        view.on_action_size_increase()
+
+    row = group.line_height_for(group.title_size())
+    assert round(row) == round(group.rect().width())
 
 
 def test_it_is_a_share_of_the_box_rather_than_a_size(view):
@@ -394,23 +408,17 @@ def test_a_very_large_group_can_still_be_made_bigger(view):
     box on a real board asks for far more than that. The title used to
     stick at the cap: pressing bigger did nothing at all."""
 
-    item = picture(view, 200, 150)
-    item.setScale(3000)
-    view.scene.clearSelection()
-    item.setSelected(True)
-    view.on_action_group_items()
-    group = item.parentItem()
-    group.title = 'Enclosure'
+    group = very_large_group(view)
     group.setSelected(True)
 
-    assert group.title_size() == group.TITLE_MAX_SIZE
+    natural = group.title_size()
     sizes = []
     for _ in range(5):
         view.on_action_size_increase()
         sizes.append(group.title_size())
 
     assert sizes == sorted(sizes)
-    assert sizes[-1] > group.TITLE_MAX_SIZE * 1.4
+    assert sizes[-1] > natural * 1.4
 
 
 def test_such_a_title_is_still_measured_rather_than_coming_back_empty(view):
@@ -427,9 +435,8 @@ def test_such_a_title_is_still_measured_rather_than_coming_back_empty(view):
             > group.line_height_for(SAFE_FONT_SIZE) * 10)
 
 
-def test_the_natural_size_of_a_very_large_group_is_unchanged(view):
-    """Boards written before this open looking exactly as they did: the
-    cap is on what the box gives, not on what may be asked for."""
+def very_large_group(view, title='Enclosure'):
+    """A group the size real boards reach: hundreds of thousands across."""
 
     item = picture(view, 200, 150)
     item.setScale(3000)
@@ -437,10 +444,24 @@ def test_the_natural_size_of_a_very_large_group_is_unchanged(view):
     item.setSelected(True)
     view.on_action_group_items()
     group = item.parentItem()
-    group.title = 'Enclosure'
+    group.title = title
+    return group
+
+
+def test_a_very_large_group_gets_a_title_in_proportion(view):
+    """The title is the same share of the box at any size. It used to
+    stop at eight thousand point, so the bigger the group the smaller
+    its title looked -- a hundredth of the size on a real board."""
+
+    group = very_large_group(view)
 
     assert group.band_scale == 1
-    assert group.title_size() == group.TITLE_MAX_SIZE
+    # Wide enough that the old cap would have bitten
+    assert (group.rect().width() * group.TITLE_FRACTION
+            > group.TITLE_MAX_SIZE)
+    assert round(group.title_size()) == round(
+        group.rect().width() * group.TITLE_FRACTION)
+    assert group.title_size() > group.TITLE_MAX_SIZE * 3
 
 
 def test_the_gap_round_the_words_does_not_depend_on_the_rows(view):

@@ -525,13 +525,16 @@ def test_an_enormous_group_still_has_a_title(view):
     group = enormous_group(view, 640000, 470000)
     group.title = 'esfefefe'
 
-    assert group.title_font().pointSizeF() == group.TITLE_MAX_SIZE
+    # The share of the box it would be at any other size, rather than
+    # the eight thousand point the engine could once manage
+    assert round(group.title_font().pointSizeF()) == round(
+        group.rect().width() * group.TITLE_FRACTION)
     assert group.header_height() > 0
     assert group.header_rect().height() > 0
 
 
-def test_the_band_keeps_its_share_up_to_the_cap(view):
-    """Below it the title goes on growing with the box."""
+def test_the_band_keeps_its_share_whatever_the_size(view):
+    """The title goes on growing with the box, however large it gets."""
 
     small = enormous_group(view, 4000, 3000)
     small.title = 'esfefefe'
