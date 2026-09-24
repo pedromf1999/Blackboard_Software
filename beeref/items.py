@@ -4117,14 +4117,6 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # a list inside a list
             self.set_list_level(block, level - 1)
             return True
-        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and plain
-                and self.task_is_done(block)):
-            # The line begun under a finished task is a task still to
-            # do, and it is not struck through. Made here rather than
-            # tidied up after Qt, which puts the line it makes in the
-            # hands of the one above it.
-            self.start_task_under(block)
-            return True
         if key == Qt.Key.Key_Tab and plain and cursor.atBlockStart():
             self.set_list_level(block, level + 1)
             return True
@@ -4295,6 +4287,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         QtGui.QTextCursor(block).setBlockFormat(fmt)
         edit.endEditBlock()
         self.refresh_tasks()
+        if self.edit_mode:
+            self.keep_cursor_on_the_list()
 
     def task_home(self, block, done):
         """Which line a task should follow once it is ticked, or unticked.
@@ -4703,6 +4697,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.exit_edit_mode(commit=False)
             event.accept()
             return
+        if self.would_change_a_finished_task(event):
+            # A finished task keeps the words it was ticked off with
+            event.accept()
+            return
         if self.list_key_press(event):
             event.accept()
         else:
@@ -4723,26 +4721,84 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if self.is_task(block) and self.list_level(block) == 0:
             self.set_task(block, False)
 
-    def start_task_under(self, block):
-        """Begin a fresh task on the line after a finished one."""
+    # The keys that change words rather than move about in them, beyond
+    # the ones that simply type a letter
+    EDITING_KEYS = (Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
+                    Qt.Key.Key_Return, Qt.Key.Key_Enter,
+                    Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+    EDITING_SEQUENCES = (QtGui.QKeySequence.StandardKey.Paste,
+                         QtGui.QKeySequence.StandardKey.Cut,
+                         QtGui.QKeySequence.StandardKey.Undo,
+                         QtGui.QKeySequence.StandardKey.Redo)
 
-        fmt = block.blockFormat()
-        fmt.setMarker(self.TO_DO)
-        fmt.setTopMargin(0)
-        char_fmt = QtGui.QTextCharFormat(block.charFormat())
-        char_fmt.setFontStrikeOut(False)
+    def is_editing_key(self, event):
+        """Whether a key changes the words, rather than moving about."""
+
+        if event.key() in self.EDITING_KEYS:
+            return True
+        if any(event.matches(sequence)
+               for sequence in self.EDITING_SEQUENCES):
+            return True
+        text = event.text()
+        return bool(text) and text.isprintable()
+
+    def would_change_a_finished_task(self, event):
+        """Whether a key would change the words of a finished task.
+
+        Those stay as they were when they were ticked off; to change one,
+        it goes back on the list first. The cursor can still be put in
+        one, moved about, and the words picked out and copied. Typing
+        into one had the words struck through as they came, since that
+        is how a finished task is written.
+        """
+
+        if not self.done_count() or not self.is_editing_key(event):
+            return False
         cursor = self.textCursor()
+        document = self.document()
+        block = document.findBlock(cursor.selectionStart())
+        last = document.findBlock(cursor.selectionEnd())
+        while block.isValid():
+            if self.task_is_done(block):
+                return True
+            if block.position() >= last.position():
+                break
+            block = block.next()
+        if cursor.hasSelection():
+            return False
+        # Deleting over the end or the start of a line joins its
+        # neighbour to it, and that neighbour may be a finished task
+        here = cursor.block()
+        if (event.key() == Qt.Key.Key_Delete and cursor.atBlockEnd()
+                and self.task_is_done(here.next())):
+            return True
+        return (event.key() == Qt.Key.Key_Backspace and cursor.atBlockStart()
+                and self.task_is_done(here.previous()))
+
+    def keep_cursor_on_the_list(self):
+        """Take the text cursor off a finished task, onto the list.
+
+        Ticking off the task being written in left the cursor in it, so
+        whatever was typed next went into a finished task -- folded away
+        out of sight, and struck through.
+        """
+
+        if not self.task_is_done(self.textCursor().block()):
+            return
+        to_do = self.task_blocks(done=False)
+        if not to_do:
+            return
+        cursor = QtGui.QTextCursor(to_do[-1])
         cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
-        cursor.insertBlock(fmt, char_fmt)
         self.setTextCursor(cursor)
-        self.refresh_tasks()
 
     def sceneEvent(self, event):
         # Qt hands Tab and Shift+Tab straight to the text, past
         # keyPressEvent, so a list would never hear of them
         if (event.type() == QtCore.QEvent.Type.KeyPress
                 and event.key() in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
-                and self.list_key_press(event)):
+                and (self.would_change_a_finished_task(event)
+                     or self.list_key_press(event))):
             event.accept()
             self.cursor_may_have_moved()
             return True

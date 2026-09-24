@@ -340,20 +340,85 @@ def test_backspace_takes_the_box_off_with_the_list(view):
     assert item.toPlainText() == 'one'
 
 
-def test_the_line_after_a_finished_task_starts_out_unfinished(view):
-    item = task_note(view, 'one')
-    item.set_task_done(blocks(item)[0], True)
-    item.set_tasks_collapsed(False)
-    cursor = item.textCursor()
-    cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+def cursor_in(item, block, at_end=False):
+    cursor = QtGui.QTextCursor(block)
+    if at_end:
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
     item.setTextCursor(cursor)
 
-    press(item, Qt.Key.Key_Return, '\r')
-    type_text(item, 'two')
 
-    assert item.task_is_done(item.textCursor().block()) is False
-    typed = item.textCursor().block().begin().fragment()
-    assert typed.text() == 'two'
+def finished_one_open(view):
+    """A task list with 'one' finished and the strip opened out."""
+
+    item = task_note(view)
+    item.set_task_done(blocks(item)[0], True)
+    item.set_tasks_collapsed(False)
+    return item
+
+
+def test_a_finished_task_cannot_be_typed_into(view):
+    item = finished_one_open(view)
+    cursor_in(item, blocks(item)[-1], at_end=True)
+
+    type_text(item, 'more')
+    press(item, Qt.Key.Key_Backspace, '\b')
+    press(item, Qt.Key.Key_Return, '\r')
+
+    assert [line[0] for line in lines(item)] == ['two', 'three', 'one']
+
+
+def test_a_finished_task_cannot_be_deleted_from(view):
+    item = finished_one_open(view)
+    cursor_in(item, blocks(item)[-1])
+
+    press(item, Qt.Key.Key_Delete)
+
+    assert lines(item)[-1][0] == 'one'
+
+
+def test_delete_cannot_pull_a_finished_task_into_the_list(view):
+    item = finished_one_open(view)
+    cursor_in(item, blocks(item)[1], at_end=True)
+
+    press(item, Qt.Key.Key_Delete)
+
+    assert [line[0] for line in lines(item)] == ['two', 'three', 'one']
+
+
+def test_the_cursor_still_moves_about_in_a_finished_task(view):
+    item = finished_one_open(view)
+    cursor_in(item, blocks(item)[-1])
+    start = item.textCursor().position()
+
+    press(item, Qt.Key.Key_Right)
+
+    assert item.textCursor().position() == start + 1
+
+
+def test_the_list_itself_can_still_be_written_in(view):
+    item = finished_one_open(view)
+    cursor_in(item, blocks(item)[0], at_end=True)
+
+    type_text(item, '!')
+
+    assert lines(item)[0][0] == 'two!'
+
+
+def test_ticking_off_the_task_being_written_moves_the_cursor_off_it(view):
+    """What was typed next went into the finished task, struck through
+    and folded away out of sight."""
+
+    item = task_note(view)
+    third = blocks(item)[2]
+    cursor_in(item, third, at_end=True)
+    for _ in 'three':
+        press(item, Qt.Key.Key_Backspace, '\b')
+
+    item.change_task(blocks(item)[2], True)
+    type_text(item, 'x')
+
+    assert lines(item)[1][0] == 'twox'
+    typed = blocks(item)[1].begin().fragment()
     assert typed.charFormat().fontStrikeOut() is False
 
 
