@@ -3412,8 +3412,42 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 [self], [self.toHtml()], [drag['html']]))
             event.accept()
             return
+        marks = self.task_marks()
         super().mouseReleaseEvent(event)
+        self.keep_task_marks(marks)
         self.cursor_may_have_moved()
+
+    def task_marks(self):
+        """Which line carries which box, to put back what Qt changes."""
+
+        return [(block.position(), block.blockFormat().marker())
+                for block in self.task_blocks()]
+
+    def keep_task_marks(self, marks):
+        """Take back Qt's own ticking of a box.
+
+        Qt ticks a box when the mouse is let go over where it believes
+        the box to be -- which it works out as if every list were pushed
+        along forty units, and in a note that is the start of the words.
+        It ticks it without striking the words through or moving the
+        line, so the box and the list fell out of step: a ticked task
+        left among the ones still to do, and the strip of finished ones
+        drawn over it. Only a press on the box drawn here ticks one now.
+        """
+
+        for position, marker in marks:
+            block = self.document().findBlock(position)
+            if (not block.isValid() or block.position() != position
+                    or block.blockFormat().marker() == marker):
+                continue
+            fmt = block.blockFormat()
+            fmt.setMarker(marker)
+            cursor = QtGui.QTextCursor(block)
+            # Joined to Qt's own change, so that undoing while writing
+            # does not bring the stray tick back
+            cursor.joinPreviousEditBlock()
+            cursor.setBlockFormat(fmt)
+            cursor.endEditBlock()
 
     def search_text(self):
         """What Find looks through: the title and the note under it.

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
 
 from beeref.actions.actions import actions
 from beeref.items import BeeTextItem
@@ -173,6 +174,32 @@ def test_clicking_the_box_ticks_the_task_off(view):
     click(item, box.center())
 
     assert lines(item)[-1] == ('one', True, False)
+
+
+def test_clicking_the_start_of_the_words_ticks_nothing(view):
+    """Qt ticks a box of its own where it believes the box to be, which
+    in a note is the start of the words. Ticked that way, the words were
+    not struck through and the line stayed among the ones still to do,
+    with the strip of finished tasks drawn over it."""
+
+    view.resize(800, 600)
+    item = task_note(view)
+    view.on_action_fit_scene()
+    block = blocks(item)[1]
+    layout = block.layout()
+    line = layout.lineAt(0)
+    point = QtCore.QPointF(
+        layout.position().x() + line.naturalTextRect().left() + 4,
+        layout.position().y() + line.y() + line.height() / 2)
+
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier,
+                     view.mapFromScene(item.mapToScene(point)))
+
+    assert item.edit_mode is True
+    assert item.done_count() == 0
+    assert [item.task_is_done(b) for b in blocks(item)] == [
+        False, False, False]
 
 
 def test_clicking_the_box_of_a_finished_task_puts_it_back(view):
