@@ -3015,7 +3015,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return QtWidgets.QGraphicsTextItem.boundingRect(self)
 
     def band_width(self):
-        return self.text_rect().width()
+        # As wide as the box, which the strip of finished tasks can
+        # make wider than the words
+        return self.box_rect().width()
 
     def header_rect(self):
         """The band sitting on top of the note.
@@ -3024,7 +3026,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         covers up what was written.
         """
 
-        rect = self.text_rect()
+        rect = self.box_rect()
         height = self.header_height()
         return QtCore.QRectF(rect.x(), rect.y() - height,
                              rect.width(), height)
@@ -3054,11 +3056,27 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         """
 
         rect = self.text_rect()
-        if self.shows_done_bar() and self.tasks_collapsed:
+        if not self.shows_done_bar():
+            return rect
+        if self.tasks_collapsed:
             # Opened out, the strip sits in a gap inside the text, so
             # the note is already as tall as it needs to be
             rect.setHeight(rect.height() + self.done_bar_height())
+        # And wide enough for what the strip says: a note of short tasks
+        # cut it off at "1 comple"
+        rect.setWidth(max(rect.width(), self.done_bar_width()))
         return rect
+
+    def bounding_rect_unselected(self):
+        """The note's own rectangle: the words, and the strip under them.
+
+        So the outline drawn round a selected note, its handles, and the
+        point a line fastens to take in the strip of finished tasks,
+        which is part of the note. The strip hung out of the outline.
+        The title band stays out of it, as it always has.
+        """
+
+        return self.box_rect()
 
     def text_box_path(self):
         """The box behind the words.
@@ -3097,11 +3115,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         heading.
         """
 
+        # The strip of finished tasks is in the note's own rectangle
+        # already; see bounding_rect_unselected
         rect = super().boundingRect()
         if self.shows_header():
             rect = rect.adjusted(0, -self.header_height(), 0, 0)
-        if self.shows_done_bar() and self.tasks_collapsed:
-            rect = rect.adjusted(0, 0, 0, self.done_bar_height())
         return rect
 
     def shape(self):
@@ -4750,6 +4768,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
         rect = self.text_rect()
         height = self.done_bar_height()
+        width = max(rect.width(), self.done_bar_width())
         top = rect.bottom()
         if not self.tasks_collapsed:
             done = self.task_blocks(done=True)
@@ -4758,11 +4777,20 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 # it, which is exactly where the strip goes
                 top = self.document().documentLayout().blockBoundingRect(
                     done[0]).top() - height
-        return QtCore.QRectF(rect.x(), top, rect.width(), height)
+        return QtCore.QRectF(rect.x(), top, width, height)
 
     def done_bar_text(self):
         count = self.done_count()
         return f'{count} completed' if count != 1 else '1 completed'
+
+    def done_bar_width(self):
+        """How wide the strip has to be to say what it says in full."""
+
+        inset = self.document().documentMargin()
+        arrow = self.text_line_height() * self.DONE_ARROW_FRACTION
+        words = QtGui.QFontMetricsF(self.done_bar_font()).horizontalAdvance(
+            self.done_bar_text())
+        return 2 * inset + arrow * 2.2 + words
 
     def done_bar_font(self):
         """The interface font, a little smaller than the note's lines."""
@@ -4842,6 +4870,14 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             reach = box.width() * (self.TASK_BOX_REACH - 1) / 2
             if box.adjusted(-reach, -reach, reach, reach).contains(pos):
                 block = self.document().findBlock(marker['position'])
+                if not block.text() and not self.task_is_done(block):
+                    # Nothing written, so nothing to finish: the press
+                    # puts the cursor on the line instead, to write it.
+                    # Ticked, it vanished into the finished ones and
+                    # the cursor went on to the line above.
+                    if self.edit_mode:
+                        self.setTextCursor(QtGui.QTextCursor(block))
+                    return True
                 self.change_task(block, not self.task_is_done(block))
                 return True
         return False

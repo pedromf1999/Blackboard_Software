@@ -176,6 +176,55 @@ def test_clicking_the_box_ticks_the_task_off(view):
     assert lines(item)[-1] == ('one', True, False)
 
 
+def test_an_empty_task_is_not_ticked_off(view):
+    """Nothing written, nothing to finish. Ticked, it vanished into the
+    finished ones and the cursor went on to the line above, so what was
+    typed next joined the task before it."""
+
+    item = task_note(view, 'one\ntwo\n')
+    assert blocks(item)[-1].text() == ''
+    cursor_in(item, blocks(item)[0])
+    empty_box = item.list_markers()[2]['box']
+
+    click(item, empty_box.center())
+    type_text(item, 'three')
+
+    assert item.done_count() == 0
+    assert [line[0] for line in lines(item)] == ['one', 'two', 'three']
+
+
+def test_the_strip_is_part_of_the_notes_own_rectangle(view):
+    """So the outline of a selected note goes round it."""
+
+    item = task_note(view)
+    item.set_task_done(blocks(item)[0], True)
+
+    own = item.bounding_rect_unselected()
+    assert own.contains(item.done_bar_rect())
+
+    item.set_tasks_collapsed(False)
+    assert item.bounding_rect_unselected().contains(item.done_bar_rect())
+
+
+def test_a_narrow_note_widens_to_say_how_many_are_finished(view):
+    """A note of short tasks cut the strip off at "1 comple"."""
+
+    item = task_note(view, 'a\nb')
+    item.set_task_done(blocks(item)[0], True)
+
+    assert item.text_rect().width() < item.done_bar_width()
+    assert item.box_rect().width() >= item.done_bar_width()
+    assert item.done_bar_rect().width() >= item.done_bar_width()
+
+
+def test_the_title_band_is_as_wide_as_the_widened_note(view):
+    item = task_note(view, 'a\nb')
+    item.set_task_done(blocks(item)[0], True)
+    item.title = 'Jobs'
+
+    assert item.header_rect().width() == item.box_rect().width()
+
+
 def test_clicking_the_start_of_the_words_ticks_nothing(view):
     """Qt ticks a box of its own where it believes the box to be, which
     in a note is the start of the words. Ticked that way, the words were
