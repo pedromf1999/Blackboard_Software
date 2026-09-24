@@ -4167,18 +4167,25 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             if not block.isVisible():
                 block.setVisible(True)
                 changed = True
+            # And without the room it had while it headed the finished
+            # ones, which it carried back up with it as a gap
+            self.set_room_above(block, 0)
         for number, block in enumerate(self.task_blocks(done=True)):
             if block.isVisible() != wanted:
                 block.setVisible(wanted)
                 changed = True
-            room = gap if number == 0 else 0
-            fmt = block.blockFormat()
-            if abs(fmt.topMargin() - room) > 0.01:
-                fmt.setTopMargin(room)
-                QtGui.QTextCursor(block).setBlockFormat(fmt)
+            self.set_room_above(block, gap if number == 0 else 0)
         if changed:
             document.markContentsDirty(0, document.characterCount())
         self.update()
+
+    def set_room_above(self, block, room):
+        """Keep this much space above a line, and only this much."""
+
+        fmt = block.blockFormat()
+        if abs(fmt.topMargin() - room) > 0.01:
+            fmt.setTopMargin(room)
+            QtGui.QTextCursor(block).setBlockFormat(fmt)
 
     def setHtml(self, html):
         # Every way of putting text back into a note comes through here

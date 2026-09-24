@@ -119,6 +119,24 @@ def test_unticking_a_task_puts_it_back_with_the_others(view):
     assert item.done_count() == 0
 
 
+def test_a_task_put_back_brings_no_gap_with_it(view):
+    """Opened out, the first finished task keeps room above it for the
+    strip. Put back on the list, it carried that room up with it, as a
+    gap between the tasks still to do."""
+
+    item = task_note(view)
+    item.exit_edit_mode()
+    height = item.boundingRect().height()
+    item.set_task_done(blocks(item)[0], True)
+    item.set_tasks_collapsed(False)
+
+    item.set_task_done(blocks(item)[-1], False)
+
+    assert [block.blockFormat().topMargin()
+            for block in blocks(item)] == [0, 0, 0]
+    assert item.boundingRect().height() == height
+
+
 def test_unticking_the_only_task_left_puts_it_first(view):
     item = task_note(view, 'one\ntwo')
     for block in blocks(item):
