@@ -12,6 +12,24 @@ def test_toolbar_has_a_button_per_tool(view):
         assert not toolbar.buttons[kind].icon().isNull()
 
 
+def test_the_buttons_are_evenly_spaced(view):
+    """The search button once stood further off, set apart from a group
+    of its own that is gone."""
+
+    toolbar = view.draw_toolbar
+    toolbar.show()
+    toolbar.layout().activate()
+    buttons = sorted(
+        (button for button in toolbar.findChildren(QtWidgets.QToolButton)
+         if button.parent() is toolbar and not button.isHidden()),
+        key=lambda button: button.geometry().x())
+    gaps = {after.geometry().x() - before.geometry().right()
+            for before, after in zip(buttons, buttons[1:])}
+
+    assert len(buttons) > 5
+    assert len(gaps) == 1
+
+
 def test_starts_on_the_select_tool(view):
     assert view.draw_tool is None
     assert view.draw_toolbar.buttons[None].isChecked() is True

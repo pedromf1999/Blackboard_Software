@@ -81,8 +81,9 @@ class DrawToolBar(QtWidgets.QWidget):
         self.shapes.clicked.connect(self.on_shapes_clicked)
         layout.addWidget(self.shapes)
 
-        # Neither of these is a tool to work in, so they do not stay
-        # pressed the way the tools above do
+        # Not a tool to work in, so it does not stay pressed the way the
+        # tools do. Spaced like every other button: the extra gap once
+        # set it apart from a group of its own, which is gone.
         self.find_text = QtWidgets.QToolButton(self)
         self.find_text.setToolTip(
             'Find text (Ctrl+F), then Find Next or F3 for each match')
@@ -91,7 +92,6 @@ class DrawToolBar(QtWidgets.QWidget):
             QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.find_text.setIcon(BeeAssets().tool_icon('search'))
         self.find_text.clicked.connect(self.view.on_action_find_text)
-        layout.addSpacing(6)
         layout.addWidget(self.find_text)
 
         # Tools like the text tool: pressed, they wait for a click on
