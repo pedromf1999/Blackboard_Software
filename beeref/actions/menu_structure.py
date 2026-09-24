@@ -187,6 +187,7 @@ menu_structure = [
             MENU_SEPARATOR,
             'text_tool',
             'text_tasks',
+            'text_task_numbers',
             'insert_table',
             'table_row_insert_above',
             'table_row_insert',

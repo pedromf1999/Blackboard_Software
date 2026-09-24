@@ -2734,6 +2734,12 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     TASK_BOX_PEN_FRACTION = 0.07
     # How much larger than the box the area that answers a click is
     TASK_BOX_REACH = 1.5
+    # The grip a task is dragged up and down the list by, the dots it is
+    # drawn with, and the gap between a task's number and its words --
+    # all fractions of the height of a line
+    TASK_GRIP_FRACTION = 0.42
+    TASK_GRIP_DOT_FRACTION = 0.085
+    TASK_NUMBER_GAP_FRACTION = 0.3
     # The strip at the foot of a note holding the finished tasks, and
     # the arrow on it, both as fractions of the height of a line
     DONE_BAR_FRACTION = 1.5
@@ -2758,7 +2764,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     def __init__(self, text=None, html=None, box_color=None,
                  text_width=None, title=None, header_color=None,
                  title_align=None, title_size=None, tasks_collapsed=None,
-                 **kwargs):
+                 tasks_numbered=None, **kwargs):
         super().__init__(text or "Text")
         self.save_id = None
         logger.debug(f'Initialized {self}')
@@ -2797,6 +2803,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # putting text in is what hides them.
         self.tasks_collapsed = True if tasks_collapsed is None else (
             bool(tasks_collapsed))
+        # Whether the tasks still to do carry a number, 1 to however
+        # many, in the order they stand in
+        self.tasks_numbered = bool(tasks_numbered)
+        # The task under the mouse, whose grip shows, and the one being
+        # dragged by it -- both kept as where its line starts
+        self.hovered_task = None
+        self.task_drag = None
         # Whatever changes the text can change how big it is, so the
         # margin is kept up to date from one place rather than from
         # every caller that might resize a word
@@ -2910,6 +2923,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # Only when it differs from how a note opens, so a note
             # without tasks saves exactly as it did before
             data['tasks_collapsed'] = False
+        if self.has_tasks() and self.tasks_numbered:
+            data['tasks_numbered'] = True
         data.update(self.title_save_data())
         if self._title_size:
             data['title_size'] = self._title_size
@@ -3306,8 +3321,47 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 return url
         return None
 
+    def task_row_at(self, pos):
+        """The task still to do whose line is under this point, if any."""
+
+        for marker in self.list_markers():
+            if marker['grip'] is not None and marker['row'].contains(pos):
+                return marker
+        return None
+
+    def task_grip_at(self, pos):
+        """The task whose grip is under this point, if any.
+
+        The grip answers a little beyond its dots, which are small.
+        """
+
+        marker = self.task_row_at(pos)
+        if marker is None:
+            return None
+        grip = marker['grip']
+        reach = grip.width() / 3
+        if grip.adjusted(-reach, -reach, reach, reach).contains(pos):
+            return marker
+        return None
+
+    def hoverLeaveEvent(self, event):
+        if self.hovered_task is not None:
+            self.hovered_task = None
+            self.update()
+        super().hoverLeaveEvent(event)
+
     def hoverMoveEvent(self, event):
-        """Show a split cursor over a row or column boundary."""
+        """Show a task's grip, and a split cursor over a table boundary."""
+
+        # The grip of whichever task is under the mouse, as in Keep
+        row = self.task_row_at(event.pos())
+        hovered = row['position'] if row is not None else None
+        if hovered != self.hovered_task:
+            self.hovered_task = hovered
+            self.update()
+        if self.task_grip_at(event.pos()) is not None:
+            self.set_cursor(Qt.CursorShape.OpenHandCursor)
+            return
 
         grip = self.table_grip_at(event.pos())
         if grip is not None:
@@ -3329,6 +3383,15 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
         if (event.button() == Qt.MouseButton.LeftButton
                 and not event.modifiers()):
+            # A task is taken up by its grip, to be put down elsewhere
+            # in the list
+            dragged = self.task_grip_at(event.pos())
+            if dragged is not None:
+                self.task_drag = {'position': dragged['position'],
+                                  'html': self.toHtml(), 'slot': None}
+                self.set_cursor(Qt.CursorShape.ClosedHandCursor)
+                event.accept()
+                return
             # A box is ticked off with one press, without opening the
             # note for writing first
             if self.toggle_task_at(event.pos()):
@@ -3374,6 +3437,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         logger.debug(f'Started dragging table {kind} {index}')
 
     def mouseMoveEvent(self, event):
+        if self.task_drag is not None:
+            self.task_drag['slot'] = self.task_slot_at(event.pos())
+            self.update()
+            event.accept()
+            return
         if getattr(self, 'table_drag', None):
             self.drag_table_boundary(event.pos())
             event.accept()
@@ -3401,6 +3469,14 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 table, drag['index'], drag['size'] + moved)
 
     def mouseReleaseEvent(self, event):
+        if self.task_drag is not None:
+            drag = self.task_drag
+            self.task_drag = None
+            self.hovered_task = None
+            self.unset_cursor()
+            self.drop_task(drag)
+            event.accept()
+            return
         if getattr(self, 'pressed_on_task', False):
             self.pressed_on_task = False
             event.accept()
@@ -3941,6 +4017,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         item = BeeTextItem(html=self.toHtml(),
                            box_color=self.box_color.getRgb(),
                            tasks_collapsed=self.tasks_collapsed,
+                           tasks_numbered=self.tasks_numbered,
                            text_width=(self.textWidth()
                                        if self.textWidth() > 0 else None),
                            title=self.title,
@@ -4188,6 +4265,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # top of the strip would sit on the words before it
         gap = 0 if self.tasks_collapsed else (
             self.done_bar_height() + document.documentMargin())
+        # Room in front of every task's words for a number, when they
+        # are numbered -- finished ones too, so that they line up
+        numbers = self.number_room()
         for block in self.task_blocks(done=False):
             # A task put back on the list shows again wherever it was
             if not block.isVisible():
@@ -4196,11 +4276,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # And without the room it had while it headed the finished
             # ones, which it carried back up with it as a gap
             self.set_room_above(block, 0)
+            self.set_room_before(block, numbers)
         for number, block in enumerate(self.task_blocks(done=True)):
             if block.isVisible() != wanted:
                 block.setVisible(wanted)
                 changed = True
             self.set_room_above(block, gap if number == 0 else 0)
+            self.set_room_before(block, numbers)
         if changed:
             document.markContentsDirty(0, document.characterCount())
         self.update()
@@ -4212,6 +4294,41 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if abs(fmt.topMargin() - room) > 0.01:
             fmt.setTopMargin(room)
             QtGui.QTextCursor(block).setBlockFormat(fmt)
+
+    def set_room_before(self, block, room):
+        """Push a line's words along by this much, and only this much."""
+
+        fmt = block.blockFormat()
+        if abs(fmt.leftMargin() - room) > 0.01:
+            fmt.setLeftMargin(room)
+            QtGui.QTextCursor(block).setBlockFormat(fmt)
+
+    def number_room(self):
+        """How far a numbered task's words are pushed along.
+
+        Room for the widest number the list shows, at the size of the
+        note's largest words, and the gap after it. Nothing when the
+        tasks are not numbered.
+        """
+
+        if not self.tasks_numbered:
+            return 0
+        count = len(self.task_blocks(done=False))
+        if not count:
+            return 0
+        font = QtGui.QFont(self.font())
+        largest = self.largest_point_size()
+        if largest > 0:
+            font.setPointSizeF(largest)
+        metrics = QtGui.QFontMetricsF(font)
+        widest = metrics.horizontalAdvance('8' * len(str(count)) + '.')
+        return widest + metrics.height() * self.TASK_NUMBER_GAP_FRACTION
+
+    def set_tasks_numbered(self, numbered):
+        """Number the tasks still to do, or take their numbers away."""
+
+        self.tasks_numbered = bool(numbered)
+        self.refresh_tasks()
 
     def setHtml(self, html):
         # Every way of putting text back into a note comes through here
@@ -4386,17 +4503,31 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         """
 
         markers = []
+        room = self.number_room()
+        count = 0
         block = self.document().begin()
         while block.isValid():
             text_list = block.textList()
+            number = None
+            if self.is_task(block) and not self.task_is_done(block):
+                # Counted whether or not it can be seen, so that the
+                # numbers go on from one line to the next
+                count += 1
+                number = count if room else None
             if (text_list is not None and block.isVisible()
                     and text_list.format().style() in self.LIST_BULLETS
                     and block.layout().lineCount() > 0):
-                markers.append(self.list_marker(block))
+                markers.append(self.list_marker(block, room, number))
             block = block.next()
         return markers
 
-    def list_marker(self, block):
+    def list_marker(self, block, room=0, number=None):
+        """What goes in front of one list item.
+
+        ``room`` is how far a numbered task's words are pushed along to
+        leave space for its number, and ``number`` the number, if any.
+        """
+
         document = self.document()
         layout = block.layout()
         line = layout.lineAt(0)
@@ -4410,7 +4541,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             block.charFormat().font().resolve(document.defaultFont()))
         dot_reach = (dot_metrics.horizontalAdvance(' ')
                      + dot_metrics.lineSpacing() / 3 + 2)
-        reach = max(document.indentWidth() * self.list_level(block),
+        reach = max(document.indentWidth() * self.list_level(block)
+                    + (room if self.is_task(block) else 0),
                     dot_reach)
         height = max(line.height(), dot_metrics.height())
         # Stopping just short of the words leaves the text cursor whole
@@ -4425,13 +4557,34 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         gap = metrics.height() * self.LIST_MARKER_GAP_FRACTION
         marker = {'clear': clear, 'font': font, 'color': color,
                   'position': block.position(), 'box': None,
+                  'grip': None, 'number': None,
                   'done': self.task_is_done(block)}
         if self.is_task(block):
             side = metrics.height() * self.TASK_BOX_FRACTION
+            # A numbered task's words are pushed along by the room its
+            # number needs, and the box stays where it always was
             marker['box'] = QtCore.QRectF(
-                text_left - gap - side,
+                text_left - room - gap - side,
                 top + (line.height() - side) / 2, side, side)
             marker['pen'] = metrics.height() * self.TASK_BOX_PEN_FRACTION
+            if number is not None:
+                marker['number'] = f'{number}.'
+                marker['number_end'] = QtCore.QPointF(
+                    text_left - metrics.height()
+                    * self.TASK_NUMBER_GAP_FRACTION,
+                    top + line.ascent())
+            if not marker['done']:
+                # The grip it is dragged up and down the list by, just
+                # in front of the box, and the whole of its line, over
+                # which the grip shows
+                box = marker['box']
+                width = metrics.height() * self.TASK_GRIP_FRACTION
+                marker['grip'] = QtCore.QRectF(
+                    box.left() - width * 1.25, box.top(), width, side)
+                row = document.documentLayout().blockBoundingRect(block)
+                note = self.text_rect()
+                marker['row'] = QtCore.QRectF(
+                    note.left(), row.top(), note.width(), row.height())
         else:
             marker['start'] = QtCore.QPointF(
                 text_left - gap - metrics.horizontalAdvance(self.LIST_MARKER),
@@ -4479,10 +4632,81 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         for marker in markers:
             if marker['box'] is not None:
                 self.paint_task_box(painter, marker)
+                self.paint_task_number(painter, marker)
+                self.paint_task_grip(painter, marker)
                 continue
             painter.setFont(marker['font'])
             painter.setPen(marker['color'])
             painter.drawText(marker['start'], self.LIST_MARKER)
+        painter.restore()
+        self.paint_drop_line(painter, markers)
+
+    def paint_task_number(self, painter, marker):
+        """A task's number, ending just before its words."""
+
+        if marker['number'] is None:
+            return
+        painter.save()
+        painter.setFont(marker['font'])
+        painter.setPen(marker['color'])
+        width = QtGui.QFontMetricsF(marker['font']).horizontalAdvance(
+            marker['number'])
+        end = marker['number_end']
+        painter.drawText(QtCore.QPointF(end.x() - width, end.y()),
+                         marker['number'])
+        painter.restore()
+
+    def grip_shows(self, marker):
+        """Whether a task's grip is drawn: under the mouse, or in hand."""
+
+        if marker['grip'] is None:
+            return False
+        position = marker['position']
+        dragged = self.task_drag['position'] if self.task_drag else None
+        return position in (self.hovered_task, dragged)
+
+    def paint_task_grip(self, painter, marker):
+        """Six dots in two columns, the way Google Keep shows one."""
+
+        if not self.grip_shows(marker):
+            return
+        grip = marker['grip']
+        color = QtGui.QColor(marker['color'])
+        color.setAlphaF(0.6)
+        radius = QtGui.QFontMetricsF(marker['font']).height() * (
+            self.TASK_GRIP_DOT_FRACTION / 2)
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        for column in (0.28, 0.72):
+            for row in (0.15, 0.5, 0.85):
+                painter.drawEllipse(
+                    QtCore.QPointF(grip.x() + grip.width() * column,
+                                   grip.y() + grip.height() * row),
+                    radius, radius)
+        painter.restore()
+
+    def paint_drop_line(self, painter, markers):
+        """Where a task being dragged would land, as a line across."""
+
+        if not self.task_drag or self.task_drag.get('slot') is None:
+            return
+        rows = [marker for marker in markers if marker['grip'] is not None]
+        if not rows:
+            return
+        slot = self.task_drag['slot']
+        if slot < len(rows):
+            y = rows[slot]['row'].top()
+        else:
+            y = rows[-1]['row'].bottom()
+        left = rows[0]['box'].left()
+        right = self.text_rect().right() - self.document().documentMargin()
+        pen = QtGui.QPen(QtGui.QColor(self.defaultTextColor()),
+                         max(rows[0]['box'].width() * 0.18, 0.05))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.save()
+        painter.setPen(pen)
+        painter.drawLine(QtCore.QPointF(left, y), QtCore.QPointF(right, y))
         painter.restore()
 
     def paint_task_box(self, painter, marker):
@@ -4622,6 +4846,56 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 return True
         return False
 
+    def task_slot_at(self, pos):
+        """Where among the tasks still to do a dragged one would land.
+
+        A number from 0, in front of the first, to how many there are,
+        after the last: the gap between the two lines the point falls
+        nearest to.
+        """
+
+        rows = [marker for marker in self.list_markers()
+                if marker['grip'] is not None]
+        for index, marker in enumerate(rows):
+            if pos.y() < marker['row'].center().y():
+                return index
+        return len(rows)
+
+    def drop_task(self, drag):
+        """Put a dragged task down where the line showed it would go.
+
+        Only among the tasks still to do, as in Keep: the finished ones
+        keep the order they were ticked off in. One step of undo.
+        """
+
+        slot = drag.get('slot')
+        to_do = self.task_blocks(done=False)
+        positions = [block.position() for block in to_do]
+        if slot is None or drag['position'] not in positions:
+            self.update()
+            return
+        index = positions.index(drag['position'])
+        if slot in (index, index + 1):
+            # Put down where it was taken up
+            self.update()
+            return
+        if slot == 0:
+            # In front of the first task: after whatever comes before
+            # the list, or first of all
+            first = to_do[0]
+            after = first.previous() if first.previous().isValid() else None
+        else:
+            after = to_do[slot - 1]
+        edit = QtGui.QTextCursor(self.document())
+        edit.beginEditBlock()
+        self.move_block(to_do[index], after)
+        edit.endEditBlock()
+        self.refresh_tasks()
+        scene = self.scene()
+        if scene is not None:
+            scene.undo_stack.push(commands.ChangeTextFormat(
+                [self], [self.toHtml()], [drag['html']]))
+
     def change_task(self, block, done):
         """Tick a task off, or put it back, as one undoable step."""
 
@@ -4708,6 +4982,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             if event.key() == Qt.Key.Key_Space:
                 self.start_list_if_typed()
             self.tidy_task()
+            if self.tasks_numbered:
+                # A tenth task needs room for a number two digits wide
+                self.refresh_tasks()
         self.cursor_may_have_moved()
 
     def tidy_task(self):

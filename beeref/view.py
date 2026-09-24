@@ -1948,6 +1948,24 @@ class BeeGraphicsView(MainControlsMixin,
         else:
             self.new_table_at(pos)
 
+    def on_action_text_task_numbers(self):
+        """Number the tasks of the chosen task lists, or unnumber them.
+
+        The lists selected, and the one being written in. Going by the
+        first, so that a second press takes the numbers off again.
+        """
+
+        items = [item for item in self.scene.selected_text_items()
+                 if item.has_tasks()]
+        writing = self.scene.edit_item
+        if (writing is not None and getattr(writing, 'TYPE', None) == 'text'
+                and writing.has_tasks() and writing not in items):
+            items.append(writing)
+        if not items:
+            return
+        self.undo_stack.push(commands.ChangeTaskNumbers(
+            items, not items[0].tasks_numbered))
+
     def on_action_text_tasks(self):
         """Put boxes on the lines being written, or take them off."""
 

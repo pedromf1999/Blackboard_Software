@@ -728,6 +728,24 @@ class ChangeTextFormat(QtGui.QUndoCommand):
         self.apply(self.old_htmls)
 
 
+class ChangeTaskNumbers(QtGui.QUndoCommand):
+    """Number the tasks of task lists, or take their numbers away."""
+
+    def __init__(self, items, numbered):
+        super().__init__('Number tasks')
+        self.items = list(items)
+        self.numbered = numbered
+        self.old = [item.tasks_numbered for item in self.items]
+
+    def redo(self):
+        for item in self.items:
+            item.set_tasks_numbered(self.numbered)
+
+    def undo(self):
+        for item, numbered in zip(self.items, self.old):
+            item.set_tasks_numbered(numbered)
+
+
 class ChangeLineWidth(QtGui.QUndoCommand):
     """Change how thick drawings are."""
 

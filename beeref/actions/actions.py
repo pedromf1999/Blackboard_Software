@@ -396,6 +396,12 @@ actions = ActionList([
         callback='on_action_text_tasks',
     ),
     Action(
+        id='text_task_numbers',
+        text='&Number the Tasks',
+        callback='on_action_text_task_numbers',
+        group='active_when_text_selection',
+    ),
+    Action(
         id='table_row_insert_above',
         text='Insert Row &Above',
         callback='on_action_table_row_insert_above',

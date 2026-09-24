@@ -60,6 +60,9 @@ class TextToolBar(PinnedToolBar):
         self.tasks = self.add_button(
             'tasks', 'Put a box to tick off on these lines, or take it off',
             view.on_action_text_tasks)
+        self.task_numbers = self.add_button(
+            'task_numbers', 'Number the tasks, or take the numbers off',
+            view.on_action_text_task_numbers)
         self.title = self.add_button(
             'title', 'Write a title', view.on_action_text_title)
         self.align_left = self.add_button(
