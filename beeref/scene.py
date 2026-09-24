@@ -121,17 +121,39 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         dropped inside itself.
         """
 
-        center = item.mapToScene(item.center)
+        return self.group_at(item.mapToScene(item.center), moving=item)
+
+    def group_at(self, pos, moving=None):
+        """The group whose box holds this point, if any.
+
+        The innermost one, so that something put into a nested group
+        goes into that group; a locked group keeps to itself. ``moving``
+        is an item being put somewhere, which cannot go inside itself.
+        """
+
         candidates = [
             group for group in self.items_by_type('group')
-            if group is not item
-            and not item.isAncestorOf(group)
+            if group is not moving
+            and not (moving is not None and moving.isAncestorOf(group))
             and not group.locked
-            and group.contains_scene_pos(center)]
+            and group.contains_scene_pos(pos)]
         if not candidates:
             return None
-        # Innermost group wins, so dropping into a nested group works
         return max(candidates, key=lambda group: len(self.group_chain(group)))
+
+    def put_in_group_at(self, items, pos):
+        """Put new items into the group under the point they were put at.
+
+        The same as dropping them there: whatever is written, pasted or
+        brought in on top of a group belongs to it, without having to
+        be dragged in afterwards. Returns the group, or None.
+        """
+
+        group = self.group_at(pos)
+        if group is not None and items:
+            logger.debug(f'Putting {len(items)} new items in {group}')
+            self.undo_stack.push(commands.MoveToGroup(self, items, group))
+        return group
 
     def group_chain(self, item):
         """The groups containing the given item, innermost first."""
@@ -248,7 +270,10 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         for item in self.internal_clipboard:
             copy = item.create_copy()
             copies.append(copy)
+        self.undo_stack.beginMacro('Paste items')
         self.undo_stack.push(commands.InsertItems(self, copies, position))
+        self.put_in_group_at(copies, position)
+        self.undo_stack.endMacro()
 
     def stacking_neighbours(self, parent):
         """The items a given item is stacked against.

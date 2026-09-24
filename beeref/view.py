@@ -2479,6 +2479,13 @@ class BeeGraphicsView(MainControlsMixin,
                 msg + IMG_LOADING_ERROR_MSG + errornames)
         self.scene.add_queued_items()
         self.scene.arrange_default()
+        # Laid out first, so that the box of the group they go into
+        # grows round where they finally sit. The new pictures are the
+        # ones selected: everything else was let go before they came.
+        pos = getattr(self, 'insert_images_pos', None)
+        if pos is not None:
+            self.scene.put_in_group_at(
+                self.scene.selectedItems(user_only=True), pos)
         self.undo_stack.endMacro()
         if new_scene:
             self.on_action_fit_scene()
@@ -2488,10 +2495,13 @@ class BeeGraphicsView(MainControlsMixin,
             pos = self.get_view_center()
         self.scene.deselect_all_items()
         self.undo_stack.beginMacro('Insert Images')
+        # Where they were dropped, or where the view is looking: a group
+        # there takes them in once they have arrived
+        self.insert_images_pos = self.mapToScene(pos)
         self.worker = fileio.ThreadedIO(
             fileio.load_images,
             filenames,
-            self.mapToScene(pos),
+            self.insert_images_pos,
             self.scene,
             fit_size=self.new_image_size())
         self.worker.progress.connect(self.on_items_loaded)
@@ -2514,12 +2524,23 @@ class BeeGraphicsView(MainControlsMixin,
             filter=f'Images ({formats})')
         self.do_insert_images(filenames)
 
+    def insert_at(self, items, pos, name):
+        """Put new items on the board, in the group they land on.
+
+        One step of undo, whether a group takes them or not.
+        """
+
+        self.undo_stack.beginMacro(name)
+        self.undo_stack.push(commands.InsertItems(self.scene, items, pos))
+        self.scene.put_in_group_at(items, pos)
+        self.undo_stack.endMacro()
+
     def on_action_insert_text(self):
         self.cancel_active_modes()
         item = BeeTextItem()
         pos = self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
         item.setScale(1 / self.get_scale())
-        self.undo_stack.push(commands.InsertItems(self.scene, [item], pos))
+        self.insert_at([item], pos, 'Insert text')
         # Start editing straight away, with the placeholder selected so
         # that typing replaces it
         item.enter_edit_mode()
@@ -2584,7 +2605,7 @@ class BeeGraphicsView(MainControlsMixin,
         if not img.isNull():
             item = BeePixmapItem(without_pointless_alpha(img))
             item.setScale(item.fit_scale_to(self.new_image_size()))
-            self.undo_stack.push(commands.InsertItems(self.scene, [item], pos))
+            self.insert_at([item], pos, 'Paste image')
             if len(self.scene.items()) == 1:
                 # This is the first image in the scene
                 self.on_action_fit_scene()
@@ -2594,7 +2615,7 @@ class BeeGraphicsView(MainControlsMixin,
         if text:
             item = BeeTextItem(text)
             item.setScale(1 / self.get_scale())
-            self.undo_stack.push(commands.InsertItems(self.scene, [item], pos))
+            self.insert_at([item], pos, 'Paste text')
             return
 
         msg = 'No image data or text in clipboard or image too big'
@@ -2625,7 +2646,7 @@ class BeeGraphicsView(MainControlsMixin,
                 if words:
                     table.cellAt(r, c).firstCursorPosition().insertText(words)
         item.setScale(1 / self.get_scale())
-        self.undo_stack.push(commands.InsertItems(self.scene, [item], pos))
+        self.insert_at([item], pos, 'Paste table')
         logger.info(f'Pasted a table of {len(rows)} rows '
                     f'and {len(rows[0])} columns')
 

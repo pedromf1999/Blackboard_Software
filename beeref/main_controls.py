@@ -18,7 +18,7 @@ import logging
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtCore import Qt
 
-from beeref import commands, widgets
+from beeref import widgets
 from beeref.items import BeePixmapItem, without_pointless_alpha
 from beeref import fileio
 
@@ -106,8 +106,8 @@ class MainControlsMixin:
             img = QtGui.QImage(mimedata.imageData())
             item = BeePixmapItem(without_pointless_alpha(img))
             pos = self.control_target.mapToScene(pos)
-            self.control_target.undo_stack.push(
-                commands.InsertItems(self.control_target.scene, [item], pos))
+            # Dropped on a group, it goes into the group
+            self.control_target.insert_at([item], pos, 'Drop image')
         else:
             logger.info('Drop not an image')
 
