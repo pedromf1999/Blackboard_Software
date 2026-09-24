@@ -1878,22 +1878,75 @@ class BeeGraphicsView(MainControlsMixin,
 
         item = self.scene.edit_item
         if item is None or getattr(item, 'TYPE', None) != 'text':
-            # Nothing being written in, so give the table a note to live
-            # in, empty rather than holding the placeholder word
-            self.on_action_insert_text()
-            item = self.scene.edit_item
-            item.textCursor().removeSelectedText()
+            self.new_table_at(self.mouse_on_board())
+            return
+        self.change_table(item, lambda: item.insert_table())
+
+    def new_table_at(self, pos):
+        """A table on the board, in a note of its own."""
+
+        item = self.new_note_at(pos)
+        # Empty rather than holding the placeholder word
+        item.textCursor().removeSelectedText()
         self.change_table(item, lambda: item.insert_table())
 
     def on_action_insert_tasks(self):
-        """Put a task list on the board, ready to be typed into."""
+        """Put a task list under the mouse, ready to be typed into."""
 
-        self.on_action_insert_text()
-        item = self.scene.edit_item
+        self.new_task_list_at(self.mouse_on_board())
+
+    def new_task_list_at(self, pos):
+        """A task list on the board, ready to be typed into."""
+
+        item = self.new_note_at(pos)
         # Empty rather than holding the placeholder word: the first task
         # is waiting to be written
         item.textCursor().removeSelectedText()
         item.start_task_list()
+
+    def on_tasks_button(self):
+        """The task list button: pick where it goes with the next click.
+
+        The keyboard puts one under the mouse straight away, since the
+        mouse is on the board already. The button cannot: the mouse is
+        on the button, so the list landed on the toolbar.
+        """
+
+        self.set_draw_tool(constants.TASKS_TOOL)
+
+    def on_table_button(self):
+        """The table button: into the note being written, or where next.
+
+        While a note is open for writing, the table goes into it at the
+        text cursor, as it always has. Otherwise the next click on the
+        board says where the table goes.
+        """
+
+        item = self.scene.edit_item
+        if item is not None and getattr(item, 'TYPE', None) == 'text':
+            self.on_action_insert_table()
+            # The button stays pressed only while it is waiting for a
+            # click, and it is not waiting for one
+            if hasattr(self, 'draw_toolbar'):
+                self.draw_toolbar.update_checked(self.draw_tool)
+            return
+        self.set_draw_tool(constants.TABLE_TOOL)
+
+    def put_down_at(self, point):
+        """Put down what the tool in use makes, where it was clicked.
+
+        Inside the group clicked on, if any, the way anything written or
+        pasted on a group goes into it. The tool then steps aside, the
+        way the text tool does: what follows is typing.
+        """
+
+        tool = self.draw_tool
+        self.set_draw_tool(None)
+        pos = self.mapToScene(point)
+        if tool == constants.TASKS_TOOL:
+            self.new_task_list_at(pos)
+        else:
+            self.new_table_at(pos)
 
     def on_action_text_tasks(self):
         """Put boxes on the lines being written, or take them off."""
@@ -2535,18 +2588,29 @@ class BeeGraphicsView(MainControlsMixin,
         self.scene.put_in_group_at(items, pos)
         self.undo_stack.endMacro()
 
-    def on_action_insert_text(self):
+    def mouse_on_board(self):
+        """Where the mouse is, in board coordinates."""
+
+        return self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
+
+    def new_note_at(self, pos):
+        """A new note at a point on the board, open for writing.
+
+        With the placeholder selected, so that typing replaces it.
+        """
+
         self.cancel_active_modes()
         item = BeeTextItem()
-        pos = self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
         item.setScale(1 / self.get_scale())
         self.insert_at([item], pos, 'Insert text')
-        # Start editing straight away, with the placeholder selected so
-        # that typing replaces it
         item.enter_edit_mode()
         cursor = item.textCursor()
         cursor.select(QtGui.QTextCursor.SelectionType.Document)
         item.setTextCursor(cursor)
+        return item
+
+    def on_action_insert_text(self):
+        self.new_note_at(self.mouse_on_board())
 
     def on_action_copy(self):
         logger.debug('Copying to clipboard...')
@@ -2686,6 +2750,8 @@ class BeeGraphicsView(MainControlsMixin,
             return None
         if self.draw_tool == constants.TEXT_TOOL:
             return BeeAssets().cursor_text()
+        if self.draw_tool in constants.PUT_DOWN_TOOLS:
+            return BeeAssets().cursor_tool(self.draw_tool)
         return Qt.CursorShape.CrossCursor
 
     def on_cursor_changed(self, cursor):
@@ -2926,6 +2992,8 @@ class BeeGraphicsView(MainControlsMixin,
         if (self.draw_tool and event.button() == Qt.MouseButton.LeftButton):
             if self.draw_tool == constants.TEXT_TOOL:
                 self.write_note_at(event.pos())
+            elif self.draw_tool in constants.PUT_DOWN_TOOLS:
+                self.put_down_at(event.pos())
             else:
                 self.start_drawing(self.mapToScene(event.pos()))
             event.accept()

@@ -1,4 +1,6 @@
-from PyQt6 import QtGui
+from PyQt6 import QtCore, QtGui
+from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
 
 from beeref.actions import actions
 from beeref.items import BeeTextItem
@@ -26,7 +28,14 @@ def test_insert_table_is_offered_under_insert(view):
 
 
 def test_the_top_bar_can_insert_one(view):
+    """The button waits for a click on the board to say where."""
+
+    view.resize(800, 600)
     view.draw_toolbar.insert_table.click()
+    assert view.scene.item_with_table() is None
+
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, QtCore.QPoint(400, 300))
     item = view.scene.item_with_table()
     assert item is not None
     assert item.current_table().rows() == item.TABLE_ROWS

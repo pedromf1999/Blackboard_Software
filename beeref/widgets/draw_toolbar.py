@@ -94,22 +94,20 @@ class DrawToolBar(QtWidgets.QWidget):
         layout.addSpacing(6)
         layout.addWidget(self.find_text)
 
-        self.insert_tasks = QtWidgets.QToolButton(self)
-        self.insert_tasks.setToolTip('Start a task list (Ctrl+Shift+T)')
-        self.insert_tasks.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
-        self.insert_tasks.setIconSize(
-            QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
-        self.insert_tasks.setIcon(BeeAssets().tool_icon('tasks'))
-        self.insert_tasks.clicked.connect(self.view.on_action_insert_tasks)
+        # Tools like the text tool: pressed, they wait for a click on
+        # the board to say where the task list or the table goes
+        self.insert_tasks = self.tool_button(
+            constants.TASKS_TOOL, 'tasks',
+            'Task list: click where it goes (Ctrl+Shift+T puts one '
+            'under the mouse)',
+            callback=self.view.on_tasks_button)
         layout.addWidget(self.insert_tasks)
 
-        self.insert_table = QtWidgets.QToolButton(self)
-        self.insert_table.setToolTip('Insert a table (Alt+T)')
-        self.insert_table.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
-        self.insert_table.setIconSize(
-            QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
-        self.insert_table.setIcon(BeeAssets().tool_icon('table'))
-        self.insert_table.clicked.connect(self.view.on_action_insert_table)
+        self.insert_table = self.tool_button(
+            constants.TABLE_TOOL, 'table',
+            'Table: click where it goes, or into the note being written '
+            '(Alt+T puts one under the mouse)',
+            callback=self.view.on_table_button)
         layout.addWidget(self.insert_table)
 
         # The colour lives on the bar that follows a selected drawing,
@@ -118,8 +116,12 @@ class DrawToolBar(QtWidgets.QWidget):
         self.update_checked(None)
         self.adjustSize()
 
-    def tool_button(self, kind, icon, tooltip, parent=None):
-        """One tool button, wherever it is going to sit."""
+    def tool_button(self, kind, icon, tooltip, parent=None, callback=None):
+        """One tool button, wherever it is going to sit.
+
+        Pressing it picks the tool, unless something else has to be
+        asked first -- then ``callback`` decides.
+        """
 
         button = QtWidgets.QToolButton(parent or self)
         button.setCheckable(True)
@@ -127,8 +129,11 @@ class DrawToolBar(QtWidgets.QWidget):
         button.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
         button.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         button.setIcon(BeeAssets().tool_icon(icon))
-        button.clicked.connect(
-            lambda checked, kind=kind: self.view.set_draw_tool(kind))
+        if callback is None:
+            button.clicked.connect(
+                lambda checked, kind=kind: self.view.set_draw_tool(kind))
+        else:
+            button.clicked.connect(lambda checked: callback())
         self.buttons[kind] = button
         return button
 

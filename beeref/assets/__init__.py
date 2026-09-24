@@ -213,6 +213,21 @@ class BeeAssets:
             self._cursor_text = QtGui.QCursor(pixmap, 12, 2)
         return self._cursor_text
 
+    def cursor_tool(self, name):
+        """A cursor made of a tool's own icon, pointing at its middle.
+
+        For the tools that put something down where the board is clicked
+        next: it is put down centred on the point, so that is where the
+        cursor points.
+        """
+
+        if not hasattr(self, '_tool_cursors'):
+            self._tool_cursors = {}
+        if name not in self._tool_cursors:
+            pixmap = self.tool_icon(name).pixmap(QtCore.QSize(24, 24))
+            self._tool_cursors[name] = QtGui.QCursor(pixmap, 12, 12)
+        return self._tool_cursors[name]
+
     def cursor_from_image(self, filename, hotspot):
         app = QtWidgets.QApplication.instance()
         scaling = app.primaryScreen().devicePixelRatio()

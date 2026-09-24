@@ -18,13 +18,18 @@ APPNAME = 'Blackboard'
 # The tool that writes notes, alongside the drawing tools. Not a
 # kind of drawing, so it needs a name of its own.
 TEXT_TOOL = 'text'
+# And the ones that put down a task list or a table wherever the board
+# is clicked next. Named after their icons, which are their cursors.
+TASKS_TOOL = 'tasks'
+TABLE_TOOL = 'table'
+PUT_DOWN_TOOLS = (TASKS_TOOL, TABLE_TOOL)
 APPNAME_FULL = f'{APPNAME} Reference Image Viewer'
 
 # Blackboard's own version, unrelated to BeeRef's numbering. It goes up by
 # one on every commit, so the version in the About box names the exact
 # commit a build came from. This is the only place it is written down;
 # pyproject.toml reads it from here.
-VERSION = '9.3'
+VERSION = '9.4'
 
 UPSTREAM_NAME = 'BeeRef'
 WEBSITE = 'https://github.com/rbreu/beeref'
