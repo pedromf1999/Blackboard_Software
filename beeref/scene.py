@@ -63,6 +63,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self.crop_item = None
         # The group whose items can currently be edited individually
         self.active_group = None
+        # What was selected before the latest change, to tell which of a
+        # group and something inside it was chosen last
+        self._selected_before = set()
         # The group highlighted as the drop target during a drag
         self.drop_target = None
         # Original z values of the items being dragged
@@ -681,8 +684,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
         if event.button() == Qt.MouseButton.LeftButton:
             self.event_start = event.scenePos()
-            item_at_pos = self.itemAt(
-                event.scenePos(), self.views()[0].transform())
+            item_at_pos, inside_group = self.item_or_group_inside_at(
+                event.scenePos())
 
             if self.edit_item:
                 if item_at_pos != self.edit_item:
@@ -717,6 +720,18 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 # like a single object again
                 if not self.belongs_to_active_group(item_at_pos):
                     self.exit_group()
+            if inside_group is not None:
+                # The empty inside of a group is board: a selection
+                # rectangle starts here, and nothing is taken up. Qt is
+                # not asked, since it would hand the press to whatever
+                # lies behind the group.
+                self.active_mode = self.RUBBERBAND_MODE
+                keep = (Qt.KeyboardModifier.ControlModifier
+                        | Qt.KeyboardModifier.ShiftModifier)
+                if not event.modifiers() & keep:
+                    self.clearSelection()
+                event.accept()
+                return
             if item_at_pos:
                 self.active_mode = self.MOVE_MODE
             elif self.items():
@@ -726,20 +741,20 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
     def mouseDoubleClickEvent(self, event):
         self.cancel_active_modes()
-        item = self.itemAt(event.scenePos(), self.views()[0].transform())
+        item, inside_group = self.item_or_group_inside_at(event.scenePos())
+        if inside_group is not None:
+            # The empty inside of a group is board, where a double-click
+            # does nothing
+            event.accept()
+            return
         if item:
-            group = self.get_group_ancestor(item)
-            if group is not None and group is not self.active_group:
-                if group.locked:
-                    # A locked group stays closed, so treat the click as
-                    # one on the group itself
-                    item = group
-                else:
-                    # Double-clicking an item inside a group selects that
-                    # item so that it can be moved and scaled on its own.
-                    # Double-clicking it again edits it, as usual.
-                    self.enter_group(group, item)
-                    return
+            # An item in a group is double-clicked like any other now:
+            # there is no group to open first. Only a locked group stays
+            # one piece, and answers for everything in it.
+            locked = [group for group in self.group_chain(item)
+                      if group.locked]
+            if locked:
+                item = locked[-1]
             if self.title_double_clicked(item, event.scenePos()):
                 return
             if self.caption_double_clicked(item, event.scenePos()):
@@ -1005,6 +1020,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             # Ignore events while clearing the scene since the
             # multiselect item will get cleared, too
             return
+        self.let_groups_speak_for_their_contents()
         if self.has_multi_selection():
             self.multi_select_item.fit_selection_area(
                 self.itemsBoundingRect(selection_only=True))
@@ -1013,6 +1029,65 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             self.multi_select_item.bring_to_front()
         if not self.has_multi_selection() and self.multi_select_item.scene():
             self.removeItem(self.multi_select_item)
+
+    def let_groups_speak_for_their_contents(self):
+        """Never keep a group and things inside it selected together.
+
+        Items in a group can be picked out on their own now, so both can
+        end up selected -- and deleting, copying or moving the lot would
+        then do it to the items twice, once themselves and once with
+        their group. Whichever was chosen last stays: an item picked out
+        of a selected group rather than the group, a group chosen over
+        things picked out of it rather than those things. Chosen
+        together, by Select All or a selection rectangle, the group
+        stays, since it carries the rest.
+        """
+
+        before = self._selected_before
+        selected = self.selectedItems()
+        for group in [item for item in selected
+                      if getattr(item, 'TYPE', None) == 'group']:
+            inside = [item for item in selected
+                      if item is not group and group.isAncestorOf(item)]
+            if not inside:
+                continue
+            if group in before and any(item not in before
+                                       for item in inside):
+                group.setSelected(False)
+            else:
+                for item in inside:
+                    item.setSelected(False)
+        self._selected_before = set(self.selectedItems())
+
+    def item_or_group_inside_at(self, pos):
+        """What a press at this point on the board lands on.
+
+        Returns ``(item, group)``: the item under the point as ``itemAt``
+        would find it, or None; and the open group whose empty inside
+        was pressed, or None. A group is taken up by its band only, so
+        ``itemAt`` looks straight through its inside -- to things behind
+        the group, hidden from the eye but not from the mouse. Here the
+        inside stops the search, and counts as empty board.
+        """
+
+        views = self.views()
+        transform = views[0].transform() if views else QtGui.QTransform()
+        item = self.itemAt(pos, transform)
+        insides = [group for group in self.items_by_type('group')
+                   if not group.keeps_contents()
+                   and group.contains_scene_pos(pos)]
+        if not insides:
+            return item, None
+        # Whichever comes first from the top: something pressed, or the
+        # inside of an open group
+        for candidate in self.items(
+                pos, Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                Qt.SortOrder.DescendingOrder, transform):
+            if candidate.contains(candidate.mapFromScene(pos)):
+                return candidate, None
+            if candidate in insides:
+                return None, candidate
+        return item, None
 
     def on_change(self, region):
         if self._clear_ongoing:

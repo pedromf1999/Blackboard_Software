@@ -1468,10 +1468,25 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         return QtCore.QRectF(rect.x(), rect.y(),
                              rect.width(), self.header_height())
 
-    def default_header_color(self):
-        """A band with no colour of its own is the group's colour."""
+    # How far the band of a group with no colour of its own is shaded
+    # away from the box, towards the colour its words are written in
+    BAND_TINT = 0.12
 
-        return self.box_color
+    def default_header_color(self):
+        """A band with no colour of its own: the group's colour, shaded.
+
+        The group is taken up by its band, so the band has to be seen:
+        in the box's own colour an untitled band could not be told from
+        the rest of the box. Shaded towards the colour of its words, so
+        lighter on a dark box and darker on a light one.
+        """
+
+        canvas = QtGui.QColor(
+            self.settings.valueOrDefault('View/canvas_color'))
+        box = blend_over(self.box_color, canvas)
+        tint = QtGui.QColor(readable_grey(box))
+        tint.setAlphaF(self.BAND_TINT)
+        return blend_over(tint, box)
 
     def paint_header(self, painter):
         """Draw the title band and the title in it."""
@@ -1487,28 +1502,77 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         path.addRoundedRect(self.rect(), radius, radius)
         painter.save()
         painter.setClipPath(path)
-        color = self.header_color or self.box_color
+        color = self.header_color or self.default_header_color()
         painter.fillRect(band, QtGui.QBrush(color))
         self.paint_title_text(painter)
         painter.restore()
 
-    def set_children_interactive(self, value):
-        """Whether the items inside the group can be clicked individually.
+    def shows_header(self):
+        """A group always has its band: it is what the group is taken up
+        by. Without a title it is simply empty, one title line high."""
 
-        When switched off, mouse events fall through to the group
-        itself, so that clicking any item selects and moves the whole
-        group.
+        return True
+
+    def keeps_contents(self):
+        """Whether this group, or one it sits in, is locked.
+
+        A locked group is one piece: what is in it cannot be picked out.
+        Checked up the chain, or an item in an open group inside a locked
+        one would get round the lock.
         """
 
+        group = self
+        while group is not None:
+            if getattr(group, 'locked', False):
+                return True
+            group = group.parentItem()
+        return False
+
+    def set_children_interactive(self, value=None):
+        """Let the items inside the group be clicked on their own.
+
+        They always can be now, unless the group is locked: a group is
+        taken up by its band, so a click on anything inside it is a
+        click on that thing. ``value`` is what was asked for when groups
+        had to be opened first, and no longer decides anything.
+        """
+
+        interactive = not self.keeps_contents()
         for item in self.bee_children():
             item.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
-                value)
+                interactive)
             item.setFlag(
                 QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
-                value)
-            if not value:
+                interactive)
+            if not interactive:
                 item.setSelected(False)
+            if getattr(item, 'TYPE', None) == self.TYPE:
+                # Locking an outer group closes the ones inside it too
+                item.set_children_interactive()
+
+    def shape(self):
+        """Where a press takes the group up: its band.
+
+        And its corner handles while it is selected, to size and turn it
+        by. The inside of the box is left to what is in it, and a press
+        on its empty part is a press on the board -- see
+        BeeGraphicsScene.item_or_group_inside_at. A locked group is one
+        piece, and answers everywhere.
+        """
+
+        if self.keeps_contents():
+            return super().shape()
+        path = QtGui.QPainterPath()
+        path.addRect(self.header_rect())
+        if self.has_selection_handles():
+            for corner in self.corners:
+                path.addPath(self.get_scale_bounds(corner))
+                path.addPath(self.get_rotate_bounds(corner))
+        # Overlapping pieces all count as inside, rather than cancelling
+        # each other out the way Qt's usual rule has them do
+        path.setFillRule(Qt.FillRule.WindingFill)
+        return path
 
     def contains_scene_pos(self, pos):
         """Whether the given scene position falls inside the box."""

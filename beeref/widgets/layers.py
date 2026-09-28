@@ -257,8 +257,11 @@ class LayersTree(QtWidgets.QTreeWidget):
 
         if not hasattr(item, 'box_color'):
             return None
-        if getattr(item, 'title', '') and hasattr(
-                item, 'visible_header_color'):
+        # Only a band given a colour of its own: one without is a shade
+        # of the group's, there to be seen on the canvas, and the
+        # group's own colour is the one it was given
+        if (getattr(item, 'title', '') and getattr(item, 'header_color', None)
+                and hasattr(item, 'visible_header_color')):
             return item.visible_header_color()
         # Translucent boxes show the canvas through them, so use the
         # colour they actually appear as

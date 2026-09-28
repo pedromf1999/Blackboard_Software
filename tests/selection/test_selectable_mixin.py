@@ -1346,7 +1346,8 @@ def test_shift_click_adds_a_second_group(view):
     view.on_action_fit_scene()
     first.setSelected(True)
 
-    click_at(view, second.mapToScene(second.rect().center()),
+    # By its band, which is what a group is taken up by
+    click_at(view, second.mapToScene(second.header_rect().center()),
              Qt.KeyboardModifier.ShiftModifier)
 
     assert second.isSelected() is True

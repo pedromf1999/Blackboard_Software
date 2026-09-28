@@ -1555,15 +1555,41 @@ def test_on_context_menu_over_group(exec_mock, view):
     exec_mock.assert_called_once()
 
 
-def test_get_group_at_returns_group_for_child(view):
+def grouped_note(view):
+    view.resize(800, 600)
     item = BeeTextItem('one')
     view.scene.addItem(item)
     item.setSelected(True)
     view.on_action_group_items()
     group = list(view.scene.items_by_type('group'))[0]
+    view.scene.clearSelection()
+    view.on_action_fit_scene()
+    return group, item
 
-    with patch.object(view.scene, 'items', return_value=[item, group]):
-        assert view.get_group_at(QtCore.QPoint(0, 0)) is group
+
+def test_get_group_at_is_found_by_its_band(view):
+    group, item = grouped_note(view)
+    band = view.mapFromScene(group.mapToScene(group.header_rect().center()))
+
+    assert view.get_group_at(band) is group
+
+
+def test_get_group_at_leaves_what_is_inside_an_open_group_alone(view):
+    """What is inside a group answers for itself."""
+
+    group, item = grouped_note(view)
+    on_item = view.mapFromScene(item.mapToScene(item.boundingRect().center()))
+
+    assert view.get_group_at(on_item) is None
+
+
+def test_get_group_at_finds_a_locked_group_anywhere(view):
+    group, item = grouped_note(view)
+    group.locked = True
+    group.set_children_interactive()
+    on_item = view.mapFromScene(item.mapToScene(item.boundingRect().center()))
+
+    assert view.get_group_at(on_item) is group
 
 
 def test_get_group_at_ignores_open_group(view):
@@ -3370,8 +3396,11 @@ def test_the_text_tool_writes_inside_the_group_clicked(view):
     view.scene.deselect_all_items()
 
     view.on_action_text_tool()
-    centre = view.mapFromScene(group.sceneBoundingRect().center())
-    view.write_note_at(centre)
+    # An empty spot inside the box: its bottom margin, clear of both
+    # notes and of the band across the top
+    empty = group.mapToScene(QtCore.QPointF(
+        group.rect().center().x(), group.rect().bottom() - 3))
+    view.write_note_at(view.mapFromScene(empty))
 
     assert len(group.bee_children()) == 3
 

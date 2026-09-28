@@ -731,34 +731,36 @@ def test_get_group_ancestor_when_nested(view):
     assert view.scene.get_group_ancestor(item1) is group
 
 
-def test_enter_group_makes_items_editable(view):
+def test_items_in_a_group_can_be_picked_out_straight_away(view):
+    """A group is taken up by its band; what is in it answers for
+    itself, with no group to open first."""
+
     group, item1, item2 = make_group_in_scene(view)
-    assert bool(item1.flags() & SELECTABLE) is False
+    assert bool(item1.flags() & SELECTABLE) is True
+
+
+def test_enter_group_selects_the_item(view):
+    group, item1, item2 = make_group_in_scene(view)
 
     view.scene.enter_group(group, item1)
     assert view.scene.active_group is group
-    assert bool(item1.flags() & SELECTABLE) is True
     assert item1.isSelected() is True
     assert item1.parentItem() is group
 
 
-def test_exit_group_restores_group_behaviour(view):
+def test_leaving_a_group_leaves_its_items_open(view):
     group, item1, item2 = make_group_in_scene(view)
     view.scene.enter_group(group, item1)
     view.scene.exit_group()
     assert view.scene.active_group is None
-    assert bool(item1.flags() & SELECTABLE) is False
-    assert item1.isSelected() is False
+    assert bool(item1.flags() & SELECTABLE) is True
 
 
-def test_enter_group_leaves_previous_group(view):
-    group1, item1, item2 = make_group_in_scene(view)
-    group2, item3, item4 = make_group_in_scene(view)
-    view.scene.enter_group(group1, item1)
-    view.scene.enter_group(group2, item3)
-    assert view.scene.active_group is group2
+def test_the_items_of_a_locked_group_cannot_be_picked_out(view):
+    group, item1, item2 = make_group_in_scene(view)
+    group.locked = True
+    group.set_children_interactive()
     assert bool(item1.flags() & SELECTABLE) is False
-    assert bool(item3.flags() & SELECTABLE) is True
 
 
 def test_deselect_all_items_exits_group(view):
@@ -1266,29 +1268,34 @@ def test_mouse_doubleclick_event_when_over_item(mouse_mock, view, item):
 
 
 @patch('PyQt6.QtWidgets.QGraphicsScene.mousePressEvent')
-def test_mouse_doubleclick_on_item_in_group_enters_group(press_mock, view):
+def test_mouse_doubleclick_on_item_in_group_edits_it_straight_away(
+        press_mock, view):
+    """No group to open first: the first double-click edits."""
+
     group, item1, item2 = make_group_in_scene(view)
     item1.enter_edit_mode = MagicMock()
     event = MagicMock()
+    event.scenePos.return_value = item1.mapToScene(
+        item1.boundingRect().center())
     view.scene.itemAt = MagicMock(return_value=item1)
 
     view.scene.mouseDoubleClickEvent(event)
-    assert view.scene.active_group is group
     assert item1.isSelected() is True
-    # The first double click opens the group, it doesn't edit yet
-    item1.enter_edit_mode.assert_not_called()
+    item1.enter_edit_mode.assert_called_once_with()
 
 
 @patch('PyQt6.QtWidgets.QGraphicsScene.mousePressEvent')
-def test_mouse_doubleclick_in_open_group_edits_text(press_mock, view):
+def test_mouse_doubleclick_in_a_group_twice_edits_text(press_mock, view):
     group, item1, item2 = make_group_in_scene(view)
     item1.enter_edit_mode = MagicMock()
     event = MagicMock()
+    event.scenePos.return_value = item1.mapToScene(
+        item1.boundingRect().center())
     view.scene.itemAt = MagicMock(return_value=item1)
 
     view.scene.mouseDoubleClickEvent(event)
     view.scene.mouseDoubleClickEvent(event)
-    item1.enter_edit_mode.assert_called_once_with()
+    assert item1.enter_edit_mode.call_count == 2
 
 
 @patch('PyQt6.QtWidgets.QGraphicsScene.mousePressEvent')

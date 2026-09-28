@@ -129,20 +129,38 @@ def test_fit_to_children_without_children(qapp):
 
 
 def test_set_children_interactive(view):
+    """Only a locked group keeps its contents from being picked out:
+    what is asked for no longer decides it."""
+
     group, items = make_group(view, (0, 0), (0, 80))
     flag = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
 
     group.set_children_interactive(False)
-    assert all(not bool(item.flags() & flag) for item in items)
-    group.set_children_interactive(True)
     assert all(bool(item.flags() & flag) for item in items)
+
+    group.locked = True
+    group.set_children_interactive(True)
+    assert all(not bool(item.flags() & flag) for item in items)
 
 
 def test_set_children_interactive_deselects(view):
     group, items = make_group(view, (0, 0))
     items[0].setSelected(True)
-    group.set_children_interactive(False)
+    group.locked = True
+    group.set_children_interactive()
     assert items[0].isSelected() is False
+
+
+def test_a_lock_on_an_outer_group_closes_the_ones_inside(view):
+    outer, items = make_group(view, (0, 0))
+    inner, inner_items = make_group(view, (200, 0))
+    inner.setParentItem(outer)
+    flag = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+    outer.locked = True
+    outer.set_children_interactive()
+
+    assert not inner_items[0].flags() & flag
 
 
 def test_drop_target_defaults_to_false(qapp):
@@ -206,14 +224,23 @@ def test_create_copy(view):
     assert copy.bee_children()[0] is not items[0]
 
 
-def test_create_copy_locks_children_into_the_copy(view):
+def test_create_copy_locks_children_into_a_locked_copy(view):
     group, items = make_group(view, (0, 0), (0, 80))
-    group.set_children_interactive(False)
+    group.locked = True
+    group.set_children_interactive()
 
     copy = group.create_copy()
     flag = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
     assert all(not bool(child.flags() & flag)
                for child in copy.bee_children())
+
+
+def test_the_contents_of_an_open_copy_can_be_picked_out(view):
+    group, items = make_group(view, (0, 0), (0, 80))
+
+    copy = group.create_copy()
+    flag = QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+    assert all(bool(child.flags() & flag) for child in copy.bee_children())
 
 
 def test_create_copy_copies_nested_groups(view):

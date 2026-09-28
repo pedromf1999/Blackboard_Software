@@ -448,15 +448,14 @@ class BeeGraphicsView(MainControlsMixin,
         return None
 
     def group_to_write_in(self, point, scene_pos):
-        """The group a new note clicked here should go into, if any."""
+        """The group a new note clicked here should go into, if any.
 
-        item_at = self.scene.itemAt(scene_pos, self.transform())
-        if getattr(item_at, 'TYPE', None) == BeeGroupItem.TYPE:
-            return item_at
-        under = self.get_item_at(point)
-        if under is not None:
-            return self.scene.get_group_ancestor(under)
-        return None
+        Found by its box, the way anything put on a group is: a click on
+        its empty inside reaches no group item any more, since a group
+        is taken up by its band.
+        """
+
+        return self.scene.group_at(scene_pos)
 
     def edit_note(self, item, scene_pos, group):
         """Open a note that is already there, at the word clicked on."""
@@ -917,18 +916,23 @@ class BeeGraphicsView(MainControlsMixin,
             return item
 
     def get_group_at(self, point):
-        """The group at the given view position, if any.
+        """The group a click at the given view position is about, if any.
 
-        Items inside a group count as the group itself, unless the group
-        has been opened up for editing.
+        An open group by its band, which is what it is taken up by: what
+        is inside it answers for itself. A locked group anywhere, since
+        it is one piece -- the outermost locked one, if they are nested.
         """
 
-        for item in self.scene.items(self.mapToScene(point)):
-            group = self.scene.get_group_ancestor(item)
-            if group is not None and group is not self.scene.active_group:
-                return group
-            if getattr(item, 'TYPE', None) == BeeGroupItem.TYPE:
-                return item
+        item, _inside = self.scene.item_or_group_inside_at(
+            self.mapToScene(point))
+        if item is None:
+            return None
+        locked = [group for group in self.scene.group_chain(item)
+                  if group.locked]
+        if locked:
+            return locked[-1]
+        if getattr(item, 'TYPE', None) == BeeGroupItem.TYPE:
+            return item
         return None
 
     def on_context_menu(self, point):
@@ -1230,6 +1234,8 @@ class BeeGraphicsView(MainControlsMixin,
         for group in groups:
             logger.debug(f'Setting locked for {group} to {checked}')
             group.locked = checked
+            # What is inside can be picked out on its own, or no longer
+            group.set_children_interactive()
             group.touch()
             if checked and self.scene.active_group is group:
                 self.scene.exit_group()
