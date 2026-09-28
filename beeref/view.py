@@ -36,7 +36,7 @@ from beeref.fileio.export import exporter_registry, ImagesToDirectoryExporter
 from beeref import widgets
 from beeref.items import (
     BeeDrawItem, BeeGroupItem, BeePixmapItem, BeeTextItem,
-    without_pointless_alpha)
+    in_reading_order, passages, without_pointless_alpha)
 from beeref.main_controls import MainControlsMixin
 from beeref.scene import BeeGraphicsScene
 from beeref.utils import get_file_extension_from_format, qcolor_to_hex
@@ -2652,10 +2652,20 @@ class BeeGraphicsView(MainControlsMixin,
         # image copied before it.
         mimedata = QtCore.QMimeData()
 
-        # At the moment, we can only copy one image to the global
-        # clipboard. (Later, we might create an image of the whole
-        # selection for external copying.)
-        items[0].add_to_mimedata(mimedata)
+        # What other applications are handed. A picture on its own goes
+        # as a picture. Anything else goes as its words, all of them in
+        # the order they are read: a group's title over what it holds,
+        # a list with its dashes, and a task list with its boxes and
+        # numbers, so that pasting it elsewhere keeps all of it. Only a
+        # selection with no words at all falls back to a picture.
+        text = ''
+        if not (len(items) == 1 and items[0].is_image):
+            text = passages(item.text_for_other_programs()
+                            for item in in_reading_order(items))
+        if text:
+            mimedata.setText(text)
+        else:
+            items[0].add_to_mimedata(mimedata)
 
         # The marker tells us to look up the internal clipboard when
         # pasting, which is where all of the items are kept

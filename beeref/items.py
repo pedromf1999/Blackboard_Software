@@ -72,6 +72,49 @@ def sort_by_filename(items):
     return items_by_filename + items_by_save_id + items_remaining
 
 
+def in_reading_order(items):
+    """Items in the order they are read: rows from the top, each row
+    from the left.
+
+    An item joins a row when its top is above the middle of the row's
+    first item, so that notes laid side by side are read across even
+    when their tops are not quite level.
+    """
+
+    rows = []
+    for item in sorted(items, key=lambda i: i.sceneBoundingRect().top()):
+        if (rows and item.sceneBoundingRect().top()
+                < rows[-1][0].sceneBoundingRect().center().y()):
+            rows[-1].append(item)
+        else:
+            rows.append([item])
+    return [item for row in rows
+            for item in sorted(row,
+                               key=lambda i: i.sceneBoundingRect().left())]
+
+
+def passages(texts):
+    """Pieces of writing one after another, a blank line between them.
+
+    Empty ones are left out, so an item with nothing to say leaves no
+    gap behind.
+    """
+
+    return '\n\n'.join(text.strip('\n') for text in texts if text.strip())
+
+
+def plain_words(text):
+    """A paragraph's words as other programs read them.
+
+    Qt keeps a line broken with Shift+Enter, a space that does not
+    break, and a picture in the text as characters of its own, which
+    its own plain text turns into ordinary ones. So does this.
+    """
+
+    return (text.replace(' ', '\n').replace('\xa0', ' ')
+            .replace('￼', ''))
+
+
 # A picture with fewer see-through pixels than this is treated as
 # having none. Antialiasing along an edge leaves a few; a picture that
 # really is cut out leaves a great many.
@@ -299,6 +342,15 @@ class BeeItemMixin(SelectableMixin):
 
     def get_default_name(self):
         return 'Item'
+
+    def text_for_other_programs(self):
+        """What the item says, written out for another application.
+
+        Copying hands this to whatever is pasted into outside the
+        board. Nothing, for an item without words.
+        """
+
+        return ''
 
     def set_pos_center(self, pos):
         """Sets the position using the item's center as the origin point."""
@@ -1654,6 +1706,14 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         # Nothing sensible to hand to other applications
         pass
 
+    def text_for_other_programs(self):
+        """Its title, over what it holds in the order it is read."""
+
+        return passages(
+            [self.title]
+            + [child.text_for_other_programs()
+               for child in in_reading_order(self.bee_children())])
+
 
 class ImageCaptionEditor(QtWidgets.QGraphicsTextItem):
     """The line an image's caption is typed into, on the picture itself.
@@ -2006,6 +2066,9 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
     def search_text(self):
         """What Find looks through: the caption along the bottom."""
 
+        return self.caption
+
+    def text_for_other_programs(self):
         return self.caption
 
     def search_rect(self, query):
@@ -5182,7 +5245,86 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return super().sceneEvent(event)
 
     def add_to_mimedata(self, mimedata):
-        mimedata.setText(self.toPlainText())
+        mimedata.setText(self.text_for_other_programs())
+
+    # How a task is marked in words, where there is no box to draw
+    TASK_TO_DO_TEXT = '☐'
+    TASK_DONE_TEXT = '☑'
+
+    def text_for_other_programs(self):
+        """The note as plain text, with what is drawn in front of lines.
+
+        Qt's own plain text has only what was typed, so a list lost its
+        dashes, a task list its boxes and its numbers, and a numbered
+        list its numbers -- pasted elsewhere, a list was no longer a
+        list. Here each line carries them as words, the title goes on
+        top, and a table's rows go one to a line with a tab between the
+        cells, which is how other programs take a table as text.
+        """
+
+        lines = []
+        count = 0
+        done_table = None
+        block = self.document().begin()
+        while block.isValid():
+            table = QtGui.QTextCursor(block).currentTable()
+            if table is not None:
+                # Written whole at its first paragraph, and passed over
+                # for the rest of them
+                if table.firstPosition() != done_table:
+                    done_table = table.firstPosition()
+                    lines.extend(self.table_as_text(table))
+                block = block.next()
+                continue
+            words = plain_words(block.text())
+            level = self.list_level(block)
+            indent = '\t' * max(0, level - 1)
+            if self.is_task(block):
+                if self.task_is_done(block):
+                    front = f'{self.TASK_DONE_TEXT} '
+                else:
+                    # The same count as the numbers drawn on the note
+                    count += 1
+                    front = f'{self.TASK_TO_DO_TEXT} '
+                    if self.tasks_numbered:
+                        front += f'{count}. '
+                lines.append(indent + front + words)
+            elif level:
+                text_list = block.textList()
+                if text_list.format().style() in self.LIST_BULLETS:
+                    front = self.LIST_START
+                else:
+                    front = f'{text_list.itemText(block)} '
+                lines.append(indent + front + words)
+            else:
+                lines.append(words)
+            block = block.next()
+        return passages([self.title, '\n'.join(lines)])
+
+    def table_as_text(self, table):
+        """A table's rows, each a line with a tab between its cells.
+
+        A cell merged over others is written once, where it starts, and
+        the ones it covers are left empty, so that every row still has
+        its cells under the right columns.
+        """
+
+        rows = []
+        for r in range(table.rows()):
+            cells = []
+            for c in range(table.columns()):
+                cell = table.cellAt(r, c)
+                if cell.row() != r or cell.column() != c:
+                    cells.append('')
+                    continue
+                cursor = cell.firstCursorPosition()
+                cursor.setPosition(cell.lastCursorPosition().position(),
+                                   QtGui.QTextCursor.MoveMode.KeepAnchor)
+                # A cell is one field: its paragraphs run on in it
+                words = cursor.selectedText().replace(' ', ' ')
+                cells.append(plain_words(words).replace('\n', ' '))
+            rows.append('\t'.join(cells))
+        return rows
 
 
 @register_item
