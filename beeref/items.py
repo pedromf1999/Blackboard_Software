@@ -20,6 +20,7 @@ text).
 from collections import defaultdict
 import datetime
 from functools import cached_property
+import html
 import logging
 import math
 import os.path
@@ -111,8 +112,8 @@ def plain_words(text):
     its own plain text turns into ordinary ones. So does this.
     """
 
-    return (text.replace(' ', '\n').replace('\xa0', ' ')
-            .replace('￼', ''))
+    return (text.replace('\u2028', '\n').replace('\xa0', ' ')
+            .replace('\ufffc', ''))
 
 
 # A picture with fewer see-through pixels than this is treated as
@@ -5141,7 +5142,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if self.list_key_press(event):
             event.accept()
         else:
-            super().keyPressEvent(event)
+            if self.copy_key_press(event):
+                event.accept()
+            else:
+                super().keyPressEvent(event)
             if event.key() == Qt.Key.Key_Space:
                 self.start_list_if_typed()
             self.tidy_task()
@@ -5262,10 +5266,20 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         cells, which is how other programs take a table as text.
         """
 
+        lines = self.lines_for_other_programs(self.document())
+        return passages([self.title, '\n'.join(lines)])
+
+    def lines_for_other_programs(self, document, count=0):
+        """Each line of a document with its dash, box or number.
+
+        The document is the note's own, or the part of it picked out to
+        be copied; ``count`` is how many tasks still to do come before
+        it, so that a part keeps the numbers it shows on the note.
+        """
+
         lines = []
-        count = 0
         done_table = None
-        block = self.document().begin()
+        block = document.begin()
         while block.isValid():
             table = QtGui.QTextCursor(block).currentTable()
             if table is not None:
@@ -5299,7 +5313,121 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             else:
                 lines.append(words)
             block = block.next()
-        return passages([self.title, '\n'.join(lines)])
+        return lines
+
+    def copy_key_press(self, event):
+        """Answer Copy and Cut while writing, when Qt's own would lose out.
+
+        Qt hands other programs only the words typed: copying a task
+        list from inside a note left its numbers and its title behind.
+        A stretch within one line has neither to lose, so that is still
+        left to Qt. Returns whether the key was answered here.
+        """
+
+        cut = event.matches(QtGui.QKeySequence.StandardKey.Cut)
+        if not (cut or event.matches(QtGui.QKeySequence.StandardKey.Copy)):
+            return False
+        mimedata = self.selection_for_other_programs()
+        if mimedata is None:
+            return False
+        QtWidgets.QApplication.clipboard().setMimeData(mimedata)
+        if cut:
+            cursor = self.textCursor()
+            cursor.removeSelectedText()
+            self.setTextCursor(cursor)
+        return True
+
+    def selection_for_other_programs(self):
+        """The words picked out while writing, the way the note shows them.
+
+        Plain text for programs that take only that, and a page for the
+        ones that take more -- a browser, a word processor, an email --
+        with the words formatted as they are here and each task written
+        out with its box and number in front. Picking out the whole
+        note brings its title along, as copying it from the board does.
+        None for a stretch within one line.
+        """
+
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            return None
+        document = self.document()
+        start = cursor.selectionStart()
+        whole = (start == 0
+                 and cursor.selectionEnd() >= document.characterCount() - 1)
+        first = document.findBlock(start)
+        if not whole and first == document.findBlock(cursor.selectionEnd()):
+            return None
+
+        # Put straight into a document of its own: passed through HTML,
+        # a list at the very top loses its first item's box
+        picked = QtGui.QTextDocument()
+        picked.setDefaultFont(document.defaultFont())
+        QtGui.QTextCursor(picked).insertFragment(cursor.selection())
+        first_line = picked.firstBlock()
+        if (start > 0 and picked.blockCount() > 1 and not first_line.text()
+                and not self.is_task(first_line)):
+            # Qt starts a part picked out below the top with an empty
+            # line of its own. Taking the line away this way leaves the
+            # one after it with its box and its place in the list.
+            QtGui.QTextCursor(picked).deleteChar()
+        # The part keeps the numbers it has on the note
+        count = len([block for block in self.task_blocks(done=False)
+                     if block.position() < first.position()])
+        title = self.title if whole else ''
+
+        mimedata = QtCore.QMimeData()
+        lines = self.lines_for_other_programs(picked, count)
+        mimedata.setText(passages([title, '\n'.join(lines)]))
+        self.write_task_marks(picked, count)
+        page = picked.toHtml()
+        if title:
+            body = page.find('>', page.find('<body')) + 1
+            page = (page[:body] + f'\n<p><b>{html.escape(title)}</b></p>'
+                    + page[body:])
+        mimedata.setHtml(page)
+        return mimedata
+
+    def write_task_marks(self, document, count=0):
+        """Put each task's box and number into its words.
+
+        Other programs know nothing of a box drawn in front of a line,
+        and Qt hands a task over as a plain list item: pasted, a task
+        list came out as dots. Written into the words, they arrive.
+        """
+
+        block = document.begin()
+        while block.isValid():
+            if self.is_task(block):
+                if self.task_is_done(block):
+                    front = f'{self.TASK_DONE_TEXT} '
+                else:
+                    count += 1
+                    front = f'{self.TASK_TO_DO_TEXT} '
+                    if self.tasks_numbered:
+                        front += f'{count}. '
+                level = self.list_level(block)
+                cursor = QtGui.QTextCursor(block)
+                if block.textList() is not None:
+                    block.textList().remove(block)
+                fmt = cursor.blockFormat()
+                fmt.setMarker(self.NO_MARK)
+                fmt.setIndent(max(0, level - 1))
+                # The room kept for a drawn number, and above the
+                # finished ones for their strip, mean nothing elsewhere
+                fmt.setLeftMargin(0)
+                fmt.setTopMargin(0)
+                cursor.setBlockFormat(fmt)
+                # Looking like the words after it, but never struck
+                # through: a finished task's box is not crossed out
+                look = QtGui.QTextCursor(block)
+                if block.length() > 1:
+                    look.movePosition(
+                        QtGui.QTextCursor.MoveOperation.NextCharacter)
+                char = look.charFormat()
+                char.setFontStrikeOut(False)
+                cursor.insertText(front, char)
+            block = block.next()
 
     def table_as_text(self, table):
         """A table's rows, each a line with a tab between its cells.
@@ -5321,7 +5449,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 cursor.setPosition(cell.lastCursorPosition().position(),
                                    QtGui.QTextCursor.MoveMode.KeepAnchor)
                 # A cell is one field: its paragraphs run on in it
-                words = cursor.selectedText().replace(' ', ' ')
+                words = cursor.selectedText().replace('\u2029', ' ')
                 cells.append(plain_words(words).replace('\n', ' '))
             rows.append('\t'.join(cells))
         return rows

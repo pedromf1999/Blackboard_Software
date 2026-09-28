@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
 
 from beeref import commands
 from beeref.items import BeeGroupItem, BeePixmapItem, BeeTextItem
@@ -194,3 +195,107 @@ def test_words_win_over_a_picture_beside_them(clipboard_mock, view):
     mimedata = copied(clipboard_mock, view,
                       [picture(view), note(view, 'about it', 300, 0)])
     assert mimedata.text() == 'about it'
+
+
+# Copying from inside a note, while writing in it
+
+def control(key):
+    return QtGui.QKeyEvent(QtCore.QEvent.Type.KeyPress, key,
+                           Qt.KeyboardModifier.ControlModifier, '')
+
+
+def pick(item, start, end):
+    cursor = item.textCursor()
+    cursor.setPosition(start)
+    cursor.setPosition(end, QtGui.QTextCursor.MoveMode.KeepAnchor)
+    item.setTextCursor(cursor)
+
+
+def written_list(view):
+    """A titled, numbered task list with one task done, being written."""
+
+    item = task_note(view, 'sketch\nmodel\nrender\nprint')
+    item.set_tasks_numbered(True)
+    item.set_task_done(item.task_blocks()[1], True)
+    item.title = 'Chair'
+    item.enter_edit_mode()
+    return item
+
+
+@patch('PyQt6.QtWidgets.QApplication.clipboard')
+def test_copying_a_whole_note_while_writing_keeps_everything(
+        clipboard_mock, view):
+    item = written_list(view)
+    pick(item, 0, item.document().characterCount() - 1)
+    item.keyPressEvent(control(Qt.Key.Key_C))
+
+    mimedata = clipboard_mock.return_value.setMimeData.call_args[0][0]
+    assert mimedata.text() == (
+        'Chair\n\n☐ 1. sketch\n☐ 2. render\n☐ 3. print\n☑ model')
+    # And a page with them, for programs that take formatted words
+    page = mimedata.html()
+    assert '<b>Chair</b>' in page
+    for line in ('☐ 1. sketch', '☐ 2. render', '☐ 3. print'):
+        assert line in page
+    assert 'class="unchecked"' not in page
+
+
+@patch('PyQt6.QtWidgets.QApplication.clipboard')
+def test_part_of_a_list_keeps_the_numbers_it_shows(clipboard_mock, view):
+    item = written_list(view)
+    render = item.task_blocks(done=False)[1]
+    last = item.task_blocks(done=False)[2]
+    pick(item, render.position(), last.position() + len(last.text()))
+    item.keyPressEvent(control(Qt.Key.Key_C))
+
+    mimedata = clipboard_mock.return_value.setMimeData.call_args[0][0]
+    assert mimedata.text() == '☐ 2. render\n☐ 3. print'
+    assert mimedata.html().count('<p') == 2
+
+
+@patch('PyQt6.QtWidgets.QApplication.clipboard')
+def test_control_c_in_a_window_reaches_the_note(
+        clipboard_mock, main_window, view, qtbot):
+    """Through the window, where the menu's Copy has Ctrl+C as well."""
+
+    main_window.show()
+    qtbot.waitExposed(main_window)
+    view.on_action_insert_tasks()
+    item = view.scene.edit_item
+    for number, words in enumerate(['sketch', 'model']):
+        if number:
+            QTest.keyClick(view.viewport(), Qt.Key.Key_Return)
+        QTest.keyClicks(view.viewport(), words)
+    item.set_tasks_numbered(True)
+    item.title = 'Chair'
+    pick(item, 0, item.document().characterCount() - 1)
+    QTest.keyClick(view.viewport(), Qt.Key.Key_C,
+                   Qt.KeyboardModifier.ControlModifier)
+
+    mimedata = clipboard_mock.return_value.setMimeData.call_args[0][0]
+    assert mimedata.text() == 'Chair\n\n☐ 1. sketch\n☐ 2. model'
+    # Still writing: the menu's Copy would have ended that
+    assert item.edit_mode is True
+
+
+@patch('PyQt6.QtWidgets.QApplication.clipboard')
+def test_a_stretch_of_one_line_is_left_to_qt(clipboard_mock, view):
+    item = written_list(view)
+    start = item.task_blocks(done=False)[0].position()
+    pick(item, start + 1, start + 4)
+    assert item.copy_key_press(control(Qt.Key.Key_C)) is False
+
+
+@patch('PyQt6.QtWidgets.QApplication.clipboard')
+def test_cutting_takes_the_words_away_with_their_marks(clipboard_mock, view):
+    item = task_note(view, 'one\ntwo\nthree')
+    item.set_tasks_numbered(True)
+    item.enter_edit_mode()
+    two = item.task_blocks()[1]
+    three = item.task_blocks()[2]
+    pick(item, two.position(), three.position() + len(three.text()))
+    item.keyPressEvent(control(Qt.Key.Key_X))
+
+    mimedata = clipboard_mock.return_value.setMimeData.call_args[0][0]
+    assert mimedata.text() == '☐ 2. two\n☐ 3. three'
+    assert 'three' not in item.toPlainText()
