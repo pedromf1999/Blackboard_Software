@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtCore import Qt
 
-from beeref.items import BeePixmapItem, item_registry
+from beeref.items import BeeDrawItem, BeePixmapItem, item_registry
 
 
 def test_in_item_registry():
@@ -416,6 +416,60 @@ def test_create_copy(qapp, imgfilename3x3):
     assert copy.crop == QtCore.QRectF(10, 20, 30, 40)
     assert copy.opacity() == 0.7
     assert copy.grayscale is True
+
+
+def test_a_copy_keeps_the_caption_and_the_rest_of_the_look(qapp):
+    item = BeePixmapItem(QtGui.QImage(200, 100,
+                                      QtGui.QImage.Format.Format_RGB32))
+    item.caption = 'Chair, oak, 1962'
+    item.caption_color = QtGui.QColor(10, 120, 200)
+    item.band_scale = 1.5
+    item.outline_width = 4
+    item.outline_color = QtGui.QColor(200, 30, 30)
+    item.set_stretch(2, 1)
+
+    copy = item.create_copy()
+    assert copy.caption == 'Chair, oak, 1962'
+    assert copy.caption_color == QtGui.QColor(10, 120, 200)
+    assert copy.band_scale == 1.5
+    assert copy.outline_width == 4
+    assert copy.outline_color == QtGui.QColor(200, 30, 30)
+    assert copy.stretch == (2, 1)
+    # Its own colours, not the original's to change
+    item.caption_color.setRed(0)
+    assert copy.caption_color.red() == 10
+
+
+def test_a_copy_keeps_what_was_sketched_on_it(qapp):
+    item = BeePixmapItem(QtGui.QImage(200, 100,
+                                      QtGui.QImage.Format.Format_RGB32))
+    sketch = BeeDrawItem(points=[[0, 0], [30, 20]], kind=BeeDrawItem.SKETCH)
+    sketch.setParentItem(item)
+    sketch.setPos(50, 40)
+
+    copy = item.create_copy()
+    [copied_sketch] = [child for child in copy.childItems()
+                       if isinstance(child, BeeDrawItem)]
+    assert copied_sketch is not sketch
+    assert copied_sketch.pos() == QtCore.QPointF(50, 40)
+    assert copied_sketch.points == sketch.points
+    # The original keeps its own
+    assert sketch.parentItem() is item
+
+
+def test_a_copied_picture_pasted_keeps_its_caption(view):
+    item = BeePixmapItem(QtGui.QImage(200, 100,
+                                      QtGui.QImage.Format.Format_RGB32))
+    item.caption = 'Chair, oak, 1962'
+    view.scene.addItem(item)
+    view.scene.clearSelection()
+    item.setSelected(True)
+    view.scene.copy_selection_to_internal_clipboard()
+
+    view.scene.paste_from_internal_clipboard(QtCore.QPointF(500, 500))
+    [pasted] = view.scene.selectedItems(user_only=True)
+    assert pasted is not item
+    assert pasted.caption == 'Chair, oak, 1962'
 
 
 def test_color_gamut_finds_colors(qapp):

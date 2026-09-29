@@ -2432,6 +2432,13 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.setPixmap(pixmap)
 
     def create_copy(self):
+        """The same picture, looking the same: everything a file keeps.
+
+        Its caption, with its colour and size, its outline, a stretch,
+        and what was sketched on it, which it carries the way a group
+        carries what is inside it. The copy used to come without them.
+        """
+
         item = BeePixmapItem(QtGui.QImage(), self.filename)
         item.setPixmap(self.pixmap())
         item.setPos(self.pos())
@@ -2440,9 +2447,22 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         item.setRotation(self.rotation())
         item.setOpacity(self.opacity())
         item.grayscale = self.grayscale
+        if self.stretch != (1, 1):
+            item.set_stretch(*self.stretch)
         if self.flip() == -1:
             item.do_flip()
         item.crop = self.crop
+        # After the crop, as when a file is opened: the outline is
+        # measured against what is left of the picture
+        item.outline_width = self.outline_width
+        item.outline_color = QtGui.QColor(self.outline_color)
+        item.caption = self.caption
+        item.caption_color = QtGui.QColor(self.caption_color)
+        item.band_scale = self.band_scale
+        for child in self.childItems():
+            if hasattr(child, 'save_id'):
+                copy = child.create_copy()
+                copy.setParentItem(item)
         return item
 
     @cached_property
