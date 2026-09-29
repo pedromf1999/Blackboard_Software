@@ -220,6 +220,10 @@ class BeeGraphicsView(MainControlsMixin,
         self.image_toolbar.hide()
         self.table_toolbar = widgets.table_toolbar.TableToolBar(self, self)
         self.table_toolbar.hide()
+        # The buttons and labels of the notes pinned to the window, by
+        # note; see place_pinned_notes
+        self.pinned_note_widgets = {}
+        self.place_pinned_notes()
 
         self.apply_palette_to_color_dialogs()
 
@@ -427,7 +431,8 @@ class BeeGraphicsView(MainControlsMixin,
         """
 
         scene_pos = self.mapToScene(point)
-        for item in self.scene.items(scene_pos):
+        # Asked of the view, which knows where a pinned note is
+        for item in self.items(point):
             if not hasattr(item, 'shows_header') or not item.shows_header():
                 continue
             if item.header_rect().contains(item.mapFromScene(scene_pos)):
@@ -633,6 +638,10 @@ class BeeGraphicsView(MainControlsMixin,
         best_distance = None
         for target in self.scene.items():
             if getattr(target, 'TYPE', None) not in self.SNAP_TYPES:
+                continue
+            if getattr(target, 'is_pinned', False):
+                # It floats over the board: a line held by it would be
+                # dragged across the board whenever the board moved
                 continue
             rect = target.attach_rect()
             distance = 0 if rect.contains(scene_pos) else min(
@@ -893,9 +902,14 @@ class BeeGraphicsView(MainControlsMixin,
         self.update_window_title()
 
     def get_text_item_at(self, point):
-        """The topmost text item at the given view position, if any."""
+        """The topmost text item at the given view position, if any.
 
-        for item in self.scene.items(self.mapToScene(point)):
+        Asked of the view rather than the board: it knows the zoom, which
+        a note pinned to the window ignores, so the board alone would
+        look for it in the wrong place.
+        """
+
+        for item in self.items(point):
             # Not every item in the scene is a user item (e.g. the
             # multi-select rectangle), so TYPE may be missing
             if getattr(item, 'TYPE', None) == 'text':
@@ -905,10 +919,10 @@ class BeeGraphicsView(MainControlsMixin,
         """The topmost item at the given view position, if any.
 
         Groups themselves are skipped, so this finds what is inside
-        them rather than the group.
+        them rather than the group. Asked of the view, as above.
         """
 
-        for item in self.scene.items(self.mapToScene(point)):
+        for item in self.items(point):
             if not hasattr(item, 'save_id'):
                 continue
             if getattr(item, 'TYPE', None) == BeeGroupItem.TYPE:
@@ -1047,6 +1061,9 @@ class BeeGraphicsView(MainControlsMixin,
         # It seems to be more reliable when we fit a second time
         # Sometimes a changing scene rect can mess up the fitting
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        # Qt's own fitting passes by setTransform and scale here, so the
+        # pinned notes and the bars are told of the new zoom directly
+        self.update_pinned_toolbars()
         logger.trace('Fit view done')
 
     def get_confirmation_unsaved_changes(self, msg):
@@ -1674,8 +1691,16 @@ class BeeGraphicsView(MainControlsMixin,
         item = matches[self.text_search_index]
         logger.debug(f'Text search match {self.text_search_index}: {item}')
         self.scene.deselect_all_items()
-        item.setSelected(True)
-        self.zoom_to_match(item)
+        if getattr(item, 'is_pinned', False):
+            # In sight already, at its own size: opened out if it is
+            # folded away, and the board left where it is -- moving the
+            # board would not bring a pinned note any nearer
+            if item.is_minimized:
+                self.set_pinned_note_minimized(item, False)
+            item.setSelected(True)
+        else:
+            item.setSelected(True)
+            self.zoom_to_match(item)
         if bar_open:
             self.find_bar.show_count(self.text_search_index, len(matches))
         else:
@@ -2319,10 +2344,12 @@ class BeeGraphicsView(MainControlsMixin,
             self.settings.valueOrDefault('View/canvas_color')))
         painter = QtGui.QPainter(shot)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        self.scene.render(
-            painter,
-            QtCore.QRectF(shot.rect()),
-            self.mapToScene(self.viewport().rect()).boundingRect())
+        # Nor the notes pinned to the window, for the same reason
+        with self.scene.pinned_notes_hidden():
+            self.scene.render(
+                painter,
+                QtCore.QRectF(shot.rect()),
+                self.mapToScene(self.viewport().rect()).boundingRect())
         painter.end()
 
         image = shot.scaledToWidth(
@@ -3276,9 +3303,11 @@ class BeeGraphicsView(MainControlsMixin,
 
         Called whenever anything could have moved an item on screen: the
         selection changing, an item being dragged, zooming, panning, or
-        the window being resized.
+        the window being resized. The notes pinned to the window go back
+        to their spots first, so that a bar over one of them follows.
         """
 
+        self.place_pinned_notes()
         self.update_text_toolbar()
         self.update_draw_item_toolbar()
         self.update_group_toolbar()
@@ -3288,6 +3317,195 @@ class BeeGraphicsView(MainControlsMixin,
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)
         # Panning moves items under bars that would otherwise stay put
+        self.update_pinned_toolbars()
+
+    def setTransform(self, *args, **kwargs):
+        super().setTransform(*args, **kwargs)
+        # A zoom set in one go rather than by steps: the pinned notes
+        # and the bars have to catch up just the same
+        self.update_pinned_toolbars()
+
+    # Notes pinned to the window: see BeeTextItem.set_pin. A note is
+    # pinned at the size it is seen at, within these bounds -- pinned
+    # while the board is zoomed far out, it would stay too small to read.
+    PIN_MIN_SCALE = 0.6
+    PIN_MAX_SCALE = 3
+
+    def notes_to_pin(self):
+        """The notes the pin buttons act on: those chosen, or written in."""
+
+        notes = list(self.scene.selected_text_items())
+        writing = self.scene.edit_item
+        if (writing is not None and getattr(writing, 'TYPE', None) == 'text'
+                and writing not in notes):
+            notes.append(writing)
+        return notes
+
+    def on_action_pin_note(self):
+        """Pin the chosen notes to the window, or put them on the board.
+
+        Pinned if any of them is not yet; put back if all of them are,
+        so that a second press undoes the first.
+        """
+
+        notes = self.notes_to_pin()
+        if not notes:
+            return
+        if all(note.is_pinned for note in notes):
+            self.unpin_notes(notes)
+        else:
+            self.pin_notes([note for note in notes if not note.is_pinned])
+
+    def pin_notes(self, notes):
+        self.undo_stack.push(commands.PinNotes(self, notes, True))
+        self.update_text_toolbar()
+
+    def unpin_notes(self, notes):
+        self.undo_stack.push(commands.PinNotes(self, notes, False))
+        self.update_text_toolbar()
+
+    def pin_note(self, item):
+        """Fasten a note to the window, where it is seen now.
+
+        Out of any group it was in, since the window is not part of the
+        board, and at the size it is seen at, within reason.
+        """
+
+        before = item.screen_rect(self)
+        on_screen = item.scale() * item.parent_scale() * self.get_scale()
+        parent = item.parentItem()
+        if parent is not None:
+            scene_pos = item.scenePos()
+            appearance = item.get_appearance()
+            item.setParentItem(None)
+            item.set_appearance(appearance)
+            item.setPos(scene_pos)
+            if getattr(parent, 'TYPE', None) == BeeGroupItem.TYPE:
+                self.scene.refit_group(parent)
+        item.set_pin({'corner': [0, 0], 'offset': [0, 0],
+                      'minimized': False})
+        item.setScale(min(max(on_screen, self.PIN_MIN_SCALE),
+                          self.PIN_MAX_SCALE))
+        # Where it was seen, or as near as the window allows
+        self.remember_pin_place(item, before.topLeft())
+        self.place_pinned_note(item)
+
+    def unpin_note(self, item):
+        """Put a pinned note back on the board, just as it is seen."""
+
+        before = item.screen_rect(self)
+        on_screen = item.scale()
+        item.set_pin(None)
+        item.setScale(on_screen / self.get_scale())
+        item.bring_to_front()
+        after = item.screen_rect(self)
+        item.setPos(item.pos()
+                    + (before.topLeft() - after.topLeft()) / self.get_scale())
+
+    def remember_pin_place(self, item, top_left=None):
+        """Keep where a pinned note is in the window, from its corner.
+
+        From whichever corner of the window it is nearest, so that a
+        note put at the bottom right stays at the bottom right when the
+        window is made bigger or the board opened on a larger screen.
+        ``top_left`` is where it is to go, if not where it is now.
+        """
+
+        if item.pin is None:
+            return
+        rect = item.screen_rect(self)
+        if top_left is not None:
+            rect.moveTopLeft(QtCore.QPointF(top_left))
+        area = self.viewport().rect()
+        right = rect.center().x() > area.width() / 2
+        bottom = rect.center().y() > area.height() / 2
+        item.pin['corner'] = [int(right), int(bottom)]
+        item.pin['offset'] = [
+            area.width() - rect.right() if right else rect.left(),
+            area.height() - rect.bottom() if bottom else rect.top()]
+
+    def place_pinned_note(self, item):
+        """Put a pinned note back in its spot of the window.
+
+        Kept inside the window, so that one made smaller brings the note
+        in with it rather than leaving it out of sight; its spot itself
+        is kept, and it goes back there once there is room again.
+        """
+
+        rect = item.screen_rect(self)
+        area = self.viewport().rect()
+        right, bottom = item.pin['corner']
+        x, y = item.pin['offset']
+        left = area.width() - x - rect.width() if right else x
+        top = area.height() - y - rect.height() if bottom else y
+        left = max(0, min(left, area.width() - rect.width()))
+        top = max(0, min(top, area.height() - rect.height()))
+        shift = QtCore.QPointF(left - rect.left(), top - rect.top())
+        if abs(shift.x()) < 0.01 and abs(shift.y()) < 0.01:
+            return
+        item.placing = True
+        try:
+            item.setPos(item.pos() + shift / self.get_scale())
+        finally:
+            item.placing = False
+
+    def place_pinned_notes(self):
+        """Keep each pinned note in its spot, with its buttons beside it.
+
+        Folded away, a note shows as a small label in its corner instead,
+        and its buttons go.
+        """
+
+        made = getattr(self, 'pinned_note_widgets', None)
+        if made is None:
+            return
+        notes = self.scene.pinned_notes()
+        for note in notes:
+            self.place_pinned_note(note)
+            if note not in made:
+                made[note] = (
+                    widgets.pinned_notes.PinnedNoteControls(self, self, note),
+                    widgets.pinned_notes.PinnedNoteLabel(self, self, note))
+            controls, label = made[note]
+            rect = note.screen_rect(self)
+            if note.is_minimized:
+                controls.hide()
+                label.refresh()
+                label.place(rect, note.pin['corner'])
+                label.show()
+                label.raise_()
+            else:
+                label.hide()
+                controls.place(rect)
+                controls.show()
+                controls.raise_()
+        for note in list(made):
+            if note not in notes:
+                for widget in made.pop(note):
+                    widget.hide()
+                    widget.deleteLater()
+
+    def set_pinned_note_minimized(self, note, minimized):
+        """Fold a pinned note away to its label, or open it out again."""
+
+        note.set_minimized(minimized)
+        self.place_pinned_notes()
+        self.update_pinned_toolbars()
+
+    def on_action_fold_pinned_notes(self):
+        """Fold every pinned note away, or open them all out again.
+
+        Folded if any is open, so that one press clears the window and
+        the next brings them all back.
+        """
+
+        notes = self.scene.pinned_notes()
+        if not notes:
+            return
+        fold = any(not note.is_minimized for note in notes)
+        for note in notes:
+            note.set_minimized(fold)
+        self.place_pinned_notes()
         self.update_pinned_toolbars()
 
     def escape(self):

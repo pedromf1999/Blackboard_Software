@@ -1913,10 +1913,10 @@ def test_get_item_at_skips_groups(view):
     view.on_action_group_items()
     group = list(view.scene.items_by_type('group'))[0]
 
-    with patch.object(view.scene, 'items',
+    with patch.object(view, 'items',
                       return_value=[pixmapitem, group]):
         assert view.get_item_at(QtCore.QPoint(0, 0)) is pixmapitem
-    with patch.object(view.scene, 'items', return_value=[group]):
+    with patch.object(view, 'items', return_value=[group]):
         assert view.get_item_at(QtCore.QPoint(0, 0)) is None
 
 
@@ -1946,7 +1946,7 @@ def test_get_text_item_at_finds_text_below_other_items(view):
     pixmapitem = BeePixmapItem(QtGui.QImage())
     view.scene.addItem(pixmapitem)
     # A multi select item has no TYPE at all and must not blow up
-    with patch.object(view.scene, 'items',
+    with patch.object(view, 'items',
                       return_value=[view.scene.multi_select_item,
                                     textitem]):
         assert view.get_text_item_at(QtCore.QPoint(0, 0)) == textitem

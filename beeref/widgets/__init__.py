@@ -33,6 +33,7 @@ from beeref.widgets import (  # noqa: F401
     legend,
     loading_overlay,
     settings,
+    pinned_notes,
     pinned_toolbar,
     shortcuts_hint,
     table_toolbar,

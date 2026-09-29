@@ -17,8 +17,17 @@ def test_lists_the_shortcuts(view):
     assert 'Ctrl + T' in keys
     assert 'Ctrl + G' in keys
     assert 'Alt + drag' in keys
+    assert 'Ctrl + P' in keys
     # Every shortcut says what it does
     assert all(what for keys, what in ShortcutsHint.SHORTCUTS)
+
+
+def test_the_hint_says_what_the_shortcuts_do_now(view):
+    """Ctrl+Shift+T became the task list and Alt+T the table in 9.1."""
+
+    said = dict(ShortcutsHint.SHORTCUTS)
+    assert said['Ctrl + Shift + T'] == 'Add a task list'
+    assert said['Alt + T'] == 'Add a table'
 
 
 def test_closing_hides_it(view):

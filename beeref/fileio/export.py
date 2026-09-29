@@ -132,9 +132,11 @@ class SceneToPixmapExporter(SceneExporterBase):
             self.size.width() - 2 * margin,
             self.size.height() - 2 * margin)
         logger.trace(f'Final export target_rect: {target_rect}')
-        self.scene.render(painter,
-                          source=self.scene.itemsBoundingRect(),
-                          target=target_rect)
+        # A note pinned to the window is not part of the board
+        with self.scene.pinned_notes_hidden():
+            self.scene.render(painter,
+                              source=self.scene.itemsBoundingRect(),
+                              target=target_rect)
         painter.end()
         return image
 
@@ -199,6 +201,9 @@ class SceneToSVGExporter(SceneExporterBase):
 
         for i, item in enumerate(sorted(self.scene.items(),
                                         key=lambda x: x.zValue())):
+            if getattr(item, 'is_pinned', False):
+                # Pinned to the window, not part of the board
+                continue
             # z order in SVG specified via the order of elements in the tree
             pos = item.pos() - offset
             anchor = pos

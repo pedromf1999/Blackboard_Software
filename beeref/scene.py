@@ -14,12 +14,13 @@
 # along with BeeRef.  If not, see <https://www.gnu.org/licenses/>.
 
 from collections import defaultdict
+from contextlib import contextmanager
 from functools import partial
 import logging
 import math
 from queue import Queue
 
-from PyQt6 import QtCore, QtWidgets, QtGui
+from PyQt6 import QtCore, QtWidgets, QtGui, sip
 from PyQt6.QtCore import Qt
 
 import rpack
@@ -82,6 +83,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self.legend = []
         # Nothing from the old board is still waiting for a group
         self.items_awaiting_group = []
+        # The notes fastened to the window; see pinned_notes
+        self.pinned = []
         self.internal_clipboard = []
         self.rubberband_item = RubberbandItem()
         self.multi_select_item = MultiSelectItem()
@@ -124,6 +127,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         dropped inside itself.
         """
 
+        if getattr(item, 'is_pinned', False):
+            # It floats over the board, and never joins what is on it
+            return None
         return self.group_at(item.mapToScene(item.center), moving=item)
 
     def group_at(self, pos, moving=None):
@@ -161,6 +167,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         jumped to wherever its own box put the point.
         """
 
+        items = [item for item in items
+                 if not getattr(item, 'is_pinned', False)]
         group = self.group_at(pos, moving=list(items))
         if group is not None and items:
             logger.debug(f'Putting {len(items)} new items in {group}')
@@ -301,9 +309,51 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         """
 
         if parent is None:
+            # Not the pinned notes, which sit above the board rather than
+            # in its stack: raising something above them would put it
+            # over the window's own notes
             return [item for item in self.items_for_save()
-                    if item.parentItem() is None]
+                    if item.parentItem() is None
+                    and not getattr(item, 'is_pinned', False)]
         return parent.bee_children()
+
+    def pinned_notes(self):
+        """The notes fastened to the window rather than to the board.
+
+        Kept in a list, which notes join as they are pinned or come onto
+        the board: this is asked for on every frame of a zoom, and
+        looking for them among everything on a big board each time
+        would cost more than the frame has. Whatever has been unpinned,
+        taken off the board or deleted since drops out here.
+        """
+
+        self.pinned = [item for item in self.pinned
+                       if not sip.isdeleted(item)
+                       and item.scene() is self and item.is_pinned]
+        return list(self.pinned)
+
+    def note_pinned(self, item):
+        if item not in self.pinned:
+            self.pinned.append(item)
+
+    @contextmanager
+    def pinned_notes_hidden(self):
+        """Leave the pinned notes out of a picture of the board.
+
+        They belong to the window, not to what is on the board, so an
+        exported image or a file's thumbnail is taken without them.
+        Made see-through rather than hidden: hiding a note being written
+        in would take the keyboard away from it, and end the writing.
+        """
+
+        notes = [(item, item.opacity()) for item in self.pinned_notes()]
+        for item, _ in notes:
+            item.setOpacity(0)
+        try:
+            yield
+        finally:
+            for item, opacity in notes:
+                item.setOpacity(opacity)
 
     def restack(self, to_top):
         """Put the selection above or below the items around it.
@@ -555,6 +605,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         path.addRect(self.itemsBoundingRect())
         # This is faster than looping through all items and calling setSelected
         self.setSelectionArea(path)
+        # All of the board, which the notes pinned to the window are not
+        for note in self.pinned_notes():
+            note.setSelected(False)
 
     def deselect_all_items(self):
         self.cancel_active_modes()
@@ -915,8 +968,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 and self.multi_select_item.active_mode is None
                 and self.selectedItems()[0].active_mode is None):
             delta = event.scenePos() - self.event_start
-            if not delta.isNull():
-                moved = self.moved_by_drag(self.selectedItems())
+            # A pinned note put somewhere else in the window is the
+            # window rearranged, not the board changed: not a step to
+            # undo, and it has already remembered its new place
+            moved = [item for item in self.moved_by_drag(self.selectedItems())
+                     if not getattr(item, 'is_pinned', False)]
+            if not delta.isNull() and moved:
                 self.undo_stack.beginMacro('Move items')
                 # Around the rest, so the boxes come back exactly as they
                 # were whichever way the drag is undone or redone
@@ -991,10 +1048,17 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         or only selected ones, or the items givin in ``items``.
 
         Re-implemented to not include the items's selection handles.
+
+        Pinned notes are left out unless asked for by name: they follow
+        the window, so counting them in how big the board is would have
+        the board grow as it was moved about under them.
         """
 
         def filter_user_items(ilist):
-            return list(filter(lambda i: hasattr(i, 'save_id'), ilist))
+            return list(filter(
+                lambda i: (hasattr(i, 'save_id')
+                           and not getattr(i, 'is_pinned', False)),
+                ilist))
 
         if selection_only:
             base = filter_user_items(self.selectedItems())
@@ -1034,6 +1098,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             # Ignore events while clearing the scene since the
             # multiselect item will get cleared, too
             return
+        self.keep_pinned_notes_apart()
         self.let_groups_speak_for_their_contents()
         if self.has_multi_selection():
             self.multi_select_item.fit_selection_area(
@@ -1043,6 +1108,23 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             self.multi_select_item.bring_to_front()
         if not self.has_multi_selection() and self.multi_select_item.scene():
             self.removeItem(self.multi_select_item)
+
+    def keep_pinned_notes_apart(self):
+        """A pinned note is chosen on its own, never along with the board.
+
+        Select All or a selection rectangle would otherwise take it up
+        with everything else, and a drag, a delete or a copy of the lot
+        would then carry the window's own note along with the board. A
+        selection rectangle never takes one up, even alone: it gathers
+        what is on the board, and the note is over it.
+        """
+
+        selected = self.selectedItems(user_only=True)
+        if len(selected) < 2 and self.active_mode != self.RUBBERBAND_MODE:
+            return
+        for item in selected:
+            if getattr(item, 'is_pinned', False):
+                item.setSelected(False)
 
     def let_groups_speak_for_their_contents(self):
         """Never keep a group and things inside it selected together.

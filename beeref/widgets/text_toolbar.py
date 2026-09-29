@@ -74,6 +74,11 @@ class TextToolBar(PinnedToolBar):
             'align_center', 'Title centred',
             view.on_action_text_title_align_center)
         self.align_center.setCheckable(True)
+        # Pressed in while the note is pinned, so the bar says which it is
+        self.pin = self.add_button(
+            'pin', 'Pin to the window, where it stays in sight (Ctrl+P)',
+            view.on_action_pin_note)
+        self.pin.setCheckable(True)
 
         self.adjustSize()
 
@@ -96,3 +101,7 @@ class TextToolBar(PinnedToolBar):
         # Alignment means nothing until there is a title to align
         for button in (self.align_left, self.align_center):
             button.setEnabled(item.shows_header())
+        self.pin.setChecked(item.is_pinned)
+        self.pin.setToolTip(
+            'Unpin: back onto the board (Ctrl+P)' if item.is_pinned
+            else 'Pin to the window, where it stays in sight (Ctrl+P)')

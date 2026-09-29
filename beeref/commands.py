@@ -746,6 +746,70 @@ class ChangeTaskNumbers(QtGui.QUndoCommand):
             item.set_tasks_numbered(numbered)
 
 
+class PinNotes(QtGui.QUndoCommand):
+    """Fasten notes to the window, or put them back on the board.
+
+    Pinning takes a note out of any group and gives it the size it is
+    seen at; putting it back on the board gives it the size that looks
+    the same at the zoom of the moment. How it was before -- where, how
+    big, in which group, how high in the stack -- is kept for undoing,
+    and how it was after for redoing, rather than worked out again from
+    a board that may have been moved about in between.
+    """
+
+    def __init__(self, view, items, pinned):
+        super().__init__('Pin to the window' if pinned else 'Unpin')
+        self.view = view
+        self.items = list(items)
+        self.pinned = pinned
+        self.before = [self.state_of(item) for item in self.items]
+        self.after = None
+
+    @staticmethod
+    def state_of(item):
+        return {'pin': dict(item.pin) if item.pin else None,
+                'parent': item.parentItem(),
+                'pos': item.pos(),
+                'scale': item.scale(),
+                'z': item.zValue()}
+
+    def redo(self):
+        if self.after is None:
+            for item in self.items:
+                if self.pinned:
+                    self.view.pin_note(item)
+                else:
+                    self.view.unpin_note(item)
+            self.after = [self.state_of(item) for item in self.items]
+        else:
+            self.restore(self.after)
+        self.view.place_pinned_notes()
+
+    def undo(self):
+        self.restore(self.before)
+        self.view.place_pinned_notes()
+
+    def restore(self, states):
+        groups = set()
+        for item, state in zip(self.items, states):
+            # Off the window first, so that what follows is put back the
+            # way it is on the board
+            item.set_pin(None)
+            if item.parentItem() is not state['parent']:
+                groups.add(item.parentItem())
+                groups.add(state['parent'])
+                item.setParentItem(state['parent'])
+            item.setPos(state['pos'])
+            item.setScale(state['scale'])
+            if state['pin'] is not None:
+                item.set_pin(state['pin'])
+            else:
+                item.setZValue(state['z'])
+        for group in groups:
+            if getattr(group, 'TYPE', None) == 'group':
+                self.view.scene.refit_group(group)
+
+
 class ChangeLineWidth(QtGui.QUndoCommand):
     """Change how thick drawings are."""
 

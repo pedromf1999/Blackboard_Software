@@ -474,6 +474,19 @@ actions = ActionList([
         group='active_when_text_selection',
     ),
     Action(
+        id='pin_note',
+        text='&Pin to the Window',
+        shortcuts=['Ctrl+P'],
+        callback='on_action_pin_note',
+        group='active_when_text_selection',
+    ),
+    Action(
+        id='fold_pinned_notes',
+        text='&Fold Away Pinned Notes',
+        shortcuts=['Ctrl+Shift+P'],
+        callback='on_action_fold_pinned_notes',
+    ),
+    Action(
         id='text_title',
         text='Write &Title',
         callback='on_action_text_title',

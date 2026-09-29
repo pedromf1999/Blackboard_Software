@@ -258,6 +258,12 @@ class SelectableMixin(BaseItemMixin):
         screen so we need to adjust the values according to the scale
         factor sof the view and the item."""
 
+        flags = QtWidgets.QGraphicsItem.GraphicsItemFlag
+        if self.flags() & flags.ItemIgnoresTransformations:
+            # Drawn at its own size whatever the zoom, like the window
+            # around it: only its own scale to make up for
+            return value / self.scale()
+
         if self.scene():
             scale = self.scene().views()[0].get_scale()
             self._view_scale = scale
