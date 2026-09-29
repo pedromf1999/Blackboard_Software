@@ -4262,17 +4262,23 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             previous = previous.previous()
         return None
 
-    def set_list_level(self, block, level):
+    def set_list_level(self, block, level, style=None):
         """Put a paragraph at a level of list, or 0 to take it out.
 
         It joins the list the items above it are in, so that a list
         stays one list -- which is what other programs are handed when
-        it is copied -- rather than a string of lists of one.
+        it is copied, and what numbers its items one after another --
+        rather than a string of lists of one. Only a list of its own
+        kind, though: ``style`` says whether it is marked with a dash or
+        a number, and by default it stays the kind it was, or a dash.
         """
 
         cursor = QtGui.QTextCursor(block)
         cursor.beginEditBlock()
         current = block.textList()
+        if style is None:
+            style = (current.format().style() if current is not None
+                     else QtGui.QTextListFormat.Style.ListDisc)
         if current is not None:
             current.remove(block)
         # Qt leaves a paragraph taken out of a list pushed along as far
@@ -4286,11 +4292,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         cursor.setBlockFormat(fmt)
         if level > 0:
             above = self.list_above(block, level)
-            if above is not None:
+            if above is not None and above.format().style() == style:
                 above.add(block)
             else:
                 list_format = QtGui.QTextListFormat()
-                list_format.setStyle(QtGui.QTextListFormat.Style.ListDisc)
+                list_format.setStyle(style)
                 list_format.setIndent(level)
                 cursor.createList(list_format)
         cursor.endEditBlock()
@@ -4434,6 +4440,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 changed = True
             self.set_room_above(block, gap if number == 0 else 0)
             self.set_room_before(block, numbers)
+        # Numbered lines need room for their numbers just the same, and
+        # this is where every way of putting text into a note comes by
+        self.refresh_numbers()
         if changed:
             document.markContentsDirty(0, document.characterCount())
         self.update()
@@ -4495,19 +4504,143 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         up beside the box rather than under it.
         """
 
-        cursor = self.textCursor()
-        start = self.document().findBlock(cursor.selectionStart())
-        end = self.document().findBlock(cursor.selectionEnd())
-        block = start
         edit = QtGui.QTextCursor(self.document())
         edit.beginEditBlock()
+        for position in self.chosen_lines():
+            self.set_task(self.document().findBlock(position), on)
+        edit.endEditBlock()
+        self.refresh_tasks()
+
+    def chosen_lines(self):
+        """Where the lines the selection touches start, or the cursor's.
+
+        Positions rather than the lines themselves, which can go stale
+        once a line is put in a list or taken out of one.
+        """
+
+        cursor = self.textCursor()
+        document = self.document()
+        end = document.findBlock(cursor.selectionEnd())
+        block = document.findBlock(cursor.selectionStart())
+        positions = []
         while block.isValid():
-            self.set_task(block, on)
+            positions.append(block.position())
             if block.position() >= end.position():
                 break
             block = block.next()
+        return positions
+
+    def all_lines(self):
+        """Where each of the note's lines starts."""
+
+        positions = []
+        block = self.document().begin()
+        while block.isValid():
+            positions.append(block.position())
+            block = block.next()
+        return positions
+
+    # The lists numbered 1, 2, 3, which Qt numbers as the lines come
+    NUMBERED = QtGui.QTextListFormat.Style.ListDecimal
+
+    def can_be_numbered(self, block):
+        """Whether a line can join a numbered list.
+
+        Not a task, whose box is numbered with the others' instead, and
+        not a cell of a table, which has its own place already.
+        """
+
+        return not self.is_task(block) and self.text_container(block) is None
+
+    def is_numbered(self, block):
+        text_list = block.textList()
+        return (text_list is not None and not self.is_task(block)
+                and text_list.format().style() not in self.LIST_BULLETS)
+
+    def lines_are_numbered(self, positions):
+        """Whether every line there that can be numbered already is."""
+
+        document = self.document()
+        blocks = [document.findBlock(position) for position in positions]
+        blocks = [block for block in blocks if self.can_be_numbered(block)]
+        return bool(blocks) and all(self.is_numbered(block)
+                                    for block in blocks)
+
+    def number_lines(self, positions, on):
+        """Make lines a numbered list, or take them out of it.
+
+        A line already in a list keeps its depth, and one out of any
+        goes in at the top level. Lines one after another make one list,
+        numbered on from one line to the next; Enter at the end of it
+        carries the numbers on, as in Word.
+        """
+
+        document = self.document()
+        edit = QtGui.QTextCursor(document)
+        edit.beginEditBlock()
+        for position in positions:
+            block = document.findBlock(position)
+            if not self.can_be_numbered(block):
+                continue
+            if on and not self.is_numbered(block):
+                self.set_list_level(block, max(1, self.list_level(block)),
+                                    style=self.NUMBERED)
+            elif not on and self.is_numbered(block):
+                self.set_list_level(block, 0)
         edit.endEditBlock()
-        self.refresh_tasks()
+        self.refresh_numbers()
+
+    # Marks the room kept in front of a numbered line for its number, so
+    # that it can be taken away again once the line is out of the list,
+    # rather than any margin a pasted line came with
+    NUMBER_ROOM = QtGui.QTextFormat.Property.UserProperty + 1
+
+    def refresh_numbers(self):
+        """Keep room in front of each numbered list for its widest number.
+
+        Qt puts a number just in front of the words, in the room one
+        level of list is given, which "10." does not fit: the numbers
+        stuck out of the box. Each list is pushed along by what its
+        widest number needs, all its lines alike so that they line up.
+        """
+
+        document = self.document()
+        lists = {}
+        block = document.begin()
+        while block.isValid():
+            if self.is_numbered(block):
+                first = block.textList().item(0).position()
+                lists.setdefault(first, []).append(block)
+            elif (not self.is_task(block)
+                  and block.blockFormat().hasProperty(self.NUMBER_ROOM)):
+                # Out of its list: the room goes with it. A task has
+                # room of its own, looked after with the tasks.
+                cursor = QtGui.QTextCursor(block)
+                fmt = block.blockFormat()
+                fmt.setLeftMargin(0)
+                fmt.clearProperty(self.NUMBER_ROOM)
+                cursor.setBlockFormat(fmt)
+            block = block.next()
+
+        for blocks in lists.values():
+            need = 0
+            for block in blocks:
+                # Qt draws the number in the line's own format, which
+                # need not be that of the words in it
+                font = block.charFormat().font().resolve(
+                    document.defaultFont())
+                metrics = QtGui.QFontMetricsF(font)
+                need = max(need, metrics.horizontalAdvance(
+                    block.textList().itemText(block) + ' '))
+            level = self.list_level(blocks[0])
+            room = max(0.0, need - document.indentWidth() * level)
+            for block in blocks:
+                fmt = block.blockFormat()
+                if (abs(fmt.leftMargin() - room) > 0.01
+                        or not fmt.hasProperty(self.NUMBER_ROOM)):
+                    fmt.setLeftMargin(room)
+                    fmt.setProperty(self.NUMBER_ROOM, True)
+                    QtGui.QTextCursor(block).setBlockFormat(fmt)
 
     def set_task(self, block, on):
         """Give one line a box to tick off, or take its box away."""
@@ -4515,8 +4648,12 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if on == self.is_task(block):
             return
         if on:
-            if self.list_level(block) == 0:
-                self.set_list_level(block, 1)
+            if self.list_level(block) == 0 or self.is_numbered(block):
+                # A box goes where a dash would, so a numbered line
+                # moves to a list of those
+                self.set_list_level(
+                    block, max(1, self.list_level(block)),
+                    style=QtGui.QTextListFormat.Style.ListDisc)
             block = self.document().findBlock(block.position())
         fmt = block.blockFormat()
         fmt.setMarker(self.TO_DO if on else self.NO_MARK)
@@ -5200,6 +5337,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             if self.tasks_numbered:
                 # A tenth task needs room for a number two digits wide
                 self.refresh_tasks()
+            else:
+                # And so does a tenth numbered line
+                self.refresh_numbers()
         self.cursor_may_have_moved()
 
     def tidy_task(self):

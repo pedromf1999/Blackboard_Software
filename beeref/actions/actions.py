@@ -397,7 +397,7 @@ actions = ActionList([
     ),
     Action(
         id='text_task_numbers',
-        text='&Number the Tasks',
+        text='&Numbers',
         callback='on_action_text_task_numbers',
         group='active_when_text_selection',
     ),

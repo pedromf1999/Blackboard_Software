@@ -1955,22 +1955,45 @@ class BeeGraphicsView(MainControlsMixin,
             self.new_table_at(pos)
 
     def on_action_text_task_numbers(self):
-        """Number the tasks of the chosen task lists, or unnumber them.
+        """Number lines, or the tasks of a task list, or unnumber them.
 
-        The lists selected, and the one being written in. Going by the
-        first, so that a second press takes the numbers off again.
+        In the note being written, the lines the cursor is on: a task
+        there numbers the note's tasks, beside their boxes, and any other
+        line becomes a numbered list, with no boxes. Notes chosen on the
+        board are numbered whole -- the tasks of a task list, and every
+        line of any other note. A second press takes the numbers off.
         """
 
-        items = [item for item in self.scene.selected_text_items()
-                 if item.has_tasks()]
         writing = self.scene.edit_item
-        if (writing is not None and getattr(writing, 'TYPE', None) == 'text'
-                and writing.has_tasks() and writing not in items):
-            items.append(writing)
-        if not items:
+        if writing is not None and getattr(writing, 'TYPE', None) == 'text':
+            if writing.is_task(writing.textCursor().block()):
+                self.undo_stack.push(commands.ChangeTaskNumbers(
+                    [writing], not writing.tasks_numbered))
+            else:
+                lines = writing.chosen_lines()
+                wanted = not writing.lines_are_numbered(lines)
+                self.change_note(
+                    writing, lambda: writing.number_lines(lines, wanted))
             return
-        self.undo_stack.push(commands.ChangeTaskNumbers(
-            items, not items[0].tasks_numbered))
+
+        notes = self.scene.selected_text_items()
+        task_lists = [note for note in notes if note.has_tasks()]
+        others = [note for note in notes if not note.has_tasks()]
+        if not notes:
+            return
+        self.undo_stack.beginMacro('Number the lines')
+        if task_lists:
+            self.undo_stack.push(commands.ChangeTaskNumbers(
+                task_lists, not task_lists[0].tasks_numbered))
+        if others:
+            # Going by the first, so that the notes end up alike
+            wanted = not others[0].lines_are_numbered(others[0].all_lines())
+            old_htmls = [note.toHtml() for note in others]
+            for note in others:
+                note.number_lines(note.all_lines(), wanted)
+            self.undo_stack.push(commands.ChangeTextFormat(
+                others, [note.toHtml() for note in others], old_htmls))
+        self.undo_stack.endMacro()
 
     def on_action_text_tasks(self):
         """Put boxes on the lines being written, or take them off."""
