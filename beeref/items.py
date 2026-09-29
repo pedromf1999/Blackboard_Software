@@ -4423,6 +4423,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # ones, which it carried back up with it as a gap
             self.set_room_above(block, 0)
             self.set_room_before(block, numbers)
+            # Only a finished task is struck through. Ticking off the
+            # task at the top of a list used to leave its strike on the
+            # one below; a note saved like that is mended here.
+            if self.is_struck_through(block):
+                self.strike_through(block, False)
         for number, block in enumerate(self.task_blocks(done=True)):
             if block.isVisible() != wanted:
                 block.setVisible(wanted)
@@ -4585,45 +4590,88 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         ``after`` is the line it should follow, or None to put it in
         front of everything. Returns the line in its new place: the
         words are carried over as they are, bold and highlight and all.
+
+        Qt keeps how a line looks -- its box, its place in a list, the
+        strike through a finished task -- in the paragraph mark in front
+        of it. So every line keeps its own mark here: the moved one
+        leaves with its mark and comes back with a new one given its
+        look. Taking the top line out used to leave the line below it
+        on the top line's mark instead, and a task ticked off at the
+        top struck through the task that took its place.
         """
 
+        document = self.document()
         fmt = block.blockFormat()
         char_fmt = block.charFormat()
+        runs = self.block_runs(block)
+
+        # Where it goes, held by a cursor so that it follows the text
+        # while the line is taken out
         home = QtGui.QTextCursor(
-            after if after is not None else self.document().firstBlock())
-        if after is None:
-            # A line can only be put back after another one, so an empty
-            # one is made in front for it to follow, and taken away again
-            home.movePosition(QtGui.QTextCursor.MoveOperation.StartOfBlock)
-            home.insertBlock(fmt)
-            home.movePosition(QtGui.QTextCursor.MoveOperation.PreviousBlock)
-        home.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
-
-        cutter = QtGui.QTextCursor(block)
-        cutter.select(QtGui.QTextCursor.SelectionType.BlockUnderCursor)
-        words = cutter.selection()
-        at_start = block.position() == self.document().firstBlock().position()
-        cutter.removeSelectedText()
-        if at_start:
-            # Nothing above it to take the paragraph mark from
-            cutter.deleteChar()
-            if after is not None:
-                # And so the piece carries none either: without a
-                # paragraph of its own it would land inside its new
-                # neighbour's words
-                home.insertBlock(fmt)
-
-        home.insertFragment(words)
-        home.setBlockFormat(fmt)
-        # So that what is typed at the end of the line carries on the
-        # way the line was written
-        home.setBlockCharFormat(char_fmt)
+            after if after is not None else document.firstBlock())
         if after is not None:
-            return home.block()
-        tidy = QtGui.QTextCursor(self.document())
-        tidy.movePosition(QtGui.QTextCursor.MoveOperation.Start)
-        tidy.deleteChar()
-        return self.document().firstBlock()
+            home.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock)
+
+        keep = QtGui.QTextCursor.MoveMode.KeepAnchor
+        cutter = QtGui.QTextCursor(document)
+        if block.previous().isValid():
+            # Its words, and the mark in front of them, which is its own
+            cutter.setPosition(block.position() - 1)
+            cutter.setPosition(block.position() + block.length() - 1, keep)
+            cutter.removeSelectedText()
+        else:
+            # The top line has no mark in front of it to take along,
+            # only the one behind it, which is the next line's. That
+            # line is left on the top line's mark, so it is given back
+            # its own look.
+            below = block.next()
+            if not below.isValid():
+                return block
+            below_fmt = below.blockFormat()
+            below_char_fmt = below.charFormat()
+            cutter.setPosition(block.position())
+            cutter.setPosition(below.position(), keep)
+            cutter.removeSelectedText()
+            cutter.setBlockFormat(below_fmt)
+            cutter.setBlockCharFormat(below_char_fmt)
+
+        if after is not None:
+            home.insertBlock(fmt, char_fmt)
+        else:
+            # In front of the top line: a new mark goes in front of its
+            # words, given their own look, and the mark left at the very
+            # top is given the moved line's
+            top = home.block()
+            home.insertBlock(top.blockFormat(), top.charFormat())
+            home.movePosition(QtGui.QTextCursor.MoveOperation.PreviousBlock)
+            home.setBlockFormat(fmt)
+            home.setBlockCharFormat(char_fmt)
+        for text, char in runs:
+            if char.isImageFormat():
+                for _ in text:
+                    home.insertImage(char.toImageFormat())
+            else:
+                home.insertText(text, char)
+        return home.block()
+
+    def block_runs(self, block):
+        """A line's words, as stretches that each look one way."""
+
+        runs = []
+        it = block.begin()
+        while not it.atEnd():
+            fragment = it.fragment()
+            if fragment.isValid():
+                runs.append((fragment.text(), fragment.charFormat()))
+            it += 1
+        return runs
+
+    def is_struck_through(self, block):
+        """Whether any of a line's words, or what is typed next, is."""
+
+        if block.charFormat().fontStrikeOut():
+            return True
+        return any(char.fontStrikeOut() for _, char in self.block_runs(block))
 
     def strike_through(self, block, on):
         """Draw a line through a finished task's words, or take it off."""

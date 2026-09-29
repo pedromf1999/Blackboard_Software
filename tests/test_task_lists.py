@@ -516,3 +516,94 @@ def test_a_copy_of_a_task_list_is_a_task_list(view):
 
     assert copy.done_count() == 1
     assert copy.tasks_collapsed is False
+
+
+def struck(block):
+    """Whether any of a line's words are struck through."""
+
+    it = block.begin()
+    while not it.atEnd():
+        if it.fragment().charFormat().fontStrikeOut():
+            return True
+        it += 1
+    return False
+
+
+def dashed_note_made_into_tasks():
+    """Lines written with a dash in front, then given boxes."""
+
+    item = BeeTextItem()
+    item.setHtml('<p>- um.</p><p>- dois.</p><p>- tres.</p>')
+    cursor = item.textCursor()
+    cursor.select(QtGui.QTextCursor.SelectionType.Document)
+    item.setTextCursor(cursor)
+    item.make_tasks(True)
+    return item
+
+
+def test_ticking_off_the_top_task_leaves_the_next_one_as_it_was(qapp):
+    """The top task used to leave its strike on the task below it."""
+
+    item = dashed_note_made_into_tasks()
+    item.set_task_done(item.task_blocks()[0], True)
+    top = item.document().firstBlock()
+
+    assert top.text() == '- dois.'
+    assert top.charFormat().fontStrikeOut() is False
+    # Where it showed: as soon as the note is written out and read back,
+    # which a tick with the mouse does straight away
+    item.setHtml(item.toHtml())
+    top = item.document().firstBlock()
+    assert item.task_is_done(top) is False
+    assert struck(top) is False
+
+
+def test_a_moved_line_keeps_its_own_look(view):
+    item = task_note(view, 'one\ntwo\nthree')
+    item.exit_edit_mode()
+    first = blocks(item)[0]
+    cursor = QtGui.QTextCursor(first)
+    cursor.movePosition(QtGui.QTextCursor.MoveOperation.EndOfBlock,
+                        QtGui.QTextCursor.MoveMode.KeepAnchor)
+    bold = QtGui.QTextCharFormat()
+    bold.setFontWeight(QtGui.QFont.Weight.Bold)
+    cursor.mergeCharFormat(bold)
+
+    item.set_task_done(first, True)
+
+    assert [line[:2] for line in lines(item)] == [
+        ('two', False), ('three', False), ('one', True)]
+    moved = blocks(item)[-1]
+    assert moved.begin().fragment().charFormat().fontWeight() == 700
+    assert struck(moved) is True
+    for block in blocks(item)[:2]:
+        assert block.textList() is moved.textList()
+        assert block.begin().fragment().charFormat().fontWeight() != 700
+
+
+def test_a_task_put_back_in_front_of_everything_keeps_its_words(view):
+    item = task_note(view, 'one\ntwo')
+    item.exit_edit_mode()
+    item.set_task_done(blocks(item)[0], True)
+    item.set_task_done(blocks(item)[0], True)
+    # Both ticked: 'one' then 'two'. Putting 'two' back on an empty list
+    # puts it first of all.
+    item.set_task_done(blocks(item)[1], False)
+
+    assert [line[:2] for line in lines(item)] == [
+        ('two', False), ('one', True)]
+    assert struck(blocks(item)[0]) is False
+    assert struck(blocks(item)[1]) is True
+
+
+def test_a_task_saved_struck_through_opens_mended(qapp):
+    """Notes saved while the strike leaked are put right on opening."""
+
+    item = BeeTextItem(html=(
+        '<ul><li class="unchecked" style="text-decoration: line-through;">'
+        'dois</li><li class="checked"><s>um</s></li></ul>'))
+    to_do, done = blocks(item)
+
+    assert struck(to_do) is False
+    assert to_do.charFormat().fontStrikeOut() is False
+    assert struck(done) is True
