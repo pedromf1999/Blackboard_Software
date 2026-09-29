@@ -126,9 +126,13 @@ def test_a_picture_pasted_on_a_group_goes_into_it(view):
 
 def test_a_picture_pasted_away_from_groups_stays_on_the_board(view):
     group = a_group(view)
+    # Out of sight, so that the board under the mouse is empty: with the
+    # mouse off the board altogether, a paste goes in the middle of it
+    group.setPos(-50000, -50000)
+    view.resize(800, 600)
     before = list(view.scene.items())
 
-    with mouse_at(view, middle_of(group) + QtCore.QPointF(5000, 5000)):
+    with mouse_at(view, view.mapToScene(QtCore.QPoint(100, 100))):
         paste_image(view)
 
     [pasted] = new_items(view, before)

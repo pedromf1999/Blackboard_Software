@@ -935,7 +935,18 @@ class BeeGraphicsView(MainControlsMixin,
             return item
         return None
 
+    # Where the menu of a right click was opened, while it is open
+    context_menu_pos = None
+
     def on_context_menu(self, point):
+        # Paste from the menu goes where it was opened
+        self.context_menu_pos = self.mapToScene(point)
+        try:
+            self.show_context_menu(point)
+        finally:
+            self.context_menu_pos = None
+
+    def show_context_menu(self, point):
         # Text items offer the text options, even inside a group, so
         # that their colours stay reachable
         item = self.get_text_item_at(point)
@@ -2640,6 +2651,22 @@ class BeeGraphicsView(MainControlsMixin,
 
         return self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
 
+    def paste_position(self):
+        """Where what is pasted goes, centred there.
+
+        Under the mouse. Pasted from the menu of a right click, where
+        the click was, rather than where the menu's Paste ended up under
+        the mouse. Pasted from the menu bar, with the mouse off the
+        board, in the middle of what can be seen.
+        """
+
+        if self.context_menu_pos is not None:
+            return self.context_menu_pos
+        point = self.viewport().mapFromGlobal(QtGui.QCursor.pos())
+        if not self.viewport().rect().contains(point):
+            point = self.get_view_center()
+        return self.mapToScene(point)
+
     def new_note_at(self, pos):
         """A new note at a point on the board, open for writing.
 
@@ -2702,7 +2729,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.cancel_active_modes()
         logger.debug('Pasting from clipboard...')
         clipboard = QtWidgets.QApplication.clipboard()
-        pos = self.mapToScene(self.mapFromGlobal(self.cursor().pos()))
+        pos = self.paste_position()
 
         # See if we need to look up the internal clipboard:
         data = clipboard.mimeData().data('beeref/items')

@@ -131,13 +131,18 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
         The innermost one, so that something put into a nested group
         goes into that group; a locked group keeps to itself. ``moving``
-        is an item being put somewhere, which cannot go inside itself.
+        is an item being put somewhere, or a list of them, which cannot
+        go inside themselves.
         """
 
+        if moving is None:
+            moving = []
+        elif not isinstance(moving, (list, tuple)):
+            moving = [moving]
         candidates = [
             group for group in self.items_by_type('group')
-            if group is not moving
-            and not (moving is not None and moving.isAncestorOf(group))
+            if not any(group is item or item.isAncestorOf(group)
+                       for item in moving)
             and not group.locked
             and group.contains_scene_pos(pos)]
         if not candidates:
@@ -150,12 +155,21 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         The same as dropping them there: whatever is written, pasted or
         brought in on top of a group belongs to it, without having to
         be dragged in afterwards. Returns the group, or None.
+
+        Never a group among the new items themselves: a group pasted
+        lands under the mouse too, and asked to go inside itself it
+        jumped to wherever its own box put the point.
         """
 
-        group = self.group_at(pos)
+        group = self.group_at(pos, moving=list(items))
         if group is not None and items:
             logger.debug(f'Putting {len(items)} new items in {group}')
             self.undo_stack.push(commands.MoveToGroup(self, items, group))
+            # What was just put down stays in hand, as anything clicked
+            # inside a group is, rather than the group that took it
+            self.clearSelection()
+            for item in items:
+                item.setSelected(True)
         return group
 
     def group_chain(self, item):
