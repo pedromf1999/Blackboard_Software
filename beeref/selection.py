@@ -346,12 +346,26 @@ class SelectableMixin(BaseItemMixin):
             self.bounding_rect_unselected(), radius, radius)
 
         # If it's a single selection, draw the handles:
-        if self.has_selection_handles():
+        if self.has_selection_handles() and self.offers_corner_handles():
             pen.setWidth(self.SELECT_HANDLE_SIZE)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             painter.setPen(pen)
             for corner in self.corners:
                 painter.drawPoint(corner)
+
+    def offers_corner_handles(self):
+        """Whether the corners size and turn the item, as well as the edges.
+
+        All but a note pinned to the window, which keeps the size and
+        the angle it was pinned at and is only made wider or narrower.
+        """
+
+        return True
+
+    def corner_handles(self):
+        """The corners that answer the mouse: all of them, or none."""
+
+        return self.corners if self.offers_corner_handles() else ()
 
     @property
     def corners(self):
@@ -491,7 +505,7 @@ class SelectableMixin(BaseItemMixin):
             rect = self.bounding_rect_unselected().marginsAdded(
                 QtCore.QMarginsF(margin, margin, margin, margin))
             path.addRect(rect)
-            for corner in self.corners:
+            for corner in self.corner_handles():
                 path.addPath(self.get_rotate_bounds(corner))
         else:
             rect = self.bounding_rect_unselected()
@@ -509,7 +523,7 @@ class SelectableMixin(BaseItemMixin):
             self.unset_cursor()
             return
 
-        for corner in self.corners:
+        for corner in self.corner_handles():
             # See if we need to change the cursor for interactable areas
             if self.get_scale_bounds(corner).contains(event.pos()):
                 self.scene().cursor_changed.emit(
@@ -566,7 +580,7 @@ class SelectableMixin(BaseItemMixin):
 
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.has_selection_handles()):
-            for corner in self.corners:
+            for corner in self.corner_handles():
                 # Check if we are in one of the corner's scale areas
                 if self.get_scale_bounds(corner).contains(event.pos()):
                     # Start scale action for this corner
@@ -622,6 +636,10 @@ class SelectableMixin(BaseItemMixin):
         direction = self.mapToScene(axis) - origin
         length = math.sqrt(QtCore.QPointF.dotProduct(direction, direction))
         self.wrap_axis = direction / length
+        # How far on the canvas one unit of the item's own width goes:
+        # its scale, and any group's around it -- or, for a note pinned
+        # to the window, its scale less the zoom it ignores
+        self.wrap_unit = length
         self.wrap_orig = {item: (item.textWidth() if item.textWidth() > 0
                                  else item.width)
                           for item in self.selection_action_items()
@@ -633,9 +651,8 @@ class SelectableMixin(BaseItemMixin):
         moved = event.scenePos() - self.event_anchor
         distance = QtCore.QPointF.dotProduct(self.wrap_axis, moved)
         # The drag is measured on the canvas; the width is in the item's
-        # own coordinates, which the item's scale and any group around
-        # it sit between
-        return distance / (self.scale() * self.parent_scale())
+        # own coordinates
+        return distance / self.wrap_unit
 
     def start_stretch(self, edge):
         """Begin stretching the item by one of its edges.

@@ -377,6 +377,122 @@ def test_found_by_a_search_it_opens_and_the_board_stays(board):
     assert board.mapToScene(board.viewport().rect().center()) == centre
 
 
+def mouse_move(widget, point, buttons=Qt.MouseButton.LeftButton):
+    event = QtGui.QMouseEvent(
+        QtCore.QEvent.Type.MouseMove, QtCore.QPointF(point),
+        QtCore.QPointF(widget.mapToGlobal(point)),
+        Qt.MouseButton.NoButton, buttons, Qt.KeyboardModifier.NoModifier)
+    QtGui.QGuiApplication.sendEvent(widget, event)
+
+
+def drag(widget, start, end, steps=8):
+    QTest.mousePress(widget, Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, start)
+    for step in range(1, steps + 1):
+        mouse_move(widget, start + (end - start) * step / steps)
+    QTest.mouseRelease(widget, Qt.MouseButton.LeftButton,
+                       Qt.KeyboardModifier.NoModifier, end)
+
+
+def folded(board, note):
+    pin(board, note)
+    board.set_pinned_note_minimized(note, True)
+    return board.pinned_note_widgets[note][1]
+
+
+def test_a_folded_label_goes_where_it_is_dragged(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    label = folded(board, note)
+    start = label.rect().center()
+    target = board.mapToGlobal(QtCore.QPoint(700, 500))
+
+    QTest.mousePress(label, Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, start)
+    for step in range(1, 9):
+        wanted = label.mapFromGlobal(target)
+        mouse_move(label, start + (wanted - start) * step / 8)
+    QTest.mouseRelease(label, Qt.MouseButton.LeftButton,
+                       Qt.KeyboardModifier.NoModifier, label.rect().center())
+    dropped = label.geometry()
+
+    # Put down, not opened, and left there by the view
+    assert note.is_minimized is True
+    assert dropped.center().x() > 500
+    board.place_pinned_notes()
+    assert label.geometry() == dropped
+    # Opened, the note is in the corner the label marked
+    label.click()
+    rect = note.screen_rect(board)
+    assert rect.right() == pytest.approx(dropped.x() + dropped.width())
+    assert rect.bottom() == pytest.approx(dropped.y() + dropped.height())
+
+
+def test_a_click_on_a_folded_label_still_opens_it(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    label = folded(board, note)
+    QTest.mouseClick(label, Qt.MouseButton.LeftButton)
+
+    assert note.is_minimized is False
+
+
+def test_a_folded_label_takes_the_title_colour(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    note.title = 'To do'
+    note.header_color = QtGui.QColor(230, 150, 30)
+    label = folded(board, note)
+
+    assert '#e6961e' in label.styleSheet()
+
+
+def test_without_a_colour_of_its_own_the_label_is_the_box_colour(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    label = folded(board, note)
+
+    assert note.visible_header_color().name() in label.styleSheet()
+
+
+def test_a_pinned_note_is_made_wider_by_its_side(board):
+    zoom_to(board, 0.5)
+    note = note_at(board, QtCore.QPoint(100, 120),
+                   text='Sketch the chair for the client\nModel it')
+    note.setScale(3)
+    pin(board, note)
+    board.scene.clearSelection()
+    note.setSelected(True)
+    before = note.screen_rect(board)
+    side = QtCore.QPoint(round(before.right()) - 1,
+                         round(before.center().y()))
+
+    drag(board.viewport(), side, side + QtCore.QPoint(100, 0))
+    after = note.screen_rect(board)
+    assert after.width() == pytest.approx(before.width() + 100, abs=2)
+    assert after.left() == pytest.approx(before.left())
+    assert board.undo_stack.undoText() == 'Change text width'
+    # Kept where it was made wider, whatever the board does next
+    board.zoom(-400, QtCore.QPointF(300, 300))
+    assert close(note.screen_rect(board).topLeft(), after.topLeft())
+
+
+def test_a_pinned_note_keeps_its_size_by_its_corners(board):
+    note = note_at(board, QtCore.QPoint(100, 120),
+                   text='Sketch the chair for the client\nModel it')
+    note.setScale(2)
+    pin(board, note)
+    board.scene.clearSelection()
+    note.setSelected(True)
+
+    assert note.has_selection_handles()
+    assert note.offers_corner_handles() is False
+    assert list(note.corner_handles()) == []
+    rect = note.screen_rect(board)
+    corner = QtCore.QPoint(round(rect.right()) - 1,
+                           round(rect.bottom()) - 1)
+    drag(board.viewport(), corner, corner + QtCore.QPoint(60, 60))
+    assert note.scale() == 2
+    # A note on the board still has them
+    assert BeeTextItem('x').offers_corner_handles() is True
+
+
 def test_deleted_it_takes_its_buttons_with_it(board):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)

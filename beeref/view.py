@@ -3460,6 +3460,11 @@ class BeeGraphicsView(MainControlsMixin,
         is kept, and it goes back there once there is room again.
         """
 
+        if item.active_mode == item.WRAP_MODE:
+            # Being made wider by a side: left where it is, so that the
+            # side follows the mouse rather than the note being pushed
+            # back against its corner at every step
+            return
         rect = item.screen_rect(self)
         area = self.viewport().rect()
         right, bottom = item.pin['corner']
@@ -3499,7 +3504,9 @@ class BeeGraphicsView(MainControlsMixin,
             if note.is_minimized:
                 controls.hide()
                 label.refresh()
-                label.place(rect, note.pin['corner'])
+                if not label.dragging:
+                    # A label being dragged goes where the mouse takes it
+                    label.place(rect, note.pin['corner'])
                 label.show()
                 label.raise_()
             else:
@@ -3512,6 +3519,25 @@ class BeeGraphicsView(MainControlsMixin,
                 for widget in made.pop(note):
                     widget.hide()
                     widget.deleteLater()
+
+    def put_pinned_label(self, note, rect):
+        """Keep a folded-away note where its label was dragged to.
+
+        The note keeps to whichever corner of the window the label is now
+        nearest, with the label in that corner of the note: the label
+        stays just where it was let go, and the note opens out from
+        there. Like dragging the note itself, not a step to undo.
+        """
+
+        area = self.viewport().rect()
+        rect = QtCore.QRectF(rect)
+        right = rect.center().x() > area.width() / 2
+        bottom = rect.center().y() > area.height() / 2
+        note.pin['corner'] = [int(right), int(bottom)]
+        note.pin['offset'] = [
+            area.width() - rect.right() if right else rect.left(),
+            area.height() - rect.bottom() if bottom else rect.top()]
+        self.place_pinned_notes()
 
     def set_pinned_note_minimized(self, note, minimized):
         """Fold a pinned note away to its label, or open it out again."""

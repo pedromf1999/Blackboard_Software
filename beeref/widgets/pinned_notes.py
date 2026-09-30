@@ -123,7 +123,8 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
     """What a pinned note folds away to: its name, where it was.
 
     Its title, or failing that its first line. A click opens the note
-    out again, in the same spot.
+    out again, in the same spot; a drag takes the label somewhere else,
+    and the note opens out there.
     """
 
     MAX_CHARS = 32
@@ -137,12 +138,63 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
         self.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
-        self.setToolTip('Open the pinned note')
+        self.setToolTip('Open the pinned note, or drag it somewhere else')
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.clicked.connect(self.on_open)
+        # Where a press started, and where the label was then, while the
+        # mouse is held; and whether it has moved far enough to be a drag
+        # rather than a click
+        self.pressed_at = None
+        self.started_at = None
+        self.dragging = False
 
     def on_open(self):
         self.view.set_pinned_note_minimized(self.note, False)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.pressed_at = event.globalPosition().toPoint()
+            self.started_at = self.pos()
+            self.dragging = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self.pressed_at is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            moved = event.globalPosition().toPoint() - self.pressed_at
+            if (not self.dragging and moved.manhattanLength()
+                    >= QtWidgets.QApplication.startDragDistance()):
+                # A drag, not a click: the label stops looking pressed
+                self.dragging = True
+                self.setDown(False)
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            if self.dragging:
+                self.move(self.kept_inside(self.started_at + moved))
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.dragging:
+            # Put down, and not opened: a drag is not a click
+            self.dragging = False
+            self.pressed_at = None
+            self.setDown(False)
+            self.unsetCursor()
+            self.view.put_pinned_label(self.note, self.geometry())
+            event.accept()
+            return
+        self.pressed_at = None
+        super().mouseReleaseEvent(event)
+
+    def kept_inside(self, point):
+        """A position for the label that keeps all of it in the window."""
+
+        area = self.parentWidget().rect()
+        size = self.size()
+        return QtCore.QPoint(
+            max(0, min(point.x(), area.width() - size.width())),
+            max(0, min(point.y(), area.height() - size.height())))
 
     @staticmethod
     def pin_icon(color):
@@ -178,16 +230,18 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
         return words
 
     def refresh(self):
-        """Say what the note is, in the note's own colours.
+        """Say what the note is, in the colour of its title band.
 
-        Looking like the note folded up, rather than like a button of
-        the window, so that it reads as the note put away.
+        Looking like the note folded up to its title, rather than like a
+        button of the window, so that it reads as the note put away. A
+        note without a band colour of its own has its box's, which is
+        what its band is drawn in.
         """
 
-        box = QtGui.QColor(self.note.box_color)
-        box.setAlpha(255)
-        words = readable_grey(box)
-        style = (f'#PinnedNoteLabel {{ background-color: {box.name()};'
+        band = self.note.visible_header_color()
+        band.setAlpha(255)
+        words = readable_grey(band)
+        style = (f'#PinnedNoteLabel {{ background-color: {band.name()};'
                  f' color: {words.name()};'
                  ' border: 1px solid rgba(255, 255, 255, 60);'
                  ' border-radius: 6px; padding: 4px 10px 4px 6px; }')

@@ -3928,9 +3928,16 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             event.accept()
             return
         marks = self.task_marks()
+        rewrapped = self.active_mode == self.WRAP_MODE
         super().mouseReleaseEvent(event)
         self.keep_task_marks(marks)
         self.cursor_may_have_moved()
+        if rewrapped and self.pin is not None and self.scene() is not None:
+            # Made wider or narrower where it is: kept there from now on,
+            # rather than put back against its corner at the old width
+            for view in self.scene().views():
+                view.remember_pin_place(self)
+                view.place_pinned_notes()
 
     def task_marks(self):
         """Which line carries which box, to put back what Qt changes."""
@@ -4525,11 +4532,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.setHtml(self.old_text)
 
     def has_selection_handles(self):
-        # A pinned note keeps the size it was given on screen, so there
-        # is nothing to take hold of: its words are made bigger with the
-        # text buttons, as on any note
-        return (super().has_selection_handles() and not self.edit_mode
-                and self.pin is None)
+        return super().has_selection_handles() and not self.edit_mode
+
+    def offers_corner_handles(self):
+        # A pinned note keeps the size it was given on screen and its
+        # angle: its sides still make it wider or narrower, and its words
+        # are made bigger with the text buttons, as on any note
+        return self.pin is None
 
     # Pinned notes: fastened to the window rather than to the board, so
     # that a to-do list stays in sight wherever the board is moved and
