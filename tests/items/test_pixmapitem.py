@@ -62,14 +62,14 @@ def test_set_crop(qapp, item):
 def test_set_grayscale_true(qapp, item):
     item.grayscale = True
     assert item.grayscale is True
-    assert item._grayscale_pixmap is not None
+    # Drawn grey, from a grey version made at the size it is drawn
+    assert item.thumbnail_pixmap(True).toImage().allGray() is True
 
 
 def test_set_grayscale_false(qapp, item):
-    item._grayscale_pixmap = QtGui.QPixmap()
+    item.grayscale = True
     item.grayscale = False
     assert item.grayscale is False
-    assert item._grayscale_pixmap is None
 
 
 def test_bounding_rect_unselected(qapp, imgfilename3x3):
@@ -561,7 +561,6 @@ def test_get_crop_edge_cursor(edge, rotation, expected, qapp, item):
 
 
 def test_paint(qapp, item):
-    item.pixmap = MagicMock()
     item.paint_selectable = MagicMock()
     item.crop = QtCore.QRectF(10, 20, 30, 40)
     painter = MagicMock(
@@ -570,14 +569,15 @@ def test_paint(qapp, item):
                 m11=MagicMock(return_value=0.5))))
     item.paint(painter, None, None)
     item.paint_selectable.assert_called_once()
-    painter.drawPixmap.assert_called_with(
-        QtCore.QRectF(10, 20, 30, 40),
-        item.pixmap(),
-        QtCore.QRectF(10, 20, 30, 40))
+    # The crop, drawn from the same stretch of the picture: a picture
+    # this small is its own small copy, so the two line up one to one
+    target, pixmap, source = painter.drawPixmap.call_args[0]
+    assert target == QtCore.QRectF(10, 20, 30, 40)
+    assert pixmap.size() == QtCore.QSize(10, 10)
+    assert source == QtCore.QRectF(10, 20, 30, 40)
 
 
 def test_paint_when_crop_mode(qapp, item):
-    item.pixmap = MagicMock()
     item.paint_selectable = MagicMock()
     item.crop = QtCore.QRectF(10, 20, 30, 40)
     item.crop_mode = True
@@ -588,7 +588,10 @@ def test_paint_when_crop_mode(qapp, item):
                 m11=MagicMock(return_value=0.5))))
     item.paint(painter, None, None)
     item.paint_selectable.assert_not_called()
-    painter.drawPixmap.assert_called_with(0, 0, item.pixmap())
+    # The whole picture, to crop from
+    target, pixmap, source = painter.drawPixmap.call_args_list[0][0]
+    assert target == QtCore.QRectF(0, 0, 10, 10)
+    assert source == QtCore.QRectF(0, 0, 10, 10)
 
 
 def test_enter_crop_mode(view, item):
@@ -869,9 +872,7 @@ def test_mouse_press_event_crop_mode_outside_handle_outside_crop(
                           ((105, 85), 'crop_edge_right', (100, 80))])
 def test_ensure_point_within_crop_bounds(
         point, handle, expected, qapp, item):
-    pixmap = MagicMock()
-    pixmap.size.return_value = QtCore.QRectF(0, 0, 100, 80)
-    item.pixmap = MagicMock(return_value=pixmap)
+    item.image_size = MagicMock(return_value=QtCore.QSize(100, 80))
     item.crop_temp = QtCore.QRectF(10, 20, 30, 40)
     result = item.ensure_point_within_crop_bounds(
         QtCore.QPointF(*point), getattr(item, handle))
@@ -891,10 +892,8 @@ def test_ensure_point_within_crop_bounds(
 @patch('beeref.selection.SelectableMixin.mouseMoveEvent')
 def test_mouse_move_when_crop_mode_inside_handle(
         mouse_mock, start, pos, handle, expected, qapp, item):
-    pixmap = MagicMock()
-    pixmap.size.return_value = QtCore.QRectF(0, 0, 100, 80)
     item.crop_mode = True
-    item.pixmap = MagicMock(return_value=pixmap)
+    item.image_size = MagicMock(return_value=QtCore.QSize(100, 80))
     item.crop_temp = QtCore.QRectF(10, 20, 30, 40)
     item.crop_mode_event_start = QtCore.QPointF(*start)
     item.crop_mode_move = getattr(item, handle)

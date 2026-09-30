@@ -114,6 +114,11 @@ known types is what silently deleted groups and drawings twice before.
 - `beeref/scene.py` — `BeeGraphicsScene`: the canvas, selection, z-ordering.
 - `beeref/items.py` — item classes (`BeePixmapItem` for images, the text item),
   including transform handles, crop, opacity, grayscale.
+- `beeref/imagecache.py` — pictures are kept compressed, as the file keeps
+  them, and opened only at the size they are drawn, in the background; what
+  is opened is let go once out of sight. Never hand a full picture to Qt's
+  own `QGraphicsPixmapItem.setPixmap`: that is what kept a 126 MB board at
+  5.3 GB of memory.
 - `beeref/actions/` — declarative definitions of menu entries, shortcuts and
   their callbacks. Most new commands are registered here.
 - `beeref/fileio/` — reading and writing `.bee` files. These are SQLite
@@ -129,7 +134,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **2375 passing, 0 failing**. Nine tests inherited from
+Current baseline: **2398 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

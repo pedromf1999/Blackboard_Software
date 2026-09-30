@@ -25,7 +25,7 @@ from PyQt6.QtCore import Qt
 
 from beeref.assets import BeeAssets
 from beeref.actions import ActionsMixin, actions
-from beeref import commands
+from beeref import commands, imagecache
 from beeref.config import (
     CommandlineArgs, BeeSettings, KeyboardSettings, settings_events)
 from beeref import constants
@@ -164,6 +164,12 @@ class BeeGraphicsView(MainControlsMixin,
         self.zoom_timer = QtCore.QTimer(self)
         self.zoom_timer.setInterval(self.ZOOM_INTERVAL)
         self.zoom_timer.timeout.connect(self.step_zoom)
+        # Pictures are opened as far as they are seen; every so often,
+        # what is no longer seen is let go. See imagecache.
+        self.picture_trim_timer = QtCore.QTimer(self)
+        self.picture_trim_timer.setInterval(self.PICTURE_TRIM_INTERVAL)
+        self.picture_trim_timer.timeout.connect(self.trim_opened_pictures)
+        self.picture_trim_timer.start()
         self.text_search_query = ''
         self.text_search_index = -1
 
@@ -1025,10 +1031,32 @@ class BeeGraphicsView(MainControlsMixin,
         return QtCore.QPoint(round(self.size().width() / 2),
                              round(self.size().height() / 2))
 
+    # How often what is opened of pictures no longer seen is let go, in
+    # milliseconds
+    PICTURE_TRIM_INTERVAL = 3000
+
+    def trim_opened_pictures(self):
+        """Let go of what is opened of pictures no longer in sight.
+
+        What each picture in view last drew is kept, however long ago
+        that was, so that coming back to a board left alone does not
+        start from blurry copies. See imagecache.OpenedPictures.trim.
+        """
+
+        rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        in_view = {}
+        for item in self.scene.items(rect):
+            if (getattr(item, 'TYPE', None) == BeePixmapItem.TYPE
+                    and item.painted is not None):
+                in_view[item.image_key] = item.painted
+        imagecache.opened_pictures().trim(in_view)
+
     def clear_scene(self):
         logging.debug('Clearing scene...')
         self.cancel_active_modes()
         self.scene.clear()
+        # Nothing of the old board's pictures is wanted any more
+        imagecache.opened_pictures().clear()
         self.refresh_legend()
         self.undo_stack.clear()
         self.filename = None

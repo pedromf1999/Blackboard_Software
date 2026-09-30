@@ -109,6 +109,11 @@ def load_images(filenames, pos, scene, worker=None, fit_size=None):
             continue
 
         item = BeePixmapItem(without_pointless_alpha(img), filename)
+        # Compressed here, on this thread, as it would be when the board
+        # is next saved: kept open until then, a few large pictures
+        # brought in at once took as much memory as a whole board did
+        item.compress()
+        del img
         if fit_size is not None:
             item.setScale(item.fit_scale_to(fit_size))
         item.set_pos_center(pos)

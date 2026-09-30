@@ -29,7 +29,7 @@ import re
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from beeref import commands
+from beeref import commands, imagecache
 from beeref.assets import BeeAssets
 from beeref.config import BeeSettings
 from beeref.constants import COLORS, CORNER_RADIUS
@@ -1902,9 +1902,28 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
     CAPTION_WRAP = Qt.TextFlag.TextWordWrap
 
     def __init__(self, image, filename=None, **kwargs):
-        super().__init__(QtGui.QPixmap.fromImage(image))
+        # Nothing is handed to Qt's own picture: it would keep the whole
+        # picture open for as long as it is on the board, which is what
+        # took a board of pictures into gigabytes. The picture is kept
+        # here instead, and opened as far as it is seen; see imagecache.
+        super().__init__()
         self.save_id = None
         self.filename = filename
+        self.image_key = imagecache.new_key()
+        # Compressed, as a file keeps it, with what it is stored as
+        self._encoded = None
+        self._encoded_format = None
+        # Or open, for a picture that has not been compressed yet
+        self._source = None
+        self._size = QtCore.QSize(0, 0)
+        # The small copy drawn while nothing larger is open, and ready to
+        # draw versions of it, made when first drawn
+        self._thumbnail = QtGui.QImage()
+        self._thumbnail_pixmap = None
+        self._thumbnail_grey = None
+        # The version of the picture last drawn, which the view keeps
+        # open while the picture is in sight
+        self.painted = None
         # Before the crop: setting the crop measures the contour against
         # what is left of the picture, and so needs these to exist
         self.outline_width = 0
@@ -1914,7 +1933,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.caption_color = QtGui.QColor(*self.DEFAULT_CAPTION_COLOR)
         self.caption_editing = False
         self.caption_editor = None
-        self.reset_crop()
+        self.set_source_image(image)
         logger.debug(f'Initialized {self}')
         self.is_image = True
         self.crop_mode = False
@@ -1943,7 +1962,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         return item
 
     def __str__(self):
-        size = self.pixmap().size()
+        size = self.image_size()
         return (f'Image "{self.filename}" {size.width()} x {size.height()}')
 
     def get_default_name(self):
@@ -1977,62 +1996,60 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
     def grayscale(self, value):
         logger.debug('Setting grayscale for {self} to {value}')
         self._grayscale = value
-        if value is True:
-            # Using the grayscale image format to convert to grayscale
-            # loses an image's tranparency. So the straightworward
-            # following method gives us an ugly black replacement:
-            # img = img.convertToFormat(QtGui.QImage.Format.Format_Grayscale8)
-
-            # Instead, we will fill the background with the current
-            # canvas colour, so the issue is only visible if the image
-            # overlaps other images. The way we do it here only works
-            # as long as the canvas colour is itself grayscale,
-            # though.
-            img = QtGui.QImage(
-                self.pixmap().size(), QtGui.QImage.Format.Format_Grayscale8)
-            img.fill(QtGui.QColor(*COLORS['Scene:Canvas']))
-            painter = QtGui.QPainter(img)
-            painter.drawPixmap(0, 0, self.pixmap())
-            painter.end()
-            self._grayscale_pixmap = QtGui.QPixmap.fromImage(img)
-
-            # Alternative methods that have their own issues:
-            #
-            # 1. Use setAlphaChannel of the resulting grayscale
-            # image. How do we get the original alpha channel? Using
-            # the whole original image also takes color values into
-            # account, not just their alpha values.
-            #
-            # 2. QtWidgets.QGraphicsColorizeEffect() with black colour
-            # on the GraphicsItem. This applys to everything the paint
-            # method does, so the selection outline/handles will also
-            # be gray. setGraphicsEffect is only available on some
-            # widgets, so we can't apply it selectively.
-            #
-            # 3. Going through every pixel and doing it manually — bad
-            # performance.
-        else:
-            self._grayscale_pixmap = None
-
+        # Using the grayscale image format to convert to grayscale loses
+        # an image's transparency, which comes out an ugly black. So the
+        # picture is drawn over the canvas colour instead, which only
+        # shows where it overlaps other pictures -- as long as the canvas
+        # colour is itself grey. See imagecache.in_grey.
+        #
+        # Alternatives, with their own issues: setAlphaChannel on the
+        # grey picture, which needs an alpha channel nothing gives
+        # cleanly; a QGraphicsColorizeEffect, which turns the selection
+        # outline and handles grey too; going through every pixel by
+        # hand, which is slow.
+        #
+        # The grey version used to be made at once, as a second copy of
+        # the whole picture held for as long as the picture was on the
+        # board. It is made now for each size the picture is opened at.
         self.update()
 
-    def sample_color_at(self, pos):
-        ipos = self.mapFromScene(pos)
-        if self.grayscale:
-            pm = self._grayscale_pixmap
-        else:
-            pm = self.pixmap()
-        img = pm.toImage()
+    def grey_background(self):
+        """What a picture turned grey is drawn over."""
 
-        color = img.pixelColor(int(ipos.x()), int(ipos.y()))
+        return QtGui.QColor(*COLORS['Scene:Canvas'])
+
+    def sample_color_at(self, pos):
+        """The colour under the eyedropper, as the picture is shown.
+
+        Read from the version of the picture on screen, which is what
+        the eye is picking from, rather than opening all of it to read
+        one pixel on every move of the mouse.
+        """
+
+        pixmap = self.drawn_pixmap()
+        size = self.image_size()
+        if pixmap.isNull() or size.isEmpty():
+            return None
+        ipos = self.mapFromScene(pos)
+        x = int(ipos.x() * pixmap.width() / size.width())
+        y = int(ipos.y() * pixmap.height() / size.height())
+        color = pixmap.toImage().pixelColor(x, y)
         if color.alpha():
             return color
 
     def bounding_rect_unselected(self):
         if self.crop_mode:
-            return QtWidgets.QGraphicsPixmapItem.boundingRect(self)
+            # The whole picture, with the half pixel Qt's own picture
+            # item leaves round it
+            return self.whole_rect().adjusted(-0.5, -0.5, 0.5, 0.5)
         else:
             return self.crop
+
+    def whole_rect(self):
+        """The whole picture, uncropped, in its own coordinates."""
+
+        size = self.image_size()
+        return QtCore.QRectF(0, 0, size.width(), size.height())
 
     def boundingRect(self):
         """Room for the contour on top of whatever else needs room.
@@ -2404,32 +2421,182 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         return min(size.width() / self.width, size.height() / self.height)
 
     def pixmap_to_bytes(self, apply_grayscale=False, apply_crop=False):
-        """Convert the pixmap data to PNG bytestring."""
+        """The picture compressed, as a file keeps it: (bytes, format).
+
+        A picture already kept compressed, in the format it would be
+        stored in now, is handed over as it is: saving it again needs no
+        opening, and a photograph loses nothing to being compressed a
+        second time. Anything else is opened whole and compressed, as it
+        always was. Safe off the main thread, where saving happens.
+        """
+
+        encoded, fmt = self._encoded, self._encoded_format
+        if (encoded is not None and not apply_crop
+                and not (apply_grayscale and self.grayscale)
+                and self.keeps_format(fmt)):
+            return (encoded, fmt)
+
+        img = self.full_image()
+        if apply_grayscale and self.grayscale:
+            img = imagecache.in_grey(img, self.grey_background())
+        if apply_crop:
+            img = img.copy(self.crop.toRect())
+
         barray = QtCore.QByteArray()
         buffer = QtCore.QBuffer(barray)
         buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
-        if apply_grayscale and self.grayscale:
-            pm = self._grayscale_pixmap
-        else:
-            pm = self.pixmap()
-
-        if apply_crop:
-            pm = pm.copy(self.crop.toRect())
-
-        img = pm.toImage()
         imgformat = self.get_imgformat(img)
         img.save(buffer, imgformat.upper(), quality=90)
         return (barray.data(), imgformat)
 
+    def keeps_format(self, fmt):
+        """Whether a picture stored as this would be stored the same now."""
+
+        wanted = self.settings.valueOrDefault('Items/image_storage_format')
+        return fmt in ('png', 'jpg') and wanted in ('best', fmt)
+
+    def stored_as(self, data, fmt):
+        """The picture has been compressed into a file: keep that instead.
+
+        A picture that came in open -- pasted, or dropped in -- is let
+        go of once it is stored, and opened again from what was stored
+        as it is needed, the way one read from a file is. The compressed
+        picture is set first, so there is always one or the other.
+        """
+
+        self._encoded = data
+        self._encoded_format = fmt
+        self._source = None
+
+    def compress(self):
+        """Compress an open picture now, rather than when first saved.
+
+        For pictures coming in from files, which arrive on a thread of
+        their own where the time it takes is not noticed.
+        """
+
+        if self._source is not None:
+            self.stored_as(*self.pixmap_to_bytes())
+
     def setPixmap(self, pixmap):
-        super().setPixmap(pixmap)
+        # Qt's own picture is left empty; see __init__
+        self.set_source_image(pixmap.toImage())
+
+    def pixmap(self):
+        """The whole picture, opened at its full size.
+
+        Opened on every call and not kept: most of what asks for it --
+        copying to the clipboard, exporting -- asks once. Drawing never
+        does; see picture_to_draw.
+        """
+
+        return QtGui.QPixmap.fromImage(self.full_image())
+
+    def full_image(self):
+        """The whole picture as an image. Safe off the main thread."""
+
+        source = self._source
+        if source is not None:
+            return source
+        if self._encoded is None:
+            return QtGui.QImage()
+        return imagecache.open_image(self._encoded)
+
+    def image_at_most(self, side):
+        """The picture opened no bigger than this on its longest side."""
+
+        size = self.image_size()
+        longest = max(size.width(), size.height())
+        if longest <= side:
+            return self.full_image()
+        factor = side / longest
+        wanted = QtCore.QSize(max(1, round(size.width() * factor)),
+                              max(1, round(size.height() * factor)))
+        source = self._source if self._source is not None else self._encoded
+        return imagecache.open_image(source, wanted)
+
+    def image_size(self):
+        return QtCore.QSize(self._size)
+
+    def is_null(self):
+        return self._size.isEmpty()
+
+    def set_source_image(self, image):
+        """Show a picture that is open already, keeping it open.
+
+        Until it is stored compressed: see stored_as.
+        """
+
+        had_picture = not self._size.isEmpty()
+        if image.isNull():
+            self._source = None
+            self._thumbnail = QtGui.QImage()
+        else:
+            self._source = image
+            self._thumbnail = imagecache.open_image(
+                image, imagecache.thumbnail_size(image.size()))
+        self._encoded = None
+        self._encoded_format = None
+        size = QtCore.QSize() if image.isNull() else image.size()
+        self.picture_changed(had_picture, size)
+
+    def set_encoded(self, data, fmt=None):
+        """Show a picture from its compressed bytes, as a file keeps them.
+
+        Only the small copy is opened now. A picture that cannot be read
+        is shown as no picture at all, which the file reader turns into
+        an error item. Safe off the main thread, where files are read.
+        """
+
+        had_picture = not self._size.isEmpty()
+        data = bytes(data)
+        size = imagecache.image_size(data)
+        thumbnail = QtGui.QImage()
+        if size.isValid() and not size.isEmpty():
+            thumbnail = imagecache.open_image(
+                data, imagecache.thumbnail_size(size))
+        if thumbnail.isNull():
+            self._encoded = None
+            self._encoded_format = None
+            size = QtCore.QSize()
+        else:
+            self._encoded = data
+            self._encoded_format = fmt or imagecache.image_format(data)
+        self._source = None
+        self._thumbnail = thumbnail
+        self.picture_changed(had_picture, size)
+
+    def share_picture(self, other):
+        """Show the same picture as another item, without a copy of it."""
+
+        had_picture = not self._size.isEmpty()
+        self._encoded = other._encoded
+        self._encoded_format = other._encoded_format
+        self._source = other._source
+        self._thumbnail = other._thumbnail
+        self.picture_changed(had_picture, other.image_size())
+
+    def picture_changed(self, had_picture, size):
+        """Take on a new size, and let go of anything opened of the old."""
+
+        self.prepareGeometryChange()
+        # No picture is nought by nought, as it was for Qt's own picture,
+        # rather than the minus one Qt gives a size never set
+        self._size = (QtCore.QSize(size) if size.isValid()
+                      else QtCore.QSize(0, 0))
+        self._thumbnail_pixmap = None
+        self._thumbnail_grey = None
+        self.painted = None
+        # Worked out from the picture, so worked out again
+        self.__dict__.pop('color_gamut', None)
+        if had_picture:
+            imagecache.forget(self.image_key)
         self.reset_crop()
 
     def pixmap_from_bytes(self, data):
-        """Set image pimap from a bytestring."""
-        pixmap = QtGui.QPixmap()
-        pixmap.loadFromData(data)
-        self.setPixmap(pixmap)
+        """Set the picture from a bytestring, as a file keeps it."""
+
+        self.set_encoded(data)
 
     def create_copy(self):
         """The same picture, looking the same: everything a file keeps.
@@ -2440,7 +2607,8 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         """
 
         item = BeePixmapItem(QtGui.QImage(), self.filename)
-        item.setPixmap(self.pixmap())
+        # The same picture, compressed or open, rather than a second one
+        item.share_picture(self)
         item.setPos(self.pos())
         item.setZValue(self.zValue())
         item.setScale(self.scale())
@@ -2469,7 +2637,8 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
     def color_gamut(self):
         logger.debug(f'Calculating color gamut for {self}')
         gamut = defaultdict(int)
-        img = self.pixmap().toImage()
+        # Opened no bigger than what is looked at, rather than whole
+        img = self.image_at_most(1000)
         # Don't evaluate every pixel for larger images:
         step = max(1, int(max(img.width(), img.height()) / 1000))
         logger.debug(f'Considering every {step}. row/column')
@@ -2501,11 +2670,10 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         return gamut
 
     def add_to_mimedata(self, mimedata):
-        mimedata.setImageData(self.pixmap().toImage())
+        mimedata.setImageData(self.full_image())
 
     def reset_crop(self):
-        self.crop = QtCore.QRectF(
-            0, 0, self.pixmap().size().width(), self.pixmap().size().height())
+        self.crop = self.whole_rect()
 
     @property
     def crop_handle_size(self):
@@ -2619,6 +2787,88 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         painter.setPen(pen)
         painter.drawRect(rect)
 
+    def drawing_scale(self, painter):
+        """How many pixels on screen one of the picture's pixels takes.
+
+        Along whichever of its sides is drawn larger, so that a picture
+        stretched one way is not drawn blurry that way; and in the
+        screen's own pixels, which on a high-resolution screen are more
+        than the window's.
+        """
+
+        try:
+            transform = painter.combinedTransform()
+            scale = max(math.hypot(float(transform.m11()),
+                                   float(transform.m12())),
+                        math.hypot(float(transform.m21()),
+                                   float(transform.m22())))
+            scale *= float(painter.device().devicePixelRatioF())
+        except (AttributeError, TypeError, ValueError):
+            return 1.0
+        return scale if scale > 0 else 1.0
+
+    def thumbnail_pixmap(self, grey):
+        """The small copy, ready to draw, grey if the picture is."""
+
+        if self._thumbnail_pixmap is None:
+            self._thumbnail_pixmap = QtGui.QPixmap.fromImage(self._thumbnail)
+        if not grey:
+            return self._thumbnail_pixmap
+        if self._thumbnail_grey is None:
+            self._thumbnail_grey = QtGui.QPixmap.fromImage(
+                imagecache.in_grey(self._thumbnail, self.grey_background()))
+        return self._thumbnail_grey
+
+    def picture_to_draw(self, painter, exact=False):
+        """The version of the picture to draw now.
+
+        The small copy while that is enough for the size it is drawn at.
+        Past that, the picture halved as many times as the size allows,
+        opened in the background -- the largest version already open, or
+        the small copy, standing in until it arrives -- or straight away
+        when ``exact``.
+        """
+
+        size = self._size
+        if size.isEmpty():
+            return QtGui.QPixmap()
+        grey = self.grayscale
+        small = self.thumbnail_pixmap(grey)
+        scale = self.drawing_scale(painter)
+        if (small.size() == size
+                or small.width() >= size.width() * scale):
+            self.painted = None
+            return small
+
+        level = imagecache.level_for(scale)
+        name = (self.image_key, level, grey)
+        store = imagecache.opened_pictures()
+        pixmap = store.get(name)
+        if pixmap is None:
+            source = self._source
+            if source is None:
+                source = self._encoded
+            background = self.grey_background() if grey else None
+            wanted = imagecache.level_size(size, level)
+            if exact:
+                pixmap = store.open_now(name, source, wanted, background)
+            else:
+                store.ask_for(self, name, source, wanted, background)
+                pixmap = store.best(self.image_key, grey)
+        self.painted = name
+        if pixmap is None or pixmap.isNull():
+            return small
+        return pixmap
+
+    def drawn_pixmap(self):
+        """The version of the picture last drawn, or the small copy."""
+
+        if self.painted is not None:
+            pixmap = imagecache.opened(self.painted)
+            if pixmap is not None:
+                return pixmap
+        return self.thumbnail_pixmap(self.grayscale)
+
     def paint(self, painter, option, widget):
         if abs(painter.combinedTransform().m11()) < 2:
             # We want image smoothing, but only for images where we
@@ -2626,12 +2876,18 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             # example icons and pixel sprites can be viewed correctly.
             painter.setRenderHint(painter.RenderHint.SmoothPixmapTransform)
 
+        # Straight away for a picture of the board -- an export, a file's
+        # thumbnail -- which has no later frame to wait for; in the
+        # background for the window, which does
+        picture = self.picture_to_draw(painter, exact=widget is None)
+        whole = self.whole_rect()
         if self.crop_mode:
             self.paint_debug(painter, option, widget)
 
             # Darken image outside of cropped area
-            painter.drawPixmap(0, 0, self.pixmap())
-            path = QtWidgets.QGraphicsPixmapItem.shape(self)
+            painter.drawPixmap(whole, picture, QtCore.QRectF(picture.rect()))
+            path = QtGui.QPainterPath()
+            path.addRect(whole)
             path.addRect(self.crop_temp)
             color = QtGui.QColor(0, 0, 0)
             color.setAlpha(100)
@@ -2644,8 +2900,13 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
                 self.draw_crop_rect(painter, handle())
             self.draw_crop_rect(painter, self.crop_temp)
         else:
-            pm = self._grayscale_pixmap if self.grayscale else self.pixmap()
-            painter.drawPixmap(self.crop, pm, self.crop)
+            # The crop, in the pixels of whichever version is drawn
+            fx = picture.width() / whole.width() if whole.width() else 1
+            fy = picture.height() / whole.height() if whole.height() else 1
+            crop = self.crop
+            source = QtCore.QRectF(crop.x() * fx, crop.y() * fy,
+                                   crop.width() * fx, crop.height() * fy)
+            painter.drawPixmap(crop, picture, source)
             # The caption first: a contour is centred on the edge it
             # follows, and the band drawn over it swallowed the inner
             # half, leaving the frame half as thick along the caption
@@ -2759,31 +3020,31 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         if handle == self.crop_handle_bottomleft:
             topleft = QtCore.QPointF(0, self.crop_temp.top())
             bottomright = QtCore.QPointF(
-                self.crop_temp.right(), self.pixmap().size().height())
+                self.crop_temp.right(), self.image_size().height())
         if handle == self.crop_handle_bottomright:
             topleft = self.crop_temp.topLeft()
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self.image_size().width(), self.image_size().height())
         if handle == self.crop_handle_topright:
             topleft = QtCore.QPointF(self.crop_temp.left(), 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.crop_temp.bottom())
+                self.image_size().width(), self.crop_temp.bottom())
         if handle == self.crop_edge_top:
             topleft = QtCore.QPointF(0, 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.crop_temp.bottom())
+                self.image_size().width(), self.crop_temp.bottom())
         if handle == self.crop_edge_bottom:
             topleft = QtCore.QPointF(0, self.crop_temp.top())
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self.image_size().width(), self.image_size().height())
         if handle == self.crop_edge_left:
             topleft = QtCore.QPointF(0, 0)
             bottomright = QtCore.QPointF(
-                self.crop_temp.right(), self.pixmap().size().height())
+                self.crop_temp.right(), self.image_size().height())
         if handle == self.crop_edge_right:
             topleft = QtCore.QPointF(self.crop_temp.left(), 0)
             bottomright = QtCore.QPointF(
-                self.pixmap().size().width(), self.pixmap().size().height())
+                self.image_size().width(), self.image_size().height())
 
         point.setX(min(bottomright.x(), max(topleft.x(), point.x())))
         point.setY(min(bottomright.y(), max(topleft.y(), point.y())))

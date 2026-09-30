@@ -399,9 +399,11 @@ class SQLiteIO:
                         + IMG_LOADING_ERROR_MSG)
                     data['type'] = BeeErrorItem.TYPE
                 else:
+                    # Kept compressed, as stored here: only a small copy
+                    # is opened now, and the rest as it is looked at
                     item = BeePixmapItem(QtGui.QImage())
                     item.pixmap_from_bytes(row[9])
-                    if item.pixmap().isNull():
+                    if item.is_null():
                         item = data['data']['text'] = (
                             f'Image could not be loaded: {item.filename}\n'
                             + IMG_LOADING_ERROR_MSG)
@@ -614,6 +616,9 @@ class SQLiteIO:
                 'INSERT INTO sqlar (item_id, name, mode, sz, data) '
                 'VALUES (?, ?, ?, ?, ?)',
                 (item.save_id, name, 0o644, len(pixmap), pixmap))
+            # A picture that was open until now -- pasted, say -- is
+            # kept as it has been stored from here on, and let go of
+            item.stored_as(pixmap, imgformat)
 
     def update_item(self, item):
         """Update item data.
