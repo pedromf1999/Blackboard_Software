@@ -55,10 +55,11 @@ def zoom_to(view, scale):
 
 def test_a_pinned_note_stays_put_whatever_the_board_does(board):
     note = note_at(board, QtCore.QPoint(100, 120))
-    before = note.screen_rect(board)
     pin(board, note)
     assert note.is_pinned is True
-    assert note.screen_rect(board) == before
+    # In the tab of pinned notes
+    assert board.pins_tab_rect().contains(note.screen_rect(board))
+    before = note.screen_rect(board)
 
     for _ in range(6):
         board.zoom(-400, QtCore.QPointF(500, 300))
@@ -89,66 +90,69 @@ def test_one_pinned_far_zoomed_out_can_still_be_read(board):
     assert note.scale() == pytest.approx(board.PIN_MIN_SCALE)
 
 
-def test_dragged_somewhere_else_it_stays_there_and_is_no_edit(board):
-    note = note_at(board, QtCore.QPoint(100, 120))
-    pin(board, note)
+def test_dragged_onto_another_the_two_swap_and_it_is_no_edit(board):
+    first = note_at(board, QtCore.QPoint(100, 120), text='first')
+    second = note_at(board, QtCore.QPoint(100, 300), text='second\nnote')
+    pin(board, first)
+    pin(board, second)
     steps = board.undo_stack.count()
+    assert [first.pin['order'], second.pin['order']] == [0, 1]
     board.scene.clearSelection()
 
-    start = note.screen_rect(board).center().toPoint()
-    end = QtCore.QPoint(850, 600)
-    QTest.mousePress(board.viewport(), Qt.MouseButton.LeftButton,
-                     Qt.KeyboardModifier.NoModifier, start)
-    for step in range(1, 6):
-        point = start + (end - start) * step / 5
-        event = QtGui.QMouseEvent(
-            QtCore.QEvent.Type.MouseMove, QtCore.QPointF(point),
-            QtCore.QPointF(board.viewport().mapToGlobal(point)),
-            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
-            Qt.KeyboardModifier.NoModifier)
-        QtGui.QGuiApplication.sendEvent(board.viewport(), event)
-    QTest.mouseRelease(board.viewport(), Qt.MouseButton.LeftButton,
-                       Qt.KeyboardModifier.NoModifier, end)
+    start = first.screen_rect(board).center().toPoint()
+    end = second.screen_rect(board).center().toPoint()
+    drag(board.viewport(), start, end)
 
-    moved = note.screen_rect(board).center()
-    assert close(moved, QtCore.QPointF(end), tolerance=2)
-    # Kept from the corner it is now nearest
-    assert note.pin['corner'] == [1, 1]
+    assert [first.pin['order'], second.pin['order']] == [1, 0]
+    assert second.screen_rect(board).top() < first.screen_rect(board).top()
     assert board.undo_stack.count() == steps
-    board.zoom(-500, QtCore.QPointF(100, 100))
-    assert close(note.screen_rect(board).center(), moved)
 
 
-def test_it_keeps_to_its_corner_when_the_window_changes(board, main_window):
+def test_dragged_nowhere_in_particular_it_goes_back(board):
+    first = note_at(board, QtCore.QPoint(100, 120), text='first')
+    second = note_at(board, QtCore.QPoint(100, 300), text='second')
+    pin(board, first)
+    pin(board, second)
+    place = first.screen_rect(board)
+    board.scene.clearSelection()
+
+    start = place.center().toPoint()
+    drag(board.viewport(), start, QtCore.QPoint(150, 600))
+    assert first.pin['order'] == 0
+    assert close(first.screen_rect(board).topLeft(), place.topLeft())
+
+
+def test_the_tab_keeps_to_its_corner_when_the_window_changes(
+        board, main_window):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)
-    note.pin['corner'] = [1, 1]
-    note.pin['offset'] = [20, 30]
+    board.scene.pins_tab['corner'] = [1, 1]
+    board.scene.pins_tab['offset'] = [20, 30]
     board.place_pinned_notes()
     area = board.viewport().rect()
-    rect = note.screen_rect(board)
+    rect = board.pins_tab_rect()
     assert rect.right() == pytest.approx(area.width() - 20)
     assert rect.bottom() == pytest.approx(area.height() - 30)
+    assert rect.contains(note.screen_rect(board))
 
     main_window.resize(800, 600)
     QTest.qWait(50)
     area = board.viewport().rect()
-    rect = note.screen_rect(board)
+    rect = board.pins_tab_rect()
     assert rect.right() == pytest.approx(area.width() - 20)
     assert rect.bottom() == pytest.approx(area.height() - 30)
 
 
-def test_a_window_too_small_for_its_spot_keeps_it_in_sight(board):
+def test_a_window_too_small_for_the_tab_keeps_it_in_sight(board):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)
-    note.pin['corner'] = [0, 0]
-    note.pin['offset'] = [5000, 5000]
+    board.scene.pins_tab['corner'] = [0, 0]
+    board.scene.pins_tab['offset'] = [5000, 5000]
     board.place_pinned_notes()
 
-    rect = note.screen_rect(board)
-    assert board.viewport().rect().toRectF().contains(rect)
-    # Its own spot is kept, for when there is room again
-    assert note.pin['offset'] == [5000, 5000]
+    assert board.viewport().rect().toRectF().contains(board.pins_tab_rect())
+    # Its own place is kept, for when there is room again
+    assert board.scene.pins_tab['offset'] == [5000, 5000]
 
 
 def test_folded_away_it_leaves_a_label_in_its_corner(board):
@@ -180,16 +184,23 @@ def test_a_label_says_the_title_when_there_is_one(board):
     assert label.text() == 'To do'
 
 
-def test_one_press_folds_them_all_and_the_next_opens_them(board):
+def test_one_press_folds_the_tab_away_and_the_next_opens_it(board):
     first = note_at(board, QtCore.QPoint(100, 120))
     second = note_at(board, QtCore.QPoint(600, 120))
     pin(board, first)
     pin(board, second)
+    open_height = board.pins_tab_rect().height()
 
     board.on_action_fold_pinned_notes()
-    assert first.is_minimized and second.is_minimized
-    board.on_action_fold_pinned_notes()
+    assert board.scene.pins_tab['minimized'] is True
+    assert not first.isVisible() and not second.isVisible()
+    assert board.pins_tab_rect().height() < open_height
+    # Each note keeps whether it is open itself
     assert not first.is_minimized and not second.is_minimized
+
+    board.on_action_fold_pinned_notes()
+    assert first.isVisible() and second.isVisible()
+    assert board.pins_tab_rect().height() == open_height
 
 
 def test_saved_and_opened_again_it_is_still_pinned(board):
@@ -400,11 +411,15 @@ def folded(board, note):
     return board.pinned_note_widgets[note][1]
 
 
-def test_a_folded_label_goes_where_it_is_dragged(board):
-    note = note_at(board, QtCore.QPoint(100, 120))
-    label = folded(board, note)
+def test_a_folded_label_dragged_onto_a_note_swaps_with_it(board):
+    first = note_at(board, QtCore.QPoint(100, 120), text='first')
+    second = note_at(board, QtCore.QPoint(100, 300), text='second\nnote')
+    pin(board, first)
+    pin(board, second)
+    board.set_pinned_note_minimized(first, True)
+    label = board.pinned_note_widgets[first][1]
     start = label.rect().center()
-    target = board.mapToGlobal(QtCore.QPoint(700, 500))
+    target = board.mapToGlobal(second.screen_rect(board).center().toPoint())
 
     QTest.mousePress(label, Qt.MouseButton.LeftButton,
                      Qt.KeyboardModifier.NoModifier, start)
@@ -413,18 +428,11 @@ def test_a_folded_label_goes_where_it_is_dragged(board):
         mouse_move(label, start + (wanted - start) * step / 8)
     QTest.mouseRelease(label, Qt.MouseButton.LeftButton,
                        Qt.KeyboardModifier.NoModifier, label.rect().center())
-    dropped = label.geometry()
 
-    # Put down, not opened, and left there by the view
-    assert note.is_minimized is True
-    assert dropped.center().x() > 500
-    board.place_pinned_notes()
-    assert label.geometry() == dropped
-    # Opened, the note is in the corner the label marked
-    label.click()
-    rect = note.screen_rect(board)
-    assert rect.right() == pytest.approx(dropped.x() + dropped.width())
-    assert rect.bottom() == pytest.approx(dropped.y() + dropped.height())
+    # Put down, not opened, below the note it swapped with
+    assert first.is_minimized is True
+    assert [first.pin['order'], second.pin['order']] == [1, 0]
+    assert label.geometry().top() > second.screen_rect(board).bottom()
 
 
 def test_a_click_on_a_folded_label_still_opens_it(board):
@@ -456,6 +464,9 @@ def test_a_pinned_note_is_made_wider_by_its_side(board):
     note = note_at(board, QtCore.QPoint(100, 120),
                    text='Sketch the chair for the client\nModel it')
     note.setScale(3)
+    # The tab on the left, with room to grow into
+    board.scene.pins_tab['corner'] = [0, 0]
+    board.scene.pins_tab['offset'] = [16, 16]
     pin(board, note)
     board.scene.clearSelection()
     note.setSelected(True)
@@ -491,6 +502,173 @@ def test_a_pinned_note_keeps_its_size_by_its_corners(board):
     assert note.scale() == 2
     # A note on the board still has them
     assert BeeTextItem('x').offers_corner_handles() is True
+
+
+def gaps(board):
+    """The space between each pinned note and the next in the tab."""
+
+    tops = []
+    for note, slot in board.pin_slots:
+        if note.is_minimized:
+            label = board.pinned_note_widgets[note][1]
+            rect = QtCore.QRectF(label.geometry())
+        else:
+            rect = note.screen_rect(board)
+        tops.append(rect)
+    return [below.top() - above.bottom()
+            for above, below in zip(tops, tops[1:])]
+
+
+def test_the_notes_in_the_tab_keep_a_gap_and_never_overlap(board):
+    notes = [note_at(board, QtCore.QPoint(100, 100 + 100 * i), text=text)
+             for i, text in enumerate(['one', 'two\nlines', 'three',
+                                       'four\nfive\nsix'])]
+    for note in notes:
+        note.setScale(1.5)
+        pin(board, note)
+    board.set_pinned_note_minimized(notes[1], True)
+
+    # A gap between each and the next, and exactly the gap when a note
+    # stands taller than the buttons beside it
+    assert all(gap >= board.PINS_GAP - 0.6 for gap in gaps(board))
+    slots = [slot for _, slot in board.pin_slots]
+    assert [below.top() - above.bottom()
+            for above, below in zip(slots, slots[1:])] == pytest.approx(
+                [board.PINS_GAP] * 3)
+    assert gaps(board)[2] == pytest.approx(board.PINS_GAP, abs=0.6)
+    # Nor do the buttons of one reach the next
+    controls = [board.pinned_note_widgets[note][0] for note in notes
+                if not note.is_minimized]
+    for above, below in zip(controls, controls[1:]):
+        assert above.geometry().bottom() < below.geometry().top()
+    # And in the order they were pinned
+    assert [note.pin['order'] for note in notes] == [0, 1, 2, 3]
+
+
+def test_opening_or_folding_a_note_moves_the_ones_below(board):
+    first = note_at(board, QtCore.QPoint(100, 120),
+                    text='one\ntwo\nthree\nfour')
+    second = note_at(board, QtCore.QPoint(100, 400), text='below')
+    pin(board, first)
+    pin(board, second)
+    was = second.screen_rect(board).top()
+
+    board.set_pinned_note_minimized(first, True)
+    assert second.screen_rect(board).top() < was
+    assert gaps(board) == pytest.approx([board.PINS_GAP], abs=0.6)
+
+    board.set_pinned_note_minimized(first, False)
+    assert second.screen_rect(board).top() == pytest.approx(was)
+
+
+def test_the_tab_is_dragged_by_its_header_with_the_notes(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    tab = board.pins_tab
+    before = board.pins_tab_rect()
+    note_before = note.screen_rect(board)
+    header = QtCore.QPoint(round(before.left() + 40),
+                           round(before.top() + tab.HEADER / 2))
+
+    drag(board.viewport(), header, header + QtCore.QPoint(-300, 250))
+    after = board.pins_tab_rect()
+    assert close(after.topLeft(), before.topLeft()
+                 + QtCore.QPointF(-300, 250), tolerance=1)
+    assert close(note.screen_rect(board).topLeft(),
+                 note_before.topLeft() + QtCore.QPointF(-300, 250),
+                 tolerance=1)
+    # Kept there when the window changes size, from its nearest corner
+    assert board.scene.pins_tab['corner'] == [1, 0]
+
+
+def test_dragging_the_tab_moves_nothing_on_the_board(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    board.scene.clearSelection()
+    board.picture.setSelected(True)
+    where = board.picture.pos()
+    steps = board.undo_stack.count()
+    rect = board.pins_tab_rect()
+    header = QtCore.QPoint(round(rect.left() + 40), round(rect.top() + 10))
+
+    drag(board.viewport(), header, header + QtCore.QPoint(-200, 100))
+    assert board.picture.pos() == where
+    assert board.undo_stack.count() == steps
+
+
+def test_the_tab_folds_away_by_its_button_and_opens_by_a_click(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    tab = board.pins_tab
+    rect = board.pins_tab_rect()
+    button = tab.button_rect()
+    point = QtCore.QPoint(round(rect.left() + button.center().x()),
+                          round(rect.top() + button.center().y()))
+
+    QTest.mouseClick(board.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier, point)
+    assert board.scene.pins_tab['minimized'] is True
+    assert note.isVisible() is False
+    folded_rect = board.pins_tab_rect()
+    assert folded_rect.height() == tab.HEADER
+
+    QTest.mouseClick(board.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier,
+                     folded_rect.center().toPoint())
+    assert board.scene.pins_tab['minimized'] is False
+    assert note.isVisible() is True
+
+
+def test_a_double_click_on_the_tab_does_not_zoom_the_board(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    transform = board.transform()
+    rect = board.pins_tab_rect()
+    QTest.mouseDClick(board.viewport(), Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier,
+                      QtCore.QPoint(round(rect.left() + 40),
+                                    round(rect.top() + 10)))
+
+    assert board.transform() == transform
+
+
+def test_the_tab_goes_with_the_last_pinned_note(board):
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    assert board.pins_tab.scene() is board.scene
+    pin(board, note)
+    assert board.pins_tab.scene() is None
+
+
+def test_the_tab_is_saved_with_the_board(board, tmp_path):
+    from beeref import fileio
+
+    note = note_at(board, QtCore.QPoint(100, 120))
+    pin(board, note)
+    board.scene.pins_tab['corner'] = [0, 1]
+    board.scene.pins_tab['offset'] = [30, 40]
+    board.scene.pins_tab['minimized'] = True
+    filename = str(tmp_path / 'board.blk')
+    fileio.save_bee(filename, board.scene, create_new=True)
+
+    board.scene.clear()
+    assert board.scene.pins_tab == board.scene.PINS_TAB
+    fileio.load_bee(filename, board.scene)
+    board.scene.add_queued_items()
+    assert board.scene.pins_tab == {
+        'corner': [0, 1], 'offset': [30, 40], 'minimized': True}
+    [opened] = board.scene.pinned_notes()
+    assert opened.pin['order'] == 0
+
+
+def test_a_board_from_before_the_tab_opens_with_one(board):
+    old = BeeTextItem(pin={'corner': [1, 1], 'offset': [20, 30],
+                           'minimized': False})
+    board.scene.addItem(old)
+    board.place_pinned_notes()
+
+    assert board.pins_tab_rect().contains(old.screen_rect(board))
+    assert old.pin['order'] == 0
 
 
 def test_deleted_it_takes_its_buttons_with_it(board):

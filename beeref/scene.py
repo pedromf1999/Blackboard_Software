@@ -15,6 +15,7 @@
 
 from collections import defaultdict
 from contextlib import contextmanager
+import copy
 from functools import partial
 import logging
 import math
@@ -40,6 +41,10 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
     MOVE_MODE = 1
     RUBBERBAND_MODE = 2
+
+    # The tab of pinned notes on a board that has never placed it: in
+    # the top right corner, clear of the handles of the side panels
+    PINS_TAB = {'corner': [1, 0], 'offset': [48, 16], 'minimized': False}
 
     def __init__(self, undo_stack):
         super().__init__()
@@ -85,6 +90,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self.items_awaiting_group = []
         # The notes fastened to the window; see pinned_notes
         self.pinned = []
+        # Where the tab they sit in is, and whether it is folded away:
+        # saved with the board, like the legend
+        self.pins_tab = copy.deepcopy(self.PINS_TAB)
         self.internal_clipboard = []
         self.rubberband_item = RubberbandItem()
         self.multi_select_item = MultiSelectItem()
@@ -347,6 +355,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         """
 
         notes = [(item, item.opacity()) for item in self.pinned_notes()]
+        # And the tab they sit in
+        notes += [(item, item.opacity()) for item in self.items()
+                  if getattr(item, 'is_pins_tab', False)]
         for item, _ in notes:
             item.setOpacity(0)
         try:
@@ -782,6 +793,13 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 else:
                     super().mousePressEvent(event)
                     return
+            if getattr(item_at_pos, 'is_pins_tab', False):
+                # The tab of pinned notes answers for itself -- dragged by
+                # its header, folded by its button -- and takes nothing on
+                # the board along: whatever is selected stays where it is
+                self.active_mode = None
+                super().mousePressEvent(event)
+                return
             if self.active_group is not None:
                 # Clicking outside the active group makes it behave
                 # like a single object again
@@ -809,6 +827,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
     def mouseDoubleClickEvent(self, event):
         self.cancel_active_modes()
         item, inside_group = self.item_or_group_inside_at(event.scenePos())
+        if getattr(item, 'is_pins_tab', False):
+            # The tab of pinned notes is the window's: nothing to open or
+            # to zoom to
+            event.accept()
+            return
         if inside_group is not None:
             # The empty inside of a group is board, where a double-click
             # does nothing
@@ -963,14 +986,19 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             self.end_rubberband_mode()
         self.reset_dragged_items()
         self.clear_drop_target()
+        # A pinned note dragged about its tab, to be put in its new place
+        # once it is let go
+        dropped = None
+        if self.active_mode == self.MOVE_MODE:
+            dropped = next((item for item in self.selectedItems(user_only=True)
+                            if getattr(item, 'is_pinned', False)), None)
         if (self.active_mode == self.MOVE_MODE
                 and self.has_selection()
                 and self.multi_select_item.active_mode is None
                 and self.selectedItems()[0].active_mode is None):
             delta = event.scenePos() - self.event_start
-            # A pinned note put somewhere else in the window is the
-            # window rearranged, not the board changed: not a step to
-            # undo, and it has already remembered its new place
+            # A pinned note moved about its tab is the window rearranged,
+            # not the board changed: not a step to undo
             moved = [item for item in self.moved_by_drag(self.selectedItems())
                      if not getattr(item, 'is_pinned', False)]
             if not delta.isNull() and moved:
@@ -992,6 +1020,10 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 self.undo_stack.endMacro()
         self.active_mode = None
         super().mouseReleaseEvent(event)
+        if dropped is not None:
+            for view in self.views():
+                view.drop_pinned_note(
+                    dropped, view.mapFromScene(event.scenePos()))
 
     def selectedItems(self, user_only=False):
         """If ``user_only`` is set to ``True``, only return items added

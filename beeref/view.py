@@ -20,7 +20,7 @@ import os
 import os.path
 import time
 
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from beeref.assets import BeeAssets
@@ -1720,9 +1720,11 @@ class BeeGraphicsView(MainControlsMixin,
         logger.debug(f'Text search match {self.text_search_index}: {item}')
         self.scene.deselect_all_items()
         if getattr(item, 'is_pinned', False):
-            # In sight already, at its own size: opened out if it is
-            # folded away, and the board left where it is -- moving the
-            # board would not bring a pinned note any nearer
+            # In sight already, at its own size: opened out if it, or
+            # the tab it is in, is folded away, and the board left where
+            # it is -- moving the board would not bring it any nearer
+            if self.scene.pins_tab.get('minimized'):
+                self.set_pins_tab_folded(False)
             if item.is_minimized:
                 self.set_pinned_note_minimized(item, False)
             item.setSelected(True)
@@ -3393,13 +3395,13 @@ class BeeGraphicsView(MainControlsMixin,
         self.update_text_toolbar()
 
     def pin_note(self, item):
-        """Fasten a note to the window, where it is seen now.
+        """Fasten a note to the window: into the tab of pinned notes.
 
-        Out of any group it was in, since the window is not part of the
-        board, and at the size it is seen at, within reason.
+        At the end of the tab, out of any group it was in -- the window
+        is not part of the board -- and at the size it is seen at, within
+        reason.
         """
 
-        before = item.screen_rect(self)
         on_screen = item.scale() * item.parent_scale() * self.get_scale()
         parent = item.parentItem()
         if parent is not None:
@@ -3410,13 +3412,12 @@ class BeeGraphicsView(MainControlsMixin,
             item.setPos(scene_pos)
             if getattr(parent, 'TYPE', None) == BeeGroupItem.TYPE:
                 self.scene.refit_group(parent)
-        item.set_pin({'corner': [0, 0], 'offset': [0, 0],
-                      'minimized': False})
+        order = max((note.pin.get('order', 0)
+                     for note in self.scene.pinned_notes()), default=-1) + 1
+        item.set_pin({'order': order, 'minimized': False})
         item.setScale(min(max(on_screen, self.PIN_MIN_SCALE),
                           self.PIN_MAX_SCALE))
-        # Where it was seen, or as near as the window allows
-        self.remember_pin_place(item, before.topLeft())
-        self.place_pinned_note(item)
+        self.place_pinned_notes()
 
     def unpin_note(self, item):
         """Put a pinned note back on the board, just as it is seen."""
@@ -3430,113 +3431,258 @@ class BeeGraphicsView(MainControlsMixin,
         item.setPos(item.pos()
                     + (before.topLeft() - after.topLeft()) / self.get_scale())
 
-    def remember_pin_place(self, item, top_left=None):
-        """Keep where a pinned note is in the window, from its corner.
+    # The pinned notes stand in a tab of their own, one under another,
+    # this far apart, whether open or folded to their labels. See
+    # widgets.pinned_notes.PinsTab.
+    PINS_GAP = 8
 
-        From whichever corner of the window it is nearest, so that a
-        note put at the bottom right stays at the bottom right when the
-        window is made bigger or the board opened on a larger screen.
-        ``top_left`` is where it is to go, if not where it is now.
+    def pins_tab_item(self, wanted):
+        """The tab, on the board while there are pinned notes, else not.
+
+        Made again when the board has been cleared, which takes every
+        item with it, the tab included.
         """
 
-        if item.pin is None:
-            return
-        rect = item.screen_rect(self)
-        if top_left is not None:
-            rect.moveTopLeft(QtCore.QPointF(top_left))
+        tab = getattr(self, 'pins_tab', None)
+        if tab is not None and sip.isdeleted(tab):
+            tab = None
+        if not wanted:
+            if tab is not None and tab.scene() is not None:
+                tab.scene().removeItem(tab)
+            return None
+        if tab is None:
+            tab = widgets.pinned_notes.PinsTab(
+                self, BeeTextItem.PINNED_Z - 1)
+            self.pins_tab = tab
+        if tab.scene() is not self.scene:
+            self.scene.addItem(tab)
+        return tab
+
+    def pins_tab_rect(self):
+        """Where the tab is in the window now, in its pixels."""
+
+        tab = getattr(self, 'pins_tab', None)
+        if tab is None or sip.isdeleted(tab) or tab.scene() is None:
+            return QtCore.QRectF()
+        return tab.deviceTransform(self.viewportTransform()).mapRect(tab.rect)
+
+    def pins_tab_top_left(self, size):
+        """Where the tab goes, for its size: in its corner of the window.
+
+        Kept inside the window, so that one made smaller brings the tab
+        in with it; its own place is kept, and it goes back there once
+        there is room again.
+        """
+
         area = self.viewport().rect()
+        state = self.scene.pins_tab
+        right, bottom = state['corner']
+        x, y = state['offset']
+        left = area.width() - x - size.width() if right else x
+        top = area.height() - y - size.height() if bottom else y
+        left = max(0, min(left, area.width() - size.width()))
+        top = max(0, min(top, area.height() - size.height()))
+        return QtCore.QPointF(left, top)
+
+    def remember_pins_tab(self, rect):
+        """Keep where the tab is, from whichever corner it is nearest.
+
+        So that a tab put at the bottom right stays at the bottom right
+        when the window is made bigger, or the board opened on a larger
+        screen, and grows up out of that corner as notes are added.
+        """
+
+        if rect.isEmpty():
+            return
+        area = self.viewport().rect()
+        state = self.scene.pins_tab
         right = rect.center().x() > area.width() / 2
         bottom = rect.center().y() > area.height() / 2
-        item.pin['corner'] = [int(right), int(bottom)]
-        item.pin['offset'] = [
+        state['corner'] = [int(right), int(bottom)]
+        state['offset'] = [
             area.width() - rect.right() if right else rect.left(),
             area.height() - rect.bottom() if bottom else rect.top()]
 
-    def place_pinned_note(self, item):
-        """Put a pinned note back in its spot of the window.
+    def move_pins_tab(self, top_left):
+        """The tab dragged by its header to here. Not a step to undo."""
 
-        Kept inside the window, so that one made smaller brings the note
-        in with it rather than leaving it out of sight; its spot itself
-        is kept, and it goes back there once there is room again.
+        rect = QtCore.QRectF(self.pins_tab_rect())
+        rect.moveTopLeft(QtCore.QPointF(top_left))
+        self.remember_pins_tab(rect)
+        self.place_pinned_notes()
+
+    def put_on_screen(self, item, local, target):
+        """Move something pinned so that a point of it is at ``target``.
+
+        ``local`` is in the item's own coordinates, and ``target`` in the
+        window's pixels. A pinned item ignores the zoom, but not where it
+        is on the board, which is what is moved.
         """
 
-        if item.active_mode == item.WRAP_MODE:
-            # Being made wider by a side: left where it is, so that the
-            # side follows the mouse rather than the note being pushed
-            # back against its corner at every step
-            return
-        rect = item.screen_rect(self)
-        area = self.viewport().rect()
-        right, bottom = item.pin['corner']
-        x, y = item.pin['offset']
-        left = area.width() - x - rect.width() if right else x
-        top = area.height() - y - rect.height() if bottom else y
-        left = max(0, min(left, area.width() - rect.width()))
-        top = max(0, min(top, area.height() - rect.height()))
-        shift = QtCore.QPointF(left - rect.left(), top - rect.top())
+        now = item.deviceTransform(self.viewportTransform()).map(local)
+        shift = QtCore.QPointF(target) - now
         if abs(shift.x()) < 0.01 and abs(shift.y()) < 0.01:
             return
-        item.placing = True
-        try:
-            item.setPos(item.pos() + shift / self.get_scale())
-        finally:
-            item.placing = False
+        item.setPos(item.pos() + shift / self.get_scale())
+
+    def pinned_note_held(self, note):
+        """Whether a pinned note is in hand -- dragged, or made wider.
+
+        Left wherever the mouse has it until it is let go, and the tab
+        with it, rather than put back in its place at every step.
+        """
+
+        if note.active_mode == note.WRAP_MODE:
+            return True
+        return (self.scene.active_mode == self.scene.MOVE_MODE
+                and note.isSelected()
+                and bool(QtWidgets.QApplication.mouseButtons()
+                         & Qt.MouseButton.LeftButton))
 
     def place_pinned_notes(self):
-        """Keep each pinned note in its spot, with its buttons beside it.
+        """Lay out the tab of pinned notes, and the notes in it.
 
-        Folded away, a note shows as a small label in its corner instead,
-        and its buttons go.
+        One under another, the order they were put in or have been
+        rearranged to, ``PINS_GAP`` apart whether open or folded to their
+        labels -- so that none is ever over another, and opening one or
+        folding it away moves the ones below it to keep the gap. Each
+        open note has its buttons beside it. The tab is as wide as the
+        widest, and keeps to its corner of the window; folded away, it
+        is just its header, and the notes are out of sight.
         """
 
         made = getattr(self, 'pinned_note_widgets', None)
         if made is None:
             return
-        notes = self.scene.pinned_notes()
-        for note in notes:
-            self.place_pinned_note(note)
-            if note not in made:
-                made[note] = (
-                    widgets.pinned_notes.PinnedNoteControls(self, self, note),
-                    widgets.pinned_notes.PinnedNoteLabel(self, self, note))
-            controls, label = made[note]
-            rect = note.screen_rect(self)
-            if note.is_minimized:
-                controls.hide()
-                label.refresh()
-                if not label.dragging:
-                    # A label being dragged goes where the mouse takes it
-                    label.place(rect, note.pin['corner'])
-                label.show()
-                label.raise_()
-            else:
-                label.hide()
-                controls.place(rect)
-                controls.show()
-                controls.raise_()
+        notes = sorted(self.scene.pinned_notes(),
+                       key=lambda note: note.pin.get('order', 0))
+        for index, note in enumerate(notes):
+            note.pin['order'] = index
         for note in list(made):
             if note not in notes:
                 for widget in made.pop(note):
                     widget.hide()
                     widget.deleteLater()
+        tab = self.pins_tab_item(bool(notes))
+        self.pin_slots = []
+        if tab is None:
+            return
 
-    def put_pinned_label(self, note, rect):
-        """Keep a folded-away note where its label was dragged to.
+        folded = bool(self.scene.pins_tab.get('minimized'))
+        pad = tab.PADDING
+        entries = []
+        for note in notes:
+            if note not in made:
+                made[note] = (
+                    widgets.pinned_notes.PinnedNoteControls(self, self, note),
+                    widgets.pinned_notes.PinnedNoteLabel(self, self, note))
+            controls, label = made[note]
+            if note.is_minimized:
+                label.refresh()
+                size = QtCore.QSizeF(label.size())
+                room = 0
+            else:
+                size = note.screen_rect(self).size()
+                room = controls.GAP + controls.width()
+                # Tall enough for its buttons too, so that those of a
+                # one-line note do not reach down over the next
+                size.setHeight(max(size.height(), controls.height()))
+            entries.append((note, size, room))
 
-        The note keeps to whichever corner of the window the label is now
-        nearest, with the label in that corner of the note: the label
-        stays just where it was let go, and the note opens out from
-        there. Like dragging the note itself, not a step to undo.
+        if folded:
+            width = tab.folded_width()
+            height = tab.HEADER
+        else:
+            width = max(tab.MIN_WIDTH,
+                        max(size.width() + room
+                            for _, size, room in entries) + 2 * pad)
+            height = (tab.HEADER + 2 * pad
+                      + sum(size.height() for _, size, _ in entries)
+                      + self.PINS_GAP * (len(entries) - 1))
+        held = any(self.pinned_note_held(note) for note in notes)
+        if held and not self.pins_tab_rect().isEmpty():
+            # Something in the tab is in hand: the tab stays put and
+            # grows from where it is, so that a side being dragged
+            # follows the mouse
+            top_left = self.pins_tab_rect().topLeft()
+        else:
+            top_left = self.pins_tab_top_left(QtCore.QSizeF(width, height))
+        tab.set_look(width, height, len(notes), folded)
+        self.put_on_screen(tab, QtCore.QPointF(0, 0), top_left)
+
+        x = top_left.x() + pad
+        y = top_left.y() + tab.HEADER + pad
+        for note, size, room in entries:
+            controls, label = made[note]
+            slot = QtCore.QRectF(x, y, size.width(), size.height())
+            self.pin_slots.append((note, slot))
+            y += size.height() + self.PINS_GAP
+            # Where a version that places each pinned note on its own
+            # will show it, should the board be opened in one
+            note.pin['corner'] = [0, 0]
+            note.pin['offset'] = [slot.x(), slot.y()]
+            if folded:
+                note.setVisible(False)
+                controls.hide()
+                label.hide()
+                continue
+            if note.is_minimized:
+                note.setVisible(False)
+                controls.hide()
+                if not label.dragging:
+                    # A label being dragged goes where the mouse takes it
+                    label.move(round(slot.x()), round(slot.y()))
+                label.show()
+                label.raise_()
+                continue
+            note.setVisible(True)
+            label.hide()
+            if not self.pinned_note_held(note):
+                note.placing = True
+                try:
+                    self.put_on_screen(
+                        note, note.whole_rect().topLeft(), slot.topLeft())
+                finally:
+                    note.placing = False
+            rect = note.screen_rect(self)
+            controls.move(round(rect.right() + controls.GAP),
+                          round(rect.top()))
+            controls.show()
+            controls.raise_()
+
+    def drop_pinned_note(self, note, point):
+        """A pinned note let go of at a point of the window.
+
+        Dropped on another note in the tab, the two swap places; anywhere
+        else, it goes back to its own. Rearranging the window, not the
+        board: not a step to undo.
         """
 
-        area = self.viewport().rect()
-        rect = QtCore.QRectF(rect)
-        right = rect.center().x() > area.width() / 2
-        bottom = rect.center().y() > area.height() / 2
-        note.pin['corner'] = [int(right), int(bottom)]
-        note.pin['offset'] = [
-            area.width() - rect.right() if right else rect.left(),
-            area.height() - rect.bottom() if bottom else rect.top()]
+        point = QtCore.QPointF(point)
+        half = self.PINS_GAP / 2
+        target = None
+        tab = self.pins_tab_rect()
+        if tab.left() <= point.x() <= tab.right():
+            for other, slot in getattr(self, 'pin_slots', []):
+                if (other is not note
+                        and slot.top() - half <= point.y()
+                        <= slot.bottom() + half):
+                    target = other
+                    break
+        if target is not None:
+            note.pin['order'], target.pin['order'] = (
+                target.pin['order'], note.pin['order'])
+        self.place_pinned_notes()
+
+    def pinned_note_let_go(self):
+        """A pinned note in hand has been let go of.
+
+        The tab stayed where it was while the note was held; it is kept
+        there from now on, rather than put back against its corner at
+        whatever size it has now.
+        """
+
+        self.remember_pins_tab(self.pins_tab_rect())
         self.place_pinned_notes()
 
     def set_pinned_note_minimized(self, note, minimized):
@@ -3546,21 +3692,24 @@ class BeeGraphicsView(MainControlsMixin,
         self.place_pinned_notes()
         self.update_pinned_toolbars()
 
-    def on_action_fold_pinned_notes(self):
-        """Fold every pinned note away, or open them all out again.
+    def set_pins_tab_folded(self, folded):
+        """Fold the tab of pinned notes away to its header, or open it."""
 
-        Folded if any is open, so that one press clears the window and
-        the next brings them all back.
-        """
-
-        notes = self.scene.pinned_notes()
-        if not notes:
-            return
-        fold = any(not note.is_minimized for note in notes)
-        for note in notes:
-            note.set_minimized(fold)
+        if folded:
+            for note in self.scene.pinned_notes():
+                if note.edit_mode:
+                    note.exit_edit_mode()
+                note.setSelected(False)
+        self.scene.pins_tab['minimized'] = bool(folded)
         self.place_pinned_notes()
         self.update_pinned_toolbars()
+
+    def on_action_fold_pinned_notes(self):
+        """Fold the tab of pinned notes away, or open it again."""
+
+        if not self.scene.pinned_notes():
+            return
+        self.set_pins_tab_folded(not self.scene.pins_tab.get('minimized'))
 
     def escape(self):
         """Back to the mouse, with nothing selected.

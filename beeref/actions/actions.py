@@ -482,7 +482,7 @@ actions = ActionList([
     ),
     Action(
         id='fold_pinned_notes',
-        text='&Fold Away Pinned Notes',
+        text='&Fold Away the Pins Tab',
         shortcuts=['Ctrl+Shift+P'],
         callback='on_action_fold_pinned_notes',
     ),

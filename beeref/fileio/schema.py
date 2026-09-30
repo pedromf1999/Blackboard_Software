@@ -53,6 +53,9 @@ META_THUMBNAIL_KEY = 'thumbnail'
 # as JSON, since it belongs to the board and not to any
 # one item on it
 META_LEGEND_KEY = 'legend'
+# Where the tab of pinned notes is in the window, and whether it is
+# folded away, as JSON, for the same reason
+META_PINS_TAB_KEY = 'pins_tab'
 
 
 MIGRATIONS = {

@@ -3348,11 +3348,16 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # at, so untouched text items save exactly as before
             data['text_width'] = self.textWidth()
         if self.pin is not None:
-            # Read by nothing before this: a version that does not know
-            # it shows the note on the board, where it was last seen
-            data['pin'] = {'corner': list(self.pin['corner']),
-                           'offset': list(self.pin['offset']),
-                           'minimized': bool(self.pin.get('minimized'))}
+            # Read by nothing before 10.8: a version that does not know
+            # it shows the note on the board, where it was last seen.
+            # Its place in the tab of pinned notes, and whether it is
+            # folded away; and, for the versions before the tab, which
+            # placed each note on its own, where it was last shown.
+            data['pin'] = {
+                'order': int(self.pin.get('order', 0)),
+                'minimized': bool(self.pin.get('minimized')),
+                'corner': list(self.pin.get('corner', [0, 0])),
+                'offset': list(self.pin.get('offset', [16, 16]))}
         return data
 
     def contains(self, point):
@@ -3933,11 +3938,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.keep_task_marks(marks)
         self.cursor_may_have_moved()
         if rewrapped and self.pin is not None and self.scene() is not None:
-            # Made wider or narrower where it is: kept there from now on,
-            # rather than put back against its corner at the old width
+            # Made wider or narrower where it is: its tab is kept there
+            # from now on, rather than put back against its corner
             for view in self.scene().views():
-                view.remember_pin_place(self)
-                view.place_pinned_notes()
+                view.pinned_note_let_go()
 
     def task_marks(self):
         """Which line carries which box, to put back what Qt changes."""
@@ -4544,15 +4548,14 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     # that a to-do list stays in sight wherever the board is moved and
     # however far it is zoomed. The note is still a note on the board --
     # boxes, numbers, formatting, undo all work as on any other -- that
-    # ignores the zoom and is put back in the same spot of the window
-    # whenever the board moves under it; see BeeGraphicsView.
+    # ignores the zoom and is put back in its place in the tab of pinned
+    # notes whenever the board moves under it; see BeeGraphicsView.
     # place_pinned_notes. What it keeps, saved with the board:
-    #   corner     which corner of the window it keeps to, as (right,
-    #              bottom), each 0 or 1, so that it stays in its corner
-    #              when the window is resized or the board opened on a
-    #              screen of another size
-    #   offset     how far its own corner is from that one, in pixels
+    #   order      its place in the tab, counting from the top
     #   minimized  whether it is folded away to a small label
+    #   corner, offset
+    #              where it was last shown, for the versions before the
+    #              tab, which placed each pinned note on its own
 
     # Above everything on the board
     PINNED_Z = 2.0 ** 40
@@ -4612,10 +4615,21 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         super().setZValue(value)
 
     def screen_rect(self, view):
-        """Where the note is in the window, in the window's pixels."""
+        """Where the note is in the window, in the window's pixels.
+
+        All of it: the box, and the title band standing on top of it.
+        """
 
         return self.deviceTransform(view.viewportTransform()).mapRect(
-            self.bounding_rect_unselected())
+            self.whole_rect())
+
+    def whole_rect(self):
+        """The note as it is drawn, band and all, in its own coordinates."""
+
+        rect = self.bounding_rect_unselected()
+        if self.shows_header():
+            rect = rect.united(self.header_rect())
+        return rect
 
     def board_transform(self):
         """How a pinned note's own points land on the board, as seen now.
@@ -4672,17 +4686,6 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         changes = QtWidgets.QGraphicsItem.GraphicsItemChange
         if change == changes.ItemSceneHasChanged and self.pin is not None:
             self.join_pinned_notes()
-        scene = self.scene()
-        if (change == changes.ItemPositionHasChanged
-                and self.pin is not None and not self.placing
-                and scene is not None
-                and getattr(scene, 'active_mode', None) is not None
-                and scene.active_mode == getattr(scene, 'MOVE_MODE', None)):
-            # Dragged somewhere else: it stays wherever it was put, from
-            # now on. Only a drag: a file being read or a step undone
-            # moves it too, and neither is saying where it should be.
-            for view in scene.views():
-                view.remember_pin_place(self)
         return super().itemChange(change, value)
 
     def list_level(self, block):

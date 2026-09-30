@@ -201,7 +201,8 @@ class SceneToSVGExporter(SceneExporterBase):
 
         for i, item in enumerate(sorted(self.scene.items(),
                                         key=lambda x: x.zValue())):
-            if getattr(item, 'is_pinned', False):
+            if (getattr(item, 'is_pinned', False)
+                    or getattr(item, 'is_pins_tab', False)):
                 # Pinned to the window, not part of the board
                 continue
             # z order in SVG specified via the order of elements in the tree

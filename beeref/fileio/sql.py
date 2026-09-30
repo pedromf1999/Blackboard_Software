@@ -24,6 +24,7 @@ https://www.sqlite.org/sqlar.html
 """
 
 import base64
+import copy
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ from beeref.items import (
 from .errors import BeeFileIOError, IMG_LOADING_ERROR_MSG
 from .schema import (SCHEMA, USER_VERSION, MIGRATIONS, APPLICATION_ID,
                      META_TABLE, META_VERSION_KEY,
-                     META_THUMBNAIL_KEY, META_LEGEND_KEY)
+                     META_THUMBNAIL_KEY, META_LEGEND_KEY, META_PINS_TAB_KEY)
 
 
 logger = logging.getLogger(__name__)
@@ -223,6 +224,12 @@ class SQLiteIO:
                 'INSERT OR REPLACE INTO blackboard_meta (key, value) '
                 'VALUES (?, ?)',
                 (META_LEGEND_KEY, json.dumps(self.legend)))
+        pins_tab = getattr(self.scene, 'pins_tab', None)
+        if pins_tab is not None:
+            self.ex(
+                'INSERT OR REPLACE INTO blackboard_meta (key, value) '
+                'VALUES (?, ?)',
+                (META_PINS_TAB_KEY, json.dumps(pins_tab)))
 
     def read_thumbnail(self):
         """The picture of the board saved with it, or None."""
@@ -266,6 +273,40 @@ class SQLiteIO:
         return [{'color': tuple(entry.get('color') or (255, 255, 255, 255)),
                  'text': str(entry.get('text', ''))}
                 for entry in rows if isinstance(entry, dict)]
+
+    def read_pins_tab(self, default):
+        """Where the tab of pinned notes was, or ``default`` if nowhere.
+
+        Anything missing or not understood is taken from the default,
+        so a board saved before there was a tab, or by a later version
+        with more to say, still opens with one in a sensible place.
+        """
+
+        state = copy.deepcopy(default)
+        table = self.fetchone(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='blackboard_meta'")
+        if not table:
+            return state
+        row = self.fetchone(
+            'SELECT value FROM blackboard_meta WHERE key=?',
+            (META_PINS_TAB_KEY,))
+        if not row or not row[0]:
+            return state
+        try:
+            saved = json.loads(row[0])
+        except ValueError:
+            logger.debug(f'Unreadable pins tab in {self.filename}')
+            return state
+        if not isinstance(saved, dict):
+            return state
+        for key in ('corner', 'offset'):
+            value = saved.get(key)
+            if (isinstance(value, list) and len(value) == 2
+                    and all(isinstance(v, (int, float)) for v in value)):
+                state[key] = list(value)
+        state['minimized'] = bool(saved.get('minimized', False))
+        return state
 
     def saved_by_version(self):
         """The version that last wrote this file, or None.
@@ -372,6 +413,8 @@ class SQLiteIO:
         # loading thread, where Qt quietly refuses to put new widgets
         # into a window. The view builds the panel once loading is done.
         self.scene.legend = self.read_legend()
+        if hasattr(self.scene, 'PINS_TAB'):
+            self.scene.pins_tab = self.read_pins_tab(self.scene.PINS_TAB)
         if self.worker:
             self.worker.begin_processing.emit(self.count_rows())
 

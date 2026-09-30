@@ -35,7 +35,7 @@ import math
 import time
 import weakref
 
-from PyQt6 import QtCore, QtGui
+from PyQt6 import QtCore, QtGui, sip
 
 
 logger = logging.getLogger(__name__)
@@ -309,7 +309,10 @@ class OpenedPictures(QtCore.QObject):
         if self.put(name, image) is None:
             return
         picture = self.pictures.get(name[0])
-        if picture is not None and picture.scene() is not None:
+        # The board may have been cleared while it was being opened --
+        # another board opened -- and the picture with it
+        if (picture is not None and not sip.isdeleted(picture)
+                and picture.scene() is not None):
             picture.update()
 
     def open_now(self, name, source, size, background):
