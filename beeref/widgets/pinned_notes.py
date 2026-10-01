@@ -17,9 +17,8 @@
 
 The notes themselves are on the board; the tab and these belong to the
 window. The view lays them all out together -- see
-BeeGraphicsView.place_pinned_notes -- so that the notes stand in columns
-in the tab, one under another in each, a small gap apart, never over
-each other.
+BeeGraphicsView.place_pinned_notes -- so that the notes stand in the
+tab against each other, a small gap apart, never over each other.
 """
 
 import logging
@@ -40,20 +39,6 @@ PANEL_EDGE = QtGui.QColor(255, 255, 255, 40)
 PANEL_WORDS = QtGui.QColor(220, 220, 220)
 # Where a pinned note being dragged would go
 DROP_COLOR = QtGui.QColor(*constants.COLORS['Scene:Selection'])
-
-
-def panel_style(name):
-    """A small panel over the board, a shade lighter than the board.
-
-    The window's own colour is all but the board's, so a panel in it
-    left the buttons looking as if they floated loose.
-    """
-
-    color = constants.COLORS['Active:Base']
-    return (f'#{name} {{ background-color: rgba('
-            f'{color[0]}, {color[1]}, {color[2]}, 0.97);'
-            'border: 1px solid rgba(255, 255, 255, 40);'
-            'border-radius: 5px; }')
 
 
 def tinted(icon_name, color, side=64):
@@ -82,7 +67,7 @@ class PinsTab(QtWidgets.QGraphicsItem):
 
     It is part of the window, not of the board: never saved, never
     chosen, and drawn just under the notes it holds, which stand in it
-    in columns, one under another in each.
+    a small gap from each other.
     """
 
     HEADER = 30
@@ -117,7 +102,12 @@ class PinsTab(QtWidgets.QGraphicsItem):
         self.drop_rect = None
 
     def boundingRect(self):
-        return self.rect.adjusted(-1, -1, 1, 1)
+        rect = self.rect.adjusted(-1, -1, 1, 1)
+        if self.drop_rect is not None:
+            # Where a note would land can be past the tab's edge, which
+            # grows to hold it once it is let go of
+            rect = rect.united(self.drop_rect.adjusted(-2, -2, 2, 2))
+        return rect
 
     def set_look(self, width, height, count, folded):
         if (QtCore.QSizeF(width, height) != self.rect.size()
@@ -134,6 +124,7 @@ class PinsTab(QtWidgets.QGraphicsItem):
         if kind is None:
             rect = None
         if kind != self.drop_kind or rect != self.drop_rect:
+            self.prepareGeometryChange()
             self.drop_kind = kind
             self.drop_rect = rect
             self.update()
@@ -197,21 +188,19 @@ class PinsTab(QtWidgets.QGraphicsItem):
         painter.restore()
 
     def paint_drop_hint(self, painter):
-        """The note it would swap with, ringed; or a line where a note
-        would go into a column, or start one of its own."""
+        """The note it would swap with, ringed; or the place it would
+        land in, shaded."""
 
         if self.drop_kind is None or self.drop_rect is None:
             return
+        painter.setPen(QtGui.QPen(DROP_COLOR, 2))
         if self.drop_kind == 'swap':
-            painter.setPen(QtGui.QPen(DROP_COLOR, 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(self.drop_rect, 6, 6)
         else:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QtGui.QBrush(DROP_COLOR))
-            radius = min(self.drop_rect.width(),
-                         self.drop_rect.height()) / 2
-            painter.drawRoundedRect(self.drop_rect, radius, radius)
+            fill = QtGui.QColor(DROP_COLOR)
+            fill.setAlpha(50)
+            painter.setBrush(QtGui.QBrush(fill))
+        painter.drawRoundedRect(self.drop_rect, 6, 6)
 
     def hoverMoveEvent(self, event):
         over_header = self.header_rect().contains(event.pos())
@@ -275,15 +264,16 @@ class PinsTab(QtWidgets.QGraphicsItem):
 
 
 class PinnedNoteControls(QtWidgets.QWidget):
-    """Two small buttons beside a pinned note: fold it away, and unpin it.
+    """Two small buttons on a pinned note: fold it away, and unpin it.
 
-    Always there while the note is open, so that putting it away is one
-    click whatever else is going on.
+    Shown while the mouse is over the note -- see BeeGraphicsView.
+    update_pinned_controls -- at the right of its title band, or in its
+    top corner when it has none, in the colour of what they sit on.
     """
 
-    GAP = 4
-    BUTTON_SIZE = 24
-    ICON_SIZE = 14
+    BUTTON_SIZE = 22
+    # As small as they get in a narrow title band
+    MIN_BUTTON_SIZE = 14
 
     def __init__(self, parent, view, note):
         super().__init__(parent)
@@ -293,34 +283,63 @@ class PinnedNoteControls(QtWidgets.QWidget):
         # A plain widget ignores a style sheet's background unless told
         # to draw it
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(panel_style('PinnedNoteControls'))
+        # The colour and size they were last given; see refresh
+        self.look = None
         # Never take the keyboard: a note being written in holds it, and
         # losing it would end the writing
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Side by side, so that they are no taller than a line of a note
         layout = QtWidgets.QHBoxLayout()
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(2)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(1)
         self.setLayout(layout)
         self.minimize = self.add_button(
             'minimize', 'Fold away (Ctrl+Shift+P: the whole tab)',
             self.on_minimize)
         self.unpin = self.add_button(
             'pin', 'Unpin: back onto the board (Ctrl+P)', self.on_unpin)
-        self.adjustSize()
+        self.hide()
 
     def add_button(self, icon, tooltip, callback):
         button = QtWidgets.QToolButton(self)
         button.setToolTip(tooltip)
-        button.setIcon(BeeAssets().tool_icon(icon))
-        button.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
-        button.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        button.icon_name = icon
         button.setAutoRaise(True)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.clicked.connect(callback)
         self.layout().addWidget(button)
         return button
+
+    def refresh(self, color, size):
+        """In the colour of what they sit on, with their icons in the
+        colour words take on it; and this big."""
+
+        color = QtGui.QColor(color)
+        color.setAlpha(255)
+        words = readable_grey(color)
+        look = (color.name(), words.name(), int(size))
+        if look == self.look:
+            return
+        self.look = look
+        self.setStyleSheet(
+            f'#PinnedNoteControls {{ background-color: {color.name()};'
+            ' border: none; border-radius: 4px; }'
+            ' #PinnedNoteControls QToolButton { border: none;'
+            ' border-radius: 4px; background: transparent; }'
+            ' #PinnedNoteControls QToolButton:hover { background-color:'
+            f' rgba({words.red()}, {words.green()}, {words.blue()}, 50); }}')
+        icon = max(10, round(size * 0.6))
+        for button in (self.minimize, self.unpin):
+            button.setFixedSize(int(size), int(size))
+            button.setIcon(QtGui.QIcon(tinted(button.icon_name, words)))
+            button.setIconSize(QtCore.QSize(icon, icon))
+        self.adjustSize()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        # Off the buttons, and perhaps off the note as well
+        self.view.update_pinned_controls()
 
     def on_minimize(self):
         self.view.set_pinned_note_minimized(self.note, True)
@@ -350,8 +369,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
         self.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.setToolTip(
             'Open the pinned note, or drag it: onto another to swap them,'
-            ' above or below a column into it, beside the tab into a'
-            ' column of its own')
+            ' or anywhere in the tab to stand it there')
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.clicked.connect(self.on_open)
         # Where a press started, and where the label was then, while the
@@ -384,7 +402,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
                 self.raise_()
             if self.dragging:
                 self.move(self.kept_inside(self.started_at + moved))
-                self.view.show_pin_drop(self.note, self.geometry().center())
+                self.view.show_pin_drop(self.note)
                 event.accept()
                 return
         super().mouseMoveEvent(event)
@@ -396,7 +414,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
             self.pressed_at = None
             self.setDown(False)
             self.unsetCursor()
-            self.view.drop_pinned_note(self.note, self.geometry().center())
+            self.view.drop_pinned_note(self.note)
             event.accept()
             return
         self.pressed_at = None

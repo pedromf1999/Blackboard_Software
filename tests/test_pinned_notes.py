@@ -159,6 +159,10 @@ def test_folded_away_it_leaves_a_label_in_its_corner(board):
     note = note_at(board, QtCore.QPoint(100, 120), text='Chair\nmodel it')
     pin(board, note)
     controls, label = board.pinned_note_widgets[note]
+    # Its buttons show while the mouse is over it
+    assert controls.isVisible() is False
+    mouse_move(board.viewport(), note.screen_rect(board).center().toPoint(),
+               Qt.MouseButton.NoButton)
     assert controls.isVisible() is True
 
     controls.minimize.click()
@@ -528,19 +532,13 @@ def test_the_notes_in_the_tab_keep_a_gap_and_never_overlap(board):
         pin(board, note)
     board.set_pinned_note_minimized(notes[1], True)
 
-    # A gap between each and the next, and exactly the gap when a note
-    # stands taller than the buttons beside it
-    assert all(gap >= board.PINS_GAP - 0.6 for gap in gaps(board))
+    # Exactly the gap between each and the next: their buttons are
+    # inside them, and take no room
     slots = [slot for _, slot in board.pin_slots]
     assert [below.top() - above.bottom()
             for above, below in zip(slots, slots[1:])] == pytest.approx(
                 [board.PINS_GAP] * 3)
-    assert gaps(board)[2] == pytest.approx(board.PINS_GAP, abs=0.6)
-    # Nor do the buttons of one reach the next
-    controls = [board.pinned_note_widgets[note][0] for note in notes
-                if not note.is_minimized]
-    for above, below in zip(controls, controls[1:]):
-        assert above.geometry().bottom() < below.geometry().top()
+    assert gaps(board) == pytest.approx([board.PINS_GAP] * 3, abs=0.6)
     # And in the order they were pinned
     assert [note.pin['order'] for note in notes] == [0, 1, 2, 3]
 

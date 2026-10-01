@@ -917,14 +917,15 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 items,
                 detach=bool(event.modifiers()
                             & Qt.KeyboardModifier.AltModifier))
-            # A pinned note dragged about its tab: where it would go
-            pinned = next((item for item in items
-                           if getattr(item, 'is_pinned', False)), None)
+        super().mouseMoveEvent(event)
+        if self.active_mode == self.MOVE_MODE:
+            # A pinned note dragged about its tab: where it would go,
+            # from where it has just been moved to
+            pinned = next((item for item in self.selectedItems(
+                user_only=True) if getattr(item, 'is_pinned', False)), None)
             if pinned is not None:
                 for view in self.views():
-                    view.show_pin_drop(
-                        pinned, view.mapFromScene(event.scenePos()))
-        super().mouseMoveEvent(event)
+                    view.show_pin_drop(pinned)
 
     def raise_dragged_items(self, items):
         """Draw the items being dragged on top of the others.
@@ -1031,8 +1032,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         super().mouseReleaseEvent(event)
         if dropped is not None:
             for view in self.views():
-                view.drop_pinned_note(
-                    dropped, view.mapFromScene(event.scenePos()))
+                view.drop_pinned_note(dropped)
 
     def selectedItems(self, user_only=False):
         """If ``user_only`` is set to ``True``, only return items added

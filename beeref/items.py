@@ -3429,14 +3429,15 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if self.pin is not None:
             # Read by nothing before 10.8: a version that does not know
             # it shows the note on the board, where it was last seen.
-            # Its column in the tab of pinned notes and its place, and
-            # whether it is folded away; and, for the versions before the
-            # tab, which placed each note on its own, where it was last
-            # shown. The versions before columns show them all in one,
-            # in the order they are read.
+            # Its place in the tab of pinned notes, the note it stands
+            # beside, and whether it is folded away; and, for the versions
+            # before the tab, which placed each note on its own, where it
+            # was last shown. The versions that know only the place show
+            # the notes one under another, in that order.
+            after = self.pin.get('after')
             data['pin'] = {
-                'column': int(self.pin.get('column', 0)),
-                'order': int(self.pin.get('order', 0)),
+                'order': int(self.pin.get('order') or 0),
+                'after': after if isinstance(after, int) else None,
                 'minimized': bool(self.pin.get('minimized')),
                 'corner': list(self.pin.get('corner', [0, 0])),
                 'offset': list(self.pin.get('offset', [16, 16]))}
@@ -4633,9 +4634,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     # ignores the zoom and is put back in its place in the tab of pinned
     # notes whenever the board moves under it; see BeeGraphicsView.
     # place_pinned_notes. What it keeps, saved with the board:
-    #   column     which of the tab's columns it stands in, from the left
-    #   order      its place in the tab, counting down the first column,
-    #              then down the next
+    #   order      its place in the order the tab is laid out in
+    #   after      the place of the note it stands to the right of, or
+    #              None at the left of the tab
     #   minimized  whether it is folded away to a small label
     #   corner, offset
     #              where it was last shown, for the versions before the
