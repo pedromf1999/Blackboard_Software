@@ -22,14 +22,12 @@ def group_with_image(view, width=300, height=200):
 
 
 def test_a_group_starts_with_no_title(view):
-    """But with its band all the same: it is what a group is taken up
-    by. Empty, and one title line high."""
+    """And with no band: it is taken up by its top edge instead."""
 
     group = group_with_image(view)
     assert group.title == ''
-    assert group.shows_header() is True
-    assert group.header_height() == pytest.approx(
-        group.band_height_of_one_line(group.title_size()))
+    assert group.shows_header() is False
+    assert group.header_height() == 0
 
 
 def test_an_untitled_group_is_the_box_it_always_was(view):
@@ -52,15 +50,20 @@ def test_the_band_sits_above_the_items(view):
     assert group.header_rect().bottom() <= top_of_items
 
 
-def test_writing_a_short_title_leaves_the_group_its_size(view):
-    """The band was one title line high already."""
+def test_a_title_adds_its_band_above_the_items(view):
+    """The box grows upwards to hold it; nothing in it moves."""
 
     group = group_with_image(view)
+    [child] = group.bee_children()
     before = group.rect()
+    child_before = child.scenePos()
     group.title = 'Lid Latch'
 
-    assert group.rect().top() == pytest.approx(before.top())
-    assert group.rect().height() == pytest.approx(before.height())
+    assert group.shows_header() is True
+    assert group.rect().bottom() == pytest.approx(before.bottom())
+    assert group.rect().top() == pytest.approx(
+        before.top() - group.header_height())
+    assert child.scenePos() == child_before
 
 
 def test_the_title_can_be_taken_off_again(view):
@@ -69,8 +72,8 @@ def test_the_title_can_be_taken_off_again(view):
     group.title = 'Lid Latch'
     group.title = ''
 
-    # The band stays, empty, and the box is as it was
-    assert group.shows_header() is True
+    # The band goes with it, and the box is as it was
+    assert group.shows_header() is False
     assert group.rect().height() == pytest.approx(before.height())
     assert group.rect().top() == pytest.approx(before.top())
 
@@ -289,16 +292,17 @@ def test_what_is_typed_becomes_the_title(view):
     assert view.scene.title_item is None
 
 
-def test_writing_nothing_leaves_the_band_empty(view):
+def test_writing_nothing_leaves_no_band(view):
     group = group_with_image(view)
     before = group.rect()
     group.setSelected(True)
     view.on_action_group_title()
+    assert group.shows_header() is True
     group.exit_title_edit_mode()
 
     assert group.title == ''
-    assert group.shows_header() is True
-    assert group.rect().height() == pytest.approx(before.height())
+    assert group.shows_header() is False
+    assert group.rect() == before
 
 
 def test_escaping_throws_the_change_away(view):
@@ -446,13 +450,14 @@ def test_the_text_tool_still_writes_a_note_below_the_band(view):
     assert view.title_band_at(point) is None
 
 
-def test_the_tool_finds_the_empty_band_of_an_untitled_group(view):
+def test_the_tool_finds_the_top_edge_of_an_untitled_group(view):
     """To write the group its title."""
 
     view.resize(800, 600)
     group = group_with_image(view)
     view.on_action_fit_scene()
-    point = view.mapFromScene(group.mapToScene(group.header_rect().center()))
+    point = view.mapFromScene(
+        group.mapToScene(group.top_edge_rect().center()))
     assert view.title_band_at(point) is group
 
 
@@ -506,15 +511,17 @@ def test_double_clicking_the_rest_of_the_box_does_not(view):
     assert group.title_editing is False
 
 
-def test_double_clicking_an_empty_band_opens_it_for_a_title(view):
+def test_double_clicking_the_top_edge_opens_a_band_for_a_title(view):
     group = group_with_image(view)
-    assert double_click(view, group, group.header_rect().center()) is True
+    edge = group.top_edge_rect().center()
+    assert double_click(view, group, edge) is True
     assert group.title_editing is True
+    assert group.shows_header() is True
 
 
-def test_below_the_band_there_is_nothing_to_open(view):
+def test_below_the_top_edge_there_is_nothing_to_open(view):
     group = group_with_image(view)
-    below = group.header_rect().bottomLeft() + QtCore.QPointF(1, 5)
+    below = group.top_edge_rect().bottomLeft() + QtCore.QPointF(1, 5)
     assert double_click(view, group, below) is False
 
 

@@ -78,17 +78,17 @@ def test_a_click_on_something_in_a_group_picks_it_out(view):
     assert selected(view) == [first]
 
 
-def test_a_click_on_the_band_takes_up_the_group(view):
+def test_a_click_on_the_top_edge_takes_up_the_group(view):
     group, first, second = a_group(view)
 
-    click(view, on_screen(view, group, group.header_rect().center()))
+    click(view, on_screen(view, group, group.grab_rect().center()))
 
     assert selected(view) == [group]
 
 
-def test_the_group_is_moved_by_its_band_with_all_it_holds(view):
+def test_the_group_is_moved_by_its_top_edge_with_all_it_holds(view):
     group, first, second = a_group(view)
-    start = on_screen(view, group, group.header_rect().center())
+    start = on_screen(view, group, group.grab_rect().center())
     before = first.scenePos()
 
     drag(view, start, start + QtCore.QPoint(60, 40))
@@ -169,7 +169,7 @@ def test_choosing_a_group_lets_go_of_what_was_picked_out_of_it(view):
     group, first, second = a_group(view)
     first.setSelected(True)
 
-    click(view, on_screen(view, group, group.header_rect().center()),
+    click(view, on_screen(view, group, group.grab_rect().center()),
           Qt.KeyboardModifier.ShiftModifier)
 
     assert group.isSelected() is True

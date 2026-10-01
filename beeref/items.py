@@ -1174,6 +1174,13 @@ class TitleBandMixin:
                                    room.width()))
         painter.restore()
 
+    def title_opens_at(self, scene_pos):
+        """Whether a double-click at this point on the board opens the
+        title for writing: anywhere on the band, if there is one."""
+
+        return (self.shows_header() and self.header_rect().contains(
+            self.mapFromScene(scene_pos)))
+
     def title_search_rect(self):
         """Where the title sits on the board, for Find to go to.
 
@@ -1272,6 +1279,14 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
     # be circular, since the band is added to the height.
     TITLE_FRACTION = 0.04
 
+    # A group with no title has no band, and is taken up by its top
+    # edge instead: a strip this deep on the screen, whatever the zoom,
+    # but no deeper than the margin above what the group holds -- unless
+    # that margin is thinner on the screen than the shallowest strip a
+    # mouse can still find.
+    TOP_EDGE_DEPTH = 16
+    TOP_EDGE_MIN_DEPTH = 8
+
     def __init__(self, box_color=None, locked=False,
                  created=None, modified=None, title=None,
                  header_color=None, title_align=None, band_scale=None,
@@ -1286,6 +1301,9 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         # An empty title means no band at all; the group looks exactly
         # as it did before there were titles
         self.init_title(title, header_color, title_align)
+        # The margin left above what the group holds, which its top
+        # edge is measured against; see fit_to_children
+        self.top_padding = self.PADDING
         # How big the title is asked to be, as a share of what the box
         # gives it; see BandTextMixin
         self.band_scale = band_scale or 1
@@ -1420,6 +1438,7 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         for child in children:
             rect = rect.united(child.mapRectToParent(child.boundingRect()))
         padding = self.padding_for(rect)
+        self.top_padding = padding
         box = rect.adjusted(-padding, -padding, padding, padding)
         self.prepareGeometryChange()
         header = self.header_height_for(box.width())
@@ -1560,11 +1579,70 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         self.paint_title_text(painter)
         painter.restore()
 
-    def shows_header(self):
-        """A group always has its band: it is what the group is taken up
-        by. Without a title it is simply empty, one title line high."""
+    def top_edge_rect(self):
+        """The strip along the top of the box that an untitled group is
+        taken up by, in item coordinates; see TOP_EDGE_DEPTH."""
 
-        return True
+        rect = self.rect()
+        depth = min(self.top_padding,
+                    self.fixed_length_for_viewport(self.TOP_EDGE_DEPTH))
+        depth = max(depth,
+                    self.fixed_length_for_viewport(self.TOP_EDGE_MIN_DEPTH))
+        # A box so small on the screen that even that would be most of
+        # it keeps its lower half for what is in it
+        depth = min(depth, rect.height() / 2)
+        return QtCore.QRectF(rect.x(), rect.y(), rect.width(), depth)
+
+    def grab_rect(self):
+        """Where the group is taken up: its band, or its top edge."""
+
+        if self.shows_header():
+            return self.header_rect()
+        return self.top_edge_rect()
+
+    def title_opens_at(self, scene_pos):
+        # The top edge stands in for the band a group with no title does
+        # not have: double-clicked, it opens the band to write one
+        return self.grab_rect().contains(self.mapFromScene(scene_pos))
+
+    def on_top_edge(self, pos):
+        """Whether the point is on the top edge of an untitled group,
+        and not on one of the handles that size and turn it."""
+
+        if self.shows_header() or not self.top_edge_rect().contains(pos):
+            return False
+        return not self.on_corner_handle(pos)
+
+    def on_corner_handle(self, pos):
+        """Whether the point would size or turn the group."""
+
+        if not self.has_selection_handles():
+            return False
+        if pos in self.select_handle_free_center():
+            return False
+        return any(self.get_scale_bounds(corner).contains(pos)
+                   or self.get_rotate_bounds(corner).contains(pos)
+                   for corner in self.corner_handles())
+
+    def hoverMoveEvent(self, event):
+        # Nothing shows where the edge is, so the hand does: the group
+        # can be taken up here and moved
+        if self.on_top_edge(event.pos()):
+            self.set_cursor(Qt.CursorShape.OpenHandCursor)
+            return
+        super().hoverMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        grabbed = (event.button() == Qt.MouseButton.LeftButton
+                   and self.on_top_edge(event.pos()))
+        super().mousePressEvent(event)
+        if grabbed:
+            self.set_cursor(Qt.CursorShape.ClosedHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if self.on_top_edge(event.pos()):
+            self.set_cursor(Qt.CursorShape.OpenHandCursor)
 
     def keeps_contents(self):
         """Whether this group, or one it sits in, is locked.
@@ -1605,7 +1683,8 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
                 item.set_children_interactive()
 
     def shape(self):
-        """Where a press takes the group up: its band.
+        """Where a press takes the group up: its band, or the top edge
+        of a group with no title.
 
         And its corner handles while it is selected, to size and turn it
         by. The inside of the box is left to what is in it, and a press
@@ -1617,7 +1696,7 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         if self.keeps_contents():
             return super().shape()
         path = QtGui.QPainterPath()
-        path.addRect(self.header_rect())
+        path.addRect(self.grab_rect())
         if self.has_selection_handles():
             for corner in self.corners:
                 path.addPath(self.get_scale_bounds(corner))

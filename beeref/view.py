@@ -433,15 +433,16 @@ class BeeGraphicsView(MainControlsMixin,
         """An item whose title band lies under the given viewport point.
 
         Groups and notes both have one, and the band belongs to
-        whichever of them is drawn on top.
+        whichever of them is drawn on top. A group with no title has
+        its top edge instead, where a title is written to make one.
         """
 
         scene_pos = self.mapToScene(point)
         # Asked of the view, which knows where a pinned note is
         for item in self.items(point):
-            if not hasattr(item, 'shows_header') or not item.shows_header():
+            if not hasattr(item, 'title_opens_at'):
                 continue
-            if item.header_rect().contains(item.mapFromScene(scene_pos)):
+            if item.title_opens_at(scene_pos):
                 return item
         return None
 

@@ -869,11 +869,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         which the rest of the box still does.
         """
 
-        if not hasattr(item, 'shows_header') or not item.shows_header():
+        if not hasattr(item, 'title_opens_at'):
             return False
         if getattr(item, 'locked', False):
             return False
-        if not item.header_rect().contains(item.mapFromScene(scene_pos)):
+        if not item.title_opens_at(scene_pos):
             return False
         if not item.isSelected():
             self.deselect_all_items()
@@ -1192,10 +1192,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
         Returns ``(item, group)``: the item under the point as ``itemAt``
         would find it, or None; and the open group whose empty inside
-        was pressed, or None. A group is taken up by its band only, so
-        ``itemAt`` looks straight through its inside -- to things behind
-        the group, hidden from the eye but not from the mouse. Here the
-        inside stops the search, and counts as empty board.
+        was pressed, or None. A group is taken up by its band only, or
+        by its top edge when it has no title, so ``itemAt`` looks
+        straight through its inside -- to things behind the group,
+        hidden from the eye but not from the mouse. Here the inside
+        stops the search, and counts as empty board.
         """
 
         views = self.views()

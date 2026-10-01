@@ -82,9 +82,7 @@ class GroupToolBar(PinnedToolBar):
             'Title colour' if self.writing_title else 'Group colour')
         self.align_left.setChecked(group.title_align == group.TITLE_LEFT)
         self.align_center.setChecked(group.title_align == group.TITLE_CENTER)
-        # Alignment and size mean nothing until there is a title. Asked
-        # of the words rather than of the band, which a group now always
-        # has, titled or not.
+        # Alignment and size mean nothing until there is a title.
         titled = bool(group.title) or group.title_editing
         for button in (self.align_left, self.align_center,
                        self.smaller, self.bigger):
