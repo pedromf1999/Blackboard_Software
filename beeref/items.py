@@ -164,6 +164,25 @@ def text_at_screen_size(painter, rect, size):
     return smaller, size * scale
 
 
+def web_addresses(text):
+    """The web addresses in some words, found as a note finds them.
+
+    ``(start, end, url)`` for each: where it starts and ends in the
+    words, leaving out the sentence's punctuation after it, and the
+    address to open, with "http://" put in front of one that starts at
+    "www.".
+    """
+
+    found = []
+    for match in BeeTextItem.URL_RE.finditer(text):
+        url = match.group().rstrip(BeeTextItem.URL_TRAILING_CHARS)
+        if not url:
+            continue
+        opened = f'http://{url}' if url.lower().startswith('www.') else url
+        found.append((match.start(), match.start() + len(url), opened))
+    return found
+
+
 # How much bigger or smaller than its natural size the words in a band
 # may be made. A group's title is measured from the width of its box and
 # a picture's caption from the width of its crop, and this is the share
@@ -1849,6 +1868,34 @@ class ImageCaptionEditor(QtWidgets.QGraphicsTextItem):
         # built to fit these words, so there is nothing to centre in
         self.setPos(band.x() + inset, band.y() + inset)
 
+    def paint(self, painter, option, widget):
+        super().paint(painter, option, widget)
+        # The web addresses underlined as they are typed, as they are
+        # once the caption is written
+        metrics = QtGui.QFontMetricsF(self.font())
+        pen = QtGui.QPen(self.defaultTextColor(), metrics.lineWidth())
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        painter.save()
+        painter.setPen(pen)
+        block = self.document().begin()
+        while block.isValid():
+            layout = block.layout()
+            origin = layout.position()
+            for start, end, _ in web_addresses(block.text()):
+                for number in range(layout.lineCount()):
+                    line = layout.lineAt(number)
+                    first = max(start, line.textStart())
+                    last = min(end, line.textStart() + line.textLength())
+                    if first >= last:
+                        continue
+                    y = (origin.y() + line.y() + line.ascent()
+                         + metrics.underlinePos())
+                    painter.drawLine(QtCore.QLineF(
+                        origin.x() + line.cursorToX(first)[0], y,
+                        origin.x() + line.cursorToX(last)[0], y))
+            block = block.next()
+        painter.restore()
+
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.item.exit_caption_edit_mode()
@@ -2360,17 +2407,102 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             painter.restore()
             painter.restore()
             return
-        font = self.caption_font()
-        font.setPointSizeF(size)
-        painter.setFont(font)
         painter.setPen(QtGui.QPen(
             readable_grey(self.visible_caption_color())))
-        painter.drawText(
-            room,
-            int(Qt.AlignmentFlag.AlignCenter | self.CAPTION_WRAP),
-            self.caption)
+        layout, places = self.caption_lines(room, size)
+        for number, place in enumerate(places):
+            layout.lineAt(number).draw(painter, place)
         painter.restore()
         painter.restore()
+
+    def caption_lines(self, room, size):
+        """The caption laid out in ``room``, with letters ``size`` big.
+
+        The way Qt's own drawText lays words out -- wrapped between
+        words, each line centred, the lines together centred down the
+        room -- which the band is measured by, but done here so that
+        what drew the words can also say where each one is: the web
+        addresses in it are underlined, and found under the mouse.
+        Returns the layout, and where each of its lines is drawn from.
+        """
+
+        font = self.caption_font()
+        font.setPointSizeF(size)
+        # A new line pasted in stays one, as drawText has it, without
+        # changing where anything is in the words
+        text = self.caption.replace('\n', chr(0x2028))
+        layout = QtGui.QTextLayout(text, font)
+        option = QtGui.QTextOption()
+        option.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        layout.setTextOption(option)
+        underline = QtGui.QTextCharFormat()
+        underline.setFontUnderline(True)
+        formats = []
+        for start, end, _ in web_addresses(text):
+            part = QtGui.QTextLayout.FormatRange()
+            part.start = start
+            part.length = end - start
+            part.format = underline
+            formats.append(part)
+        layout.setFormats(formats)
+
+        leading = QtGui.QFontMetricsF(font).leading()
+        height = -leading
+        layout.beginLayout()
+        while True:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(room.width())
+            # On whole pixels, as drawText puts them
+            height = math.ceil(height + leading)
+            line.setPosition(QtCore.QPointF(0, height))
+            height += line.height()
+        layout.endLayout()
+
+        top = room.y() + (room.height() - height) / 2
+        places = []
+        for number in range(layout.lineCount()):
+            line = layout.lineAt(number)
+            places.append(QtCore.QPointF(
+                room.x() + (room.width() - line.horizontalAdvance()) / 2,
+                top))
+        return layout, places
+
+    def caption_url_at(self, pos):
+        """The web address in the caption under this point, if any."""
+
+        if (not self._caption or self.caption_editing
+                or not web_addresses(self._caption)):
+            return None
+        band = self.caption_rect()
+        if not band.contains(pos):
+            return None
+        inset = self.caption_inset()
+        room = band.adjusted(inset, inset, -inset, -inset)
+        size = self.caption_size()
+        # Laid out at a size the font engine can manage, and the point
+        # brought down with it
+        factor = min(1, SAFE_FONT_SIZE / size)
+        room = QtCore.QRectF(room.x() * factor, room.y() * factor,
+                             room.width() * factor, room.height() * factor)
+        point = QtCore.QPointF(pos.x() * factor, pos.y() * factor)
+        layout, places = self.caption_lines(room, size * factor)
+        for number, place in enumerate(places):
+            line = layout.lineAt(number)
+            top = place.y() + line.y()
+            if not top <= point.y() < top + line.height():
+                continue
+            across = point.x() - place.x()
+            if not 0 <= across <= line.naturalTextWidth():
+                return None
+            index = line.xToCursor(
+                across, QtGui.QTextLine.CursorPosition.CursorOnCharacter)
+            for start, end, url in web_addresses(layout.text()):
+                if start <= index < end:
+                    return url
+            return None
+        return None
 
     def enter_caption_edit_mode(self):
         """Open the caption for writing, on the picture itself."""
@@ -3070,6 +3202,16 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.unset_cursor()
 
     def mousePressEvent(self, event):
+        if (not self.crop_mode
+                and event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            # A web address in the caption opens as one in a note does
+            url = self.caption_url_at(event.pos())
+            if url:
+                logger.debug(f'Opening url: {url}')
+                QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+                event.accept()
+                return
         if not self.crop_mode:
             return super().mousePressEvent(event)
 
