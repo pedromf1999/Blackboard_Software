@@ -3429,10 +3429,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if self.pin is not None:
             # Read by nothing before 10.8: a version that does not know
             # it shows the note on the board, where it was last seen.
-            # Its place in the tab of pinned notes, and whether it is
-            # folded away; and, for the versions before the tab, which
-            # placed each note on its own, where it was last shown.
+            # Its column in the tab of pinned notes and its place, and
+            # whether it is folded away; and, for the versions before the
+            # tab, which placed each note on its own, where it was last
+            # shown. The versions before columns show them all in one,
+            # in the order they are read.
             data['pin'] = {
+                'column': int(self.pin.get('column', 0)),
                 'order': int(self.pin.get('order', 0)),
                 'minimized': bool(self.pin.get('minimized')),
                 'corner': list(self.pin.get('corner', [0, 0])),
@@ -4630,7 +4633,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     # ignores the zoom and is put back in its place in the tab of pinned
     # notes whenever the board moves under it; see BeeGraphicsView.
     # place_pinned_notes. What it keeps, saved with the board:
-    #   order      its place in the tab, counting from the top
+    #   column     which of the tab's columns it stands in, from the left
+    #   order      its place in the tab, counting down the first column,
+    #              then down the next
     #   minimized  whether it is folded away to a small label
     #   corner, offset
     #              where it was last shown, for the versions before the
@@ -4688,10 +4693,17 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         if self.pin is not None:
             # Always on top, and left out of the board's reckoning of how
             # high things go: otherwise the next item brought to the
-            # front would be put above it
-            QtWidgets.QGraphicsTextItem.setZValue(self, self.PINNED_Z)
+            # front would be put above it. One being dragged goes over
+            # the other pinned notes as well, on its way to its new place.
+            QtWidgets.QGraphicsTextItem.setZValue(
+                self, self.PINNED_Z + (1 if self.being_dragged() else 0))
             return
         super().setZValue(value)
+
+    def being_dragged(self):
+        scene = self.scene()
+        return any(item is self
+                   for item, _ in getattr(scene, 'dragged_z', None) or [])
 
     def screen_rect(self, view):
         """Where the note is in the window, in the window's pixels.

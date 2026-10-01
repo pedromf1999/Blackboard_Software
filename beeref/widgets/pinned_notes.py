@@ -17,8 +17,9 @@
 
 The notes themselves are on the board; the tab and these belong to the
 window. The view lays them all out together -- see
-BeeGraphicsView.place_pinned_notes -- so that the notes stand one under
-another in the tab, a small gap apart, never over each other.
+BeeGraphicsView.place_pinned_notes -- so that the notes stand in columns
+in the tab, one under another in each, a small gap apart, never over
+each other.
 """
 
 import logging
@@ -37,6 +38,8 @@ logger = logging.getLogger(__name__)
 PANEL_COLOR = QtGui.QColor(*constants.COLORS['Active:Base'], 248)
 PANEL_EDGE = QtGui.QColor(255, 255, 255, 40)
 PANEL_WORDS = QtGui.QColor(220, 220, 220)
+# Where a pinned note being dragged would go
+DROP_COLOR = QtGui.QColor(*constants.COLORS['Scene:Selection'])
 
 
 def panel_style(name):
@@ -79,7 +82,7 @@ class PinsTab(QtWidgets.QGraphicsItem):
 
     It is part of the window, not of the board: never saved, never
     chosen, and drawn just under the notes it holds, which stand in it
-    one under another.
+    in columns, one under another in each.
     """
 
     HEADER = 30
@@ -108,6 +111,10 @@ class PinsTab(QtWidgets.QGraphicsItem):
         self.pressed_at = None
         self.started_at = None
         self.dragging = False
+        # While a note in it is dragged: what letting go would do, and
+        # where to show it -- see BeeGraphicsView.pin_drop
+        self.drop_kind = None
+        self.drop_rect = None
 
     def boundingRect(self):
         return self.rect.adjusted(-1, -1, 1, 1)
@@ -119,6 +126,16 @@ class PinsTab(QtWidgets.QGraphicsItem):
             self.rect = QtCore.QRectF(0, 0, width, height)
             self.count = count
             self.folded = folded
+            self.update()
+
+    def set_drop_hint(self, kind, rect=None):
+        """Show where a note being dragged would go, or nothing."""
+
+        if kind is None:
+            rect = None
+        if kind != self.drop_kind or rect != self.drop_rect:
+            self.drop_kind = kind
+            self.drop_rect = rect
             self.update()
 
     def header_rect(self):
@@ -176,7 +193,25 @@ class PinsTab(QtWidgets.QGraphicsItem):
             painter.drawLine(QtCore.QPointF(1, header.bottom()),
                              QtCore.QPointF(self.rect.right() - 1,
                                             header.bottom()))
+            self.paint_drop_hint(painter)
         painter.restore()
+
+    def paint_drop_hint(self, painter):
+        """The note it would swap with, ringed; or a line where a note
+        would go into a column, or start one of its own."""
+
+        if self.drop_kind is None or self.drop_rect is None:
+            return
+        if self.drop_kind == 'swap':
+            painter.setPen(QtGui.QPen(DROP_COLOR, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(self.drop_rect, 6, 6)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QtGui.QBrush(DROP_COLOR))
+            radius = min(self.drop_rect.width(),
+                         self.drop_rect.height()) / 2
+            painter.drawRoundedRect(self.drop_rect, radius, radius)
 
     def hoverMoveEvent(self, event):
         over_header = self.header_rect().contains(event.pos())
@@ -314,7 +349,9 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
         self.setToolTip(
-            'Open the pinned note, or drag it onto another to swap them')
+            'Open the pinned note, or drag it: onto another to swap them,'
+            ' above or below a column into it, beside the tab into a'
+            ' column of its own')
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.clicked.connect(self.on_open)
         # Where a press started, and where the label was then, while the
@@ -347,6 +384,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
                 self.raise_()
             if self.dragging:
                 self.move(self.kept_inside(self.started_at + moved))
+                self.view.show_pin_drop(self.note, self.geometry().center())
                 event.accept()
                 return
         super().mouseMoveEvent(event)

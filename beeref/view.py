@@ -3413,9 +3413,12 @@ class BeeGraphicsView(MainControlsMixin,
             item.setPos(scene_pos)
             if getattr(parent, 'TYPE', None) == BeeGroupItem.TYPE:
                 self.scene.refit_group(parent)
-        order = max((note.pin.get('order', 0)
-                     for note in self.scene.pinned_notes()), default=-1) + 1
-        item.set_pin({'order': order, 'minimized': False})
+        # At the bottom of the last column, after everything else in
+        # the order the tab is read
+        columns = self.pinned_columns()
+        item.set_pin({'column': max(len(columns) - 1, 0),
+                      'order': sum(len(column) for column in columns),
+                      'minimized': False})
         item.setScale(min(max(on_screen, self.PIN_MIN_SCALE),
                           self.PIN_MAX_SCALE))
         self.place_pinned_notes()
@@ -3432,10 +3435,51 @@ class BeeGraphicsView(MainControlsMixin,
         item.setPos(item.pos()
                     + (before.topLeft() - after.topLeft()) / self.get_scale())
 
-    # The pinned notes stand in a tab of their own, one under another,
-    # this far apart, whether open or folded to their labels. See
-    # widgets.pinned_notes.PinsTab.
+    # The pinned notes stand in a tab of their own, in columns side by
+    # side, one under another in each, this far apart whether open or
+    # folded to their labels. See widgets.pinned_notes.PinsTab.
     PINS_GAP = 8
+
+    @staticmethod
+    def pin_number(note, key):
+        """A whole number the note keeps in its pin, or 0 if it has none
+        -- a board from before columns has none for its column."""
+
+        try:
+            return int(note.pin.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def pinned_columns(self):
+        """The pinned notes in their columns, left to right, each from
+        the top down. Numbered afresh: a column left empty is gone."""
+
+        by_column = {}
+        notes = sorted(self.scene.pinned_notes(),
+                       key=lambda note: (self.pin_number(note, 'column'),
+                                         self.pin_number(note, 'order')))
+        for note in notes:
+            by_column.setdefault(
+                self.pin_number(note, 'column'), []).append(note)
+        return self.arrange_pinned_notes(
+            [by_column[key] for key in sorted(by_column)])
+
+    def arrange_pinned_notes(self, columns):
+        """Give each note the column and the place it has in ``columns``.
+
+        Places are counted down the first column, then down the next,
+        so that a version that knows only one column still shows them
+        in the order they are read here.
+        """
+
+        columns = [column for column in columns if column]
+        order = 0
+        for index, column in enumerate(columns):
+            for note in column:
+                note.pin['column'] = index
+                note.pin['order'] = order
+                order += 1
+        return columns
 
     def pins_tab_item(self, wanted):
         """The tab, on the board while there are pinned notes, else not.
@@ -3543,22 +3587,22 @@ class BeeGraphicsView(MainControlsMixin,
     def place_pinned_notes(self):
         """Lay out the tab of pinned notes, and the notes in it.
 
-        One under another, the order they were put in or have been
-        rearranged to, ``PINS_GAP`` apart whether open or folded to their
-        labels -- so that none is ever over another, and opening one or
-        folding it away moves the ones below it to keep the gap. Each
-        open note has its buttons beside it. The tab is as wide as the
-        widest, and keeps to its corner of the window; folded away, it
-        is just its header, and the notes are out of sight.
+        In columns side by side, and one under another in each, the
+        order they were put in or have been rearranged to, ``PINS_GAP``
+        apart whether open or folded to their labels -- so that none is
+        ever over another, and opening one or folding it away moves the
+        ones below it to keep the gap. Each open note has its buttons
+        beside it, and a column is as wide as its widest note and those.
+        The tab holds them all, and keeps to its corner of the window;
+        folded away, it is just its header, and the notes are out of
+        sight.
         """
 
         made = getattr(self, 'pinned_note_widgets', None)
         if made is None:
             return
-        notes = sorted(self.scene.pinned_notes(),
-                       key=lambda note: note.pin.get('order', 0))
-        for index, note in enumerate(notes):
-            note.pin['order'] = index
+        columns = self.pinned_columns()
+        notes = [note for column in columns for note in column]
         for note in list(made):
             if note not in notes:
                 for widget in made.pop(note):
@@ -3566,12 +3610,16 @@ class BeeGraphicsView(MainControlsMixin,
                     widget.deleteLater()
         tab = self.pins_tab_item(bool(notes))
         self.pin_slots = []
+        # Each column's stretch of the tab, and the slots in it, in the
+        # window's pixels: what a note let go of is put down against
+        self.pin_columns = []
         if tab is None:
             return
 
         folded = bool(self.scene.pins_tab.get('minimized'))
         pad = tab.PADDING
-        entries = []
+        gap = self.PINS_GAP
+        entries = {}
         for note in notes:
             if note not in made:
                 made[note] = (
@@ -3588,18 +3636,19 @@ class BeeGraphicsView(MainControlsMixin,
                 # Tall enough for its buttons too, so that those of a
                 # one-line note do not reach down over the next
                 size.setHeight(max(size.height(), controls.height()))
-            entries.append((note, size, room))
+            entries[note] = (size, room)
 
+        widths = [max(entries[note][0].width() + entries[note][1]
+                      for note in column) for column in columns]
+        heights = [sum(entries[note][0].height() for note in column)
+                   + gap * (len(column) - 1) for column in columns]
         if folded:
             width = tab.folded_width()
             height = tab.HEADER
         else:
             width = max(tab.MIN_WIDTH,
-                        max(size.width() + room
-                            for _, size, room in entries) + 2 * pad)
-            height = (tab.HEADER + 2 * pad
-                      + sum(size.height() for _, size, _ in entries)
-                      + self.PINS_GAP * (len(entries) - 1))
+                        sum(widths) + gap * (len(columns) - 1) + 2 * pad)
+            height = tab.HEADER + 2 * pad + max(heights)
         held = any(self.pinned_note_held(note) for note in notes)
         if held and not self.pins_tab_rect().isEmpty():
             # Something in the tab is in hand: the tab stays put and
@@ -3609,70 +3658,195 @@ class BeeGraphicsView(MainControlsMixin,
         else:
             top_left = self.pins_tab_top_left(QtCore.QSizeF(width, height))
         tab.set_look(width, height, len(notes), folded)
+        if not held and not any(made[note][1].dragging for note in notes):
+            # Nothing in hand, so nothing to show the way to
+            tab.set_drop_hint(None)
         self.put_on_screen(tab, QtCore.QPointF(0, 0), top_left)
 
         x = top_left.x() + pad
-        y = top_left.y() + tab.HEADER + pad
-        for note, size, room in entries:
-            controls, label = made[note]
-            slot = QtCore.QRectF(x, y, size.width(), size.height())
-            self.pin_slots.append((note, slot))
-            y += size.height() + self.PINS_GAP
-            # Where a version that places each pinned note on its own
-            # will show it, should the board be opened in one
-            note.pin['corner'] = [0, 0]
-            note.pin['offset'] = [slot.x(), slot.y()]
-            if folded:
-                note.setVisible(False)
-                controls.hide()
-                label.hide()
-                continue
-            if note.is_minimized:
-                note.setVisible(False)
-                controls.hide()
-                if not label.dragging:
-                    # A label being dragged goes where the mouse takes it
-                    label.move(round(slot.x()), round(slot.y()))
-                label.show()
-                label.raise_()
-                continue
-            note.setVisible(True)
+        top = top_left.y() + tab.HEADER + pad
+        for column, column_width in zip(columns, widths):
+            y = top
+            slots = []
+            for note in column:
+                size = entries[note][0]
+                slot = QtCore.QRectF(x, y, size.width(), size.height())
+                slots.append((note, slot))
+                self.pin_slots.append((note, slot))
+                y += size.height() + gap
+                self.place_pinned_note(note, slot, folded)
+            self.pin_columns.append((
+                QtCore.QRectF(x, top, column_width,
+                              height - tab.HEADER - 2 * pad),
+                slots))
+            x += column_width + gap
+
+    def place_pinned_note(self, note, slot, folded):
+        """Put one pinned note in its slot of the tab, with its buttons
+        beside it -- or its label there, if it is folded away."""
+
+        controls, label = self.pinned_note_widgets[note]
+        # Where a version that places each pinned note on its own will
+        # show it, should the board be opened in one
+        note.pin['corner'] = [0, 0]
+        note.pin['offset'] = [slot.x(), slot.y()]
+        if folded:
+            note.setVisible(False)
+            controls.hide()
             label.hide()
-            if not self.pinned_note_held(note):
-                note.placing = True
-                try:
-                    self.put_on_screen(
-                        note, note.whole_rect().topLeft(), slot.topLeft())
-                finally:
-                    note.placing = False
-            rect = note.screen_rect(self)
-            controls.move(round(rect.right() + controls.GAP),
-                          round(rect.top()))
-            controls.show()
-            controls.raise_()
+            return
+        if note.is_minimized:
+            note.setVisible(False)
+            controls.hide()
+            if not label.dragging:
+                # A label being dragged goes where the mouse takes it
+                label.move(round(slot.x()), round(slot.y()))
+            label.show()
+            label.raise_()
+            return
+        note.setVisible(True)
+        label.hide()
+        if not self.pinned_note_held(note):
+            note.placing = True
+            try:
+                self.put_on_screen(
+                    note, note.whole_rect().topLeft(), slot.topLeft())
+            finally:
+                note.placing = False
+        rect = note.screen_rect(self)
+        controls.move(round(rect.right() + controls.GAP),
+                      round(rect.top()))
+        controls.show()
+        controls.raise_()
+
+    # How thick the line is that shows where a pinned note being dragged
+    # would go, in the window's pixels
+    PIN_DROP_LINE = 3
+
+    def pin_drop(self, note, point):
+        """What letting go of a pinned note at this point would do.
+
+        Returns ``(change, hint)``, or None where it would only go back
+        to its place. The change is one of
+            ('swap', other)            on another note: the two swap
+            ('into', column, place)    above or below the notes of a
+                                       column: into it there
+            ('new', column)            beside the tab: a column of its
+                                       own, first or last
+        and the hint is where to show it, in the window's pixels: the
+        note to swap with, or a line where it would go.
+        """
+
+        if self.scene.pins_tab.get('minimized'):
+            return None
+        columns = getattr(self, 'pin_columns', [])
+        own = next((slot for other, slot in getattr(self, 'pin_slots', [])
+                    if other is note), None)
+        tab = self.pins_tab_rect()
+        if not columns or own is None or tab.isEmpty():
+            return None
+        point = QtCore.QPointF(point)
+        half = self.PINS_GAP / 2
+        line = self.PIN_DROP_LINE
+        # A little way outside the tab still counts -- as far as the
+        # note itself reaches -- so that a column can be started beside
+        # it, and a note put under the tallest column
+        if not tab.top() <= point.y() <= tab.bottom() + own.height():
+            return None
+        own_column = next(index for index, (_, slots) in enumerate(columns)
+                          if any(other is note for other, _ in slots))
+        alone = len(columns[own_column][1]) == 1
+        first_area, last_area = columns[0][0], columns[-1][0]
+        bar_top = first_area.top()
+        bar_height = first_area.height()
+
+        if point.x() < first_area.left() - half:
+            if point.x() < tab.left() - own.width():
+                return None
+            if alone and own_column == 0:
+                return None
+            # A line in the margin the column would stand in
+            return (('new', 0),
+                    QtCore.QRectF(tab.left() + (first_area.left()
+                                                - tab.left() - line) / 2,
+                                  bar_top, line, bar_height))
+        if point.x() > last_area.right() + half:
+            if point.x() > tab.right() + own.width():
+                return None
+            if alone and own_column == len(columns) - 1:
+                return None
+            return (('new', len(columns)),
+                    QtCore.QRectF(last_area.right()
+                                  + (tab.right() - last_area.right()
+                                     - line) / 2,
+                                  bar_top, line, bar_height))
+
+        for index, (area, slots) in enumerate(columns):
+            if not area.left() - half <= point.x() <= area.right() + half:
+                continue
+            for other, slot in slots:
+                if slot.top() - half <= point.y() <= slot.bottom() + half:
+                    if other is note:
+                        return None
+                    return ('swap', other), slot.adjusted(-3, -3, 3, 3)
+            notes = [other for other, _ in slots]
+            if point.y() < slots[0][1].top():
+                if notes[0] is note:
+                    return None
+                y = slots[0][1].top() - half
+                return (('into', index, 0),
+                        QtCore.QRectF(area.left(), y - line / 2,
+                                      area.width(), line))
+            if notes[-1] is note:
+                return None
+            y = slots[-1][1].bottom() + half
+            return (('into', index, len(slots)),
+                    QtCore.QRectF(area.left(), y - line / 2,
+                                  area.width(), line))
+        return None
+
+    def show_pin_drop(self, note, point):
+        """Show where a pinned note in hand would go, let go of here."""
+
+        tab = getattr(self, 'pins_tab', None)
+        if tab is None or sip.isdeleted(tab) or tab.scene() is None:
+            return
+        drop = self.pin_drop(note, point)
+        if drop is None:
+            tab.set_drop_hint(None)
+            return
+        (kind, *_), hint = drop
+        tab.set_drop_hint(
+            kind, hint.translated(-self.pins_tab_rect().topLeft()))
 
     def drop_pinned_note(self, note, point):
         """A pinned note let go of at a point of the window.
 
-        Dropped on another note in the tab, the two swap places; anywhere
-        else, it goes back to its own. Rearranging the window, not the
-        board: not a step to undo.
+        Dropped on another note in the tab, the two swap places; above
+        or below the notes of a column, it goes into that column there;
+        beside the tab, it starts a column of its own. Anywhere else, it
+        goes back to its place. Rearranging the window, not the board:
+        not a step to undo.
         """
 
-        point = QtCore.QPointF(point)
-        half = self.PINS_GAP / 2
-        target = None
-        tab = self.pins_tab_rect()
-        if tab.left() <= point.x() <= tab.right():
-            for other, slot in getattr(self, 'pin_slots', []):
-                if (other is not note
-                        and slot.top() - half <= point.y()
-                        <= slot.bottom() + half):
-                    target = other
-                    break
-        if target is not None:
-            note.pin['order'], target.pin['order'] = (
-                target.pin['order'], note.pin['order'])
+        drop = self.pin_drop(note, point)
+        if drop is not None:
+            change = drop[0]
+            if change[0] == 'swap':
+                other = change[1]
+                for key in ('column', 'order'):
+                    note.pin[key], other.pin[key] = (other.pin[key],
+                                                     note.pin[key])
+            else:
+                columns = [[other for other in column if other is not note]
+                           for column in self.pinned_columns()]
+                if change[0] == 'into':
+                    _, index, place = change
+                    columns[index].insert(min(place, len(columns[index])),
+                                          note)
+                else:
+                    columns.insert(change[1], [note])
+                self.arrange_pinned_notes(columns)
         self.place_pinned_notes()
 
     def pinned_note_let_go(self):

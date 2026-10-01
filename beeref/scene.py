@@ -917,6 +917,13 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 items,
                 detach=bool(event.modifiers()
                             & Qt.KeyboardModifier.AltModifier))
+            # A pinned note dragged about its tab: where it would go
+            pinned = next((item for item in items
+                           if getattr(item, 'is_pinned', False)), None)
+            if pinned is not None:
+                for view in self.views():
+                    view.show_pin_drop(
+                        pinned, view.mapFromScene(event.scenePos()))
         super().mouseMoveEvent(event)
 
     def raise_dragged_items(self, items):
@@ -932,10 +939,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             item.setZValue(self.max_z + (i + 1) * self.Z_STEP)
 
     def reset_dragged_items(self):
-        for item, z in self.dragged_z:
+        # Let go of first, so that what asks whether it is being dragged
+        # while its height is put back hears that it no longer is
+        dragged, self.dragged_z = self.dragged_z, []
+        for item, z in dragged:
             if item.scene() is self:
                 item.setZValue(z)
-        self.dragged_z = []
 
     def update_drop_target(self, items, detach=False):
         """Highlight the group that the dragged items would land in."""
