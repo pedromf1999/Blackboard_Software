@@ -748,9 +748,21 @@ class BeeGraphicsView(MainControlsMixin,
     SNAP_MARKER_SIZE = 7
 
     def drawForeground(self, painter, rect):
-        """The dot showing where a line being drawn would fasten."""
+        """The dot showing where a line being drawn would fasten, and the
+        lines showing what something dragged has snapped to."""
 
         super().drawForeground(painter, rect)
+        guides = getattr(self.scene, 'snap_guides', [])
+        if guides:
+            color = QtGui.QColor(*constants.COLORS['Scene:Selection'])
+            pen = QtGui.QPen(color)
+            pen.setCosmetic(True)
+            pen.setWidth(1)
+            painter.save()
+            painter.setPen(pen)
+            for line in guides:
+                painter.drawLine(line)
+            painter.restore()
         if self.snap_preview is None:
             return
         radius = self.SNAP_MARKER_SIZE / self.get_scale()

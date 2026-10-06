@@ -76,6 +76,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self.drop_target = None
         # Original z values of the items being dragged
         self.dragged_z = []
+        # How far what is being dragged was moved to snap to something,
+        # beyond where the mouse alone took it, and the lines showing
+        # what it snapped to; see snap_dragged
+        self.drag_snap = QtCore.QPointF(0, 0)
+        self.snap_guides = []
         self.settings = BeeSettings()
         self.clear()
         self._clear_ongoing = False
@@ -919,13 +924,164 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                             & Qt.KeyboardModifier.AltModifier))
         super().mouseMoveEvent(event)
         if self.active_mode == self.MOVE_MODE:
+            chosen = self.selectedItems(user_only=True)
             # A pinned note dragged about its tab: where it would go,
             # from where it has just been moved to
-            pinned = next((item for item in self.selectedItems(
-                user_only=True) if getattr(item, 'is_pinned', False)), None)
+            pinned = next((item for item in chosen
+                           if getattr(item, 'is_pinned', False)), None)
             if pinned is not None:
                 for view in self.views():
                     view.show_pin_drop(pinned)
+            elif (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                    and self.multi_select_item.active_mode is None
+                    and all(item.active_mode is None for item in chosen)):
+                self.snap_dragged(self.moved_by_drag(chosen))
+            else:
+                self.end_snapping()
+
+    # How close, in pixels on the screen, an edge of something being
+    # dragged with Shift held has to come to another's to be snapped to it
+    SNAP_DISTANCE = 10
+
+    def snap_rect(self, item):
+        """The rectangle an item is seen to take up on the board.
+
+        What its edges are snapped by: a picture with the caption under
+        it, a note with the title band over it, a group's box.
+        """
+
+        if hasattr(item, 'framed_rect'):
+            local = item.framed_rect()
+        elif getattr(item, 'TYPE', None) == 'text':
+            local = item.whole_rect()
+        else:
+            local = item.bounding_rect_unselected()
+        return item.mapToScene(local).boundingRect()
+
+    def snap_dragged(self, moved):
+        """Bring what is being dragged up against what it comes close to.
+
+        With Shift held: an edge come within SNAP_DISTANCE of another
+        item's edge is moved onto it, so that the two touch -- or, side by
+        side, so that their tops or bottoms line up, and one under
+        another, their left or right sides. Whatever is nearest wins, on
+        each axis. Qt puts the items back where the mouse alone would
+        have them on every move, so this is worked out afresh each time.
+        """
+
+        views = self.views()
+        scale = views[0].get_scale() if views else 1
+        if scale <= 0 or not moved:
+            self.set_snap_guides([])
+            return
+        reach = self.SNAP_DISTANCE / scale
+        rect = QtCore.QRectF()
+        for item in moved:
+            rect = rect.united(self.snap_rect(item))
+        others = []
+        for item in self.items(rect.adjusted(-reach, -reach, reach, reach)):
+            if (not hasattr(item, 'save_id') or not item.isVisible()
+                    or getattr(item, 'is_pinned', False)
+                    or any(item is mover or mover.isAncestorOf(item)
+                           or item.isAncestorOf(mover) for mover in moved)):
+                continue
+            others.append(self.snap_rect(item))
+
+        dx = self.snap_along(rect, others, reach, across=True)
+        dy = self.snap_along(rect, others, reach, across=False)
+        if dx or dy:
+            for item in moved:
+                parent = item.parentItem()
+                if parent is None:
+                    item.moveBy(dx, dy)
+                else:
+                    shift = (parent.mapFromScene(QtCore.QPointF(dx, dy))
+                             - parent.mapFromScene(QtCore.QPointF(0, 0)))
+                    item.moveBy(shift.x(), shift.y())
+        self.drag_snap = QtCore.QPointF(dx, dy)
+        self.set_snap_guides(self.snap_guides_for(
+            rect.translated(dx, dy), others, reach))
+
+    @staticmethod
+    def snap_spans(rect, across):
+        """The rectangle's extent along an axis, and across it."""
+
+        if across:
+            return ((rect.left(), rect.right()), (rect.top(), rect.bottom()))
+        return ((rect.top(), rect.bottom()), (rect.left(), rect.right()))
+
+    def snap_options(self, moving, other, reach, across):
+        """Where the moving rectangle could be shifted to along an axis,
+        to stand against the other one: (shift, edge) for each."""
+
+        (low, high), (side_low, side_high) = self.snap_spans(moving, across)
+        (o_low, o_high), (o_side_low, o_side_high) = self.snap_spans(
+            other, across)
+        options = []
+        # Side by side along this axis: the two touch
+        if side_low <= o_side_high + reach and side_high >= o_side_low - reach:
+            options.append((o_high - low, o_high))
+            options.append((o_low - high, o_low))
+        # One against the other across it: their sides line up
+        if (abs(side_low - o_side_high) <= reach
+                or abs(side_high - o_side_low) <= reach):
+            options.append((o_low - low, o_low))
+            options.append((o_high - high, o_high))
+        return options
+
+    def snap_along(self, moving, others, reach, across):
+        """The shift along one axis that brings the nearest edge home, or
+        nothing if no edge is close enough."""
+
+        best = None
+        for other in others:
+            for shift, _ in self.snap_options(moving, other, reach, across):
+                if abs(shift) <= reach and (best is None
+                                            or abs(shift) < abs(best)):
+                    best = shift
+        return best or 0
+
+    def snap_guides_for(self, moving, others, reach):
+        """Lines along the edges the moving rectangle now stands against."""
+
+        guides = []
+        for other in others:
+            for across in (True, False):
+                for shift, edge in self.snap_options(
+                        moving, other, reach, across):
+                    if abs(shift) > 1e-6 * max(1.0, reach):
+                        continue
+                    (_, _), (side_low, side_high) = self.snap_spans(
+                        moving, across)
+                    (_, _), (o_side_low, o_side_high) = self.snap_spans(
+                        other, across)
+                    start = min(side_low, o_side_low)
+                    end = max(side_high, o_side_high)
+                    if across:
+                        guides.append(QtCore.QLineF(edge, start, edge, end))
+                    else:
+                        guides.append(QtCore.QLineF(start, edge, end, edge))
+        return guides
+
+    def set_snap_guides(self, guides):
+        """Show these lines, and nothing of the ones shown before."""
+
+        old = getattr(self, 'snap_guides', [])
+        if not old and not guides:
+            return
+        self.snap_guides = guides
+        views = self.views()
+        scale = views[0].get_scale() if views else 1
+        # A couple of pixels round each, on the screen, for the line's
+        # own width
+        margin = 3 / scale if scale > 0 else 3
+        for line in old + guides:
+            area = QtCore.QRectF(line.p1(), line.p2()).normalized()
+            self.update(area.adjusted(-margin, -margin, margin, margin))
+
+    def end_snapping(self):
+        self.drag_snap = QtCore.QPointF(0, 0)
+        self.set_snap_guides([])
 
     def raise_dragged_items(self, items):
         """Draw the items being dragged on top of the others.
@@ -1006,7 +1162,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 and self.has_selection()
                 and self.multi_select_item.active_mode is None
                 and self.selectedItems()[0].active_mode is None):
-            delta = event.scenePos() - self.event_start
+            # Where the mouse took it, and where it was snapped to
+            delta = (QtCore.QPointF(event.scenePos() - self.event_start)
+                     + self.drag_snap)
             # A pinned note moved about its tab is the window rearranged,
             # not the board changed: not a step to undo
             moved = [item for item in self.moved_by_drag(self.selectedItems())
@@ -1029,6 +1187,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                     self, commands.KeepGroupBoxes.AFTER))
                 self.undo_stack.endMacro()
         self.active_mode = None
+        self.end_snapping()
         super().mouseReleaseEvent(event)
         if dropped is not None:
             for view in self.views():
