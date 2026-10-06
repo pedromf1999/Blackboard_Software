@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 # assumptions only Linux met, and were put right in the tests themselves (see
 # CLAUDE.md). A failing test is now a real regression and stops the release;
 # the floor on passes catches tests that quietly stop being run.
-$ExpectedPassed    = 2516
+$ExpectedPassed    = 2518
 $MaxAllowedFailed  = 0
 
 function Fail($message) {

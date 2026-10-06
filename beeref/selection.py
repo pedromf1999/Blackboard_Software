@@ -965,6 +965,16 @@ class SelectableMixin(BaseItemMixin):
             # handler had just added to it. Swallow the release the same
             # way the press is swallowed.
             event.accept()
+            if (event.scenePos()
+                    != event.buttonDownScenePos(Qt.MouseButton.LeftButton)):
+                # A drag, though, not a click -- Shift snaps what is
+                # dragged. Qt changes no selection at the end of a drag,
+                # and it is in its handling of the release that it lets
+                # go of where what it dragged started from. Kept, that
+                # was the start of the next drag as well: whatever was
+                # dragged next, not being in it, was taken to have
+                # started at the corner of the board, and leapt there.
+                super().mouseReleaseEvent(event)
             return
 
         super().mouseReleaseEvent(event)

@@ -214,3 +214,36 @@ def test_several_chosen_snap_as_one(board):
         edges(board, still).right())
     assert edges(board, second).left() == pytest.approx(
         edges(board, still).right())
+
+
+def test_what_is_dragged_next_does_not_leap_away(board):
+    """Qt forgets where a drag started once it is let go, Shift or not.
+
+    Kept, the next thing dragged -- not having been part of it -- was
+    taken to have started at the corner of the board, and leapt there.
+    """
+
+    picture(board, 0, 0)
+    snapped = picture(board, 300, 40)
+    third = picture(board, 260, 300)
+    at_size(board)
+    drag(board, snapped, (-94, 0))
+    board.scene.clearSelection()
+
+    drag(board, third, (12, 7), modifiers=NONE)
+
+    assert third.pos().x() == pytest.approx(272, abs=1)
+    assert third.pos().y() == pytest.approx(307, abs=1)
+
+
+def test_a_shift_click_still_adds_to_what_is_chosen(board):
+    first = picture(board, 0, 0)
+    second = picture(board, 400, 0)
+    at_size(board)
+    board.scene.clearSelection()
+    first.setSelected(True)
+
+    QTest.mouseClick(board.viewport(), Qt.MouseButton.LeftButton, SHIFT,
+                     board.mapFromScene(second.sceneBoundingRect().center()))
+
+    assert first.isSelected() and second.isSelected()
