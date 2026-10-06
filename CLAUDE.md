@@ -119,6 +119,14 @@ known types is what silently deleted groups and drawings twice before.
   is opened is let go once out of sight. Never hand a full picture to Qt's
   own `QGraphicsPixmapItem.setPixmap`: that is what kept a 126 MB board at
   5.3 GB of memory.
+- Drawing speed. Every item is kept drawn as it is seen (Qt's
+  `DeviceCoordinateCache`, set in `SelectableMixin.init_selectable`), and a
+  zoom is drawn from a picture of the board taken as it begins
+  (`BeeGraphicsView.start_quick_zoom`). So anything that changes how an
+  item looks must call its `update()`, even when nothing about the item
+  itself changed -- otherwise it goes on showing how it looked before.
+  Pictures of the board (exports, thumbnails) are drawn inside
+  `scene.drawn_afresh()`.
 - `beeref/actions/` — declarative definitions of menu entries, shortcuts and
   their callbacks. Most new commands are registered here.
 - `beeref/fileio/` — reading and writing `.bee` files. These are SQLite
@@ -134,7 +142,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **2461 passing, 0 failing**. Nine tests inherited from
+Current baseline: **2480 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

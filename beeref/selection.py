@@ -248,6 +248,14 @@ class SelectableMixin(BaseItemMixin):
             # Without this Qt never says an item has moved, and a line
             # fastened to it would be left behind
             | flags.ItemSendsGeometryChanges)
+        # Kept drawn as it is seen, and put straight back on the screen
+        # while the board is moved under it. The window can never just
+        # shift what it shows and draw the strip coming into view: the
+        # bars and handles floating over the board stop Qt doing that,
+        # so every step of a pan drew the whole board again. Drawn
+        # afresh when the item changes, and when it is zoomed.
+        self.setCacheMode(
+            QtWidgets.QGraphicsItem.CacheMode.DeviceCoordinateCache)
 
         self.viewport_scale = 1
         self.active_mode = None

@@ -1093,11 +1093,26 @@ class TitleBandMixin:
         return line * (1 + 2 * self.TITLE_PADDING_FRACTION)
 
     def band_height_for(self, size, width):
-        """The band that these words need, at this size, across this width."""
+        """The band that these words need, at this size, across this width.
 
+        Kept for the words, size and width it was last worked out for:
+        it is asked for every time the item is measured, which is many
+        times a frame, and each time meant building a font to measure.
+        Never kept while the title is being written, when the editor
+        has the last word on how tall it is.
+        """
+
+        key = (self._title, size, width, self.title_align, self.TITLE_WRAPS)
+        if self.title_editor is None:
+            kept = getattr(self, '_band_height', None)
+            if kept is not None and kept[0] == key:
+                return kept[1]
         line = self.line_height_for(size)
         room = line * self.TITLE_PADDING_FRACTION
-        return self.title_text_height(size, width) + 2 * room
+        height = self.title_text_height(size, width) + 2 * room
+        if self.title_editor is None:
+            self._band_height = (key, height)
+        return height
 
     def band_width(self):
         """How wide the band is. Up to the item."""
@@ -3397,6 +3412,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                  tasks_numbered=None, pin=None, **kwargs):
         super().__init__(text or "Text")
         self.save_id = None
+        # What the note's lines hold, counted once for each change of
+        # them; see census
+        self._census = None
+        self.document().contentsChanged.connect(self.forget_census)
         # Fastened to the window rather than to the board; see set_pin.
         # Set before anything can give the note a place in the stack.
         self.pin = None
@@ -3611,9 +3630,37 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         drawn at its own font's size.
         """
 
+        return self.census()['largest']
+
+    def census(self):
+        """What the note's lines hold: the ones with a box to tick, the
+        ticked and unticked among them, and the biggest letters.
+
+        Asked for dozens of times in every frame, by everything that
+        measures the note -- its box, its band, its outline -- and going
+        through every line each time was most of what drawing a board
+        of notes cost. Counted once now, and again only once the words
+        or their formatting have changed: Qt numbers each change of the
+        document, and says when one is finished.
+
+        Inside a grouped edit Qt does neither until the group ends, so
+        this would be out of date if asked between two changes of one.
+        Nothing asks it there; keep it that way.
+        """
+
+        document = self.document()
+        revision = document.revision()
+        census = self._census
+        if census is not None and census['revision'] == revision:
+            return census
+        tasks, done, to_do = [], [], []
         largest = 0
-        block = self.document().begin()
+        block = document.begin()
         while block.isValid():
+            marker = block.blockFormat().marker()
+            if marker != self.NO_MARK:
+                tasks.append(block)
+                (done if marker == self.DONE else to_do).append(block)
             it = block.begin()
             while not it.atEnd():
                 fragment = it.fragment()
@@ -3622,7 +3669,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                     largest = max(largest,
                                   fragment.charFormat().fontPointSize())
             block = block.next()
-        return largest
+        census = {'revision': revision, 'tasks': tasks, 'done': done,
+                  'to_do': to_do, 'largest': largest}
+        self._census = census
+        return census
+
+    def forget_census(self):
+        self._census = None
 
     def title_size(self):
         """How big the title's letters are.
@@ -5074,14 +5127,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     def task_blocks(self, done=None):
         """The lines carrying a box, or only the ticked or unticked ones."""
 
-        blocks = []
-        block = self.document().begin()
-        while block.isValid():
-            if self.is_task(block) and (done is None
-                                        or self.task_is_done(block) == done):
-                blocks.append(block)
-            block = block.next()
-        return blocks
+        census = self.census()
+        if done is None:
+            return list(census['tasks'])
+        return list(census['done'] if done else census['to_do'])
 
     def has_tasks(self):
         return bool(self.task_blocks())

@@ -92,6 +92,13 @@ class BeeGraphicsView(MainControlsMixin,
     # The most a single late frame may make up for. Without it, coming
     # back to a window that was buried would finish the zoom in one jump
     ZOOM_MAX_CATCHUP = 6
+    # While the board is being zoomed it is drawn from a picture of it
+    # taken as the zoom began, scaled, rather than drawn afresh for
+    # every frame; once the zoom has stopped for this long, in
+    # milliseconds, it is drawn sharp again. See start_quick_zoom.
+    QUICK_ZOOM_SETTLE = 160
+    # How far the picture is scaled, down or up, before it is taken again
+    QUICK_ZOOM_RANGE = (0.5, 2.5)
     SAMPLE_COLOR_MODE = 3
 
     # On-screen bounds in pixels between which the grid spacing is kept
@@ -164,12 +171,24 @@ class BeeGraphicsView(MainControlsMixin,
         self.zoom_timer = QtCore.QTimer(self)
         self.zoom_timer.setInterval(self.ZOOM_INTERVAL)
         self.zoom_timer.timeout.connect(self.step_zoom)
+        # A picture of the board, and how it was seen when it was
+        # taken, while it is being zoomed; see start_quick_zoom
+        self.quick_zoom = None
+        self.quick_zoom_timer = QtCore.QTimer(self)
+        self.quick_zoom_timer.setSingleShot(True)
+        self.quick_zoom_timer.setInterval(self.QUICK_ZOOM_SETTLE)
+        self.quick_zoom_timer.timeout.connect(self.end_quick_zoom)
         # Pictures are opened as far as they are seen; every so often,
         # what is no longer seen is let go. See imagecache.
         self.picture_trim_timer = QtCore.QTimer(self)
         self.picture_trim_timer.setInterval(self.PICTURE_TRIM_INTERVAL)
         self.picture_trim_timer.timeout.connect(self.trim_opened_pictures)
         self.picture_trim_timer.start()
+        # Every item is kept drawn as it is seen; see
+        # SelectableMixin.init_selectable. Qt keeps ten megabytes of
+        # that by default, which a board seen whole goes past, and what
+        # does not fit is drawn afresh every frame again.
+        QtGui.QPixmapCache.setCacheLimit(self.DRAWN_ITEMS_MB * 1024)
         self.text_search_query = ''
         self.text_search_index = -1
 
@@ -280,6 +299,13 @@ class BeeGraphicsView(MainControlsMixin,
     def on_canvas_color_changed(self, color):
         logger.debug(f'Canvas colour changed to: {color}')
         self.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(color)))
+        # Bands and boxes are blended over the board's colour, and each
+        # item is kept drawn: they all have to be drawn again. Not yet
+        # while the window is being built, before there is a board.
+        scene = getattr(self, 'scene', None)
+        if isinstance(scene, QtWidgets.QGraphicsScene):
+            for item in scene.items():
+                item.update()
 
     def on_action_show_layers(self, checked):
         """Open the layers panel, or put it away behind its handle."""
@@ -1036,6 +1062,10 @@ class BeeGraphicsView(MainControlsMixin,
     # milliseconds
     PICTURE_TRIM_INTERVAL = 3000
 
+    # How much memory the items kept drawn may take between them: a
+    # board seen whole takes a few tens of megabytes
+    DRAWN_ITEMS_MB = 128
+
     def trim_opened_pictures(self):
         """Let go of what is opened of pictures no longer in sight.
 
@@ -1055,6 +1085,7 @@ class BeeGraphicsView(MainControlsMixin,
     def clear_scene(self):
         logging.debug('Clearing scene...')
         self.cancel_active_modes()
+        self.end_quick_zoom()
         self.scene.clear()
         # Nothing of the old board's pictures is wanted any more
         imagecache.opened_pictures().clear()
@@ -2376,7 +2407,7 @@ class BeeGraphicsView(MainControlsMixin,
         painter = QtGui.QPainter(shot)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         # Nor the notes pinned to the window, for the same reason
-        with self.scene.pinned_notes_hidden():
+        with self.scene.pinned_notes_hidden(), self.scene.drawn_afresh():
             self.scene.render(
                 painter,
                 QtCore.QRectF(shot.rect()),
@@ -3010,6 +3041,7 @@ class BeeGraphicsView(MainControlsMixin,
         ref_point = to_scene.map(anchor)
         if delta == 0:
             return
+        self.start_quick_zoom()
         factor = 1 + abs(delta / 1000)
         if delta > 0:
             if self.get_zoom_size(max) < 10000000:
@@ -3026,6 +3058,101 @@ class BeeGraphicsView(MainControlsMixin,
 
         self.pan(self.viewportTransform().map(ref_point) - anchor)
         self.reset_previous_transform()
+
+    def start_quick_zoom(self):
+        """Draw the board from a picture of it while it is being zoomed.
+
+        Every item is kept drawn at the size it is seen, which spares
+        drawing it again while the board is moved -- but not while it is
+        zoomed. Letters are prepared afresh for every size they are drawn
+        at, and a zoom draws every word on the board at a new size in
+        every frame: with the whole of a large board in sight, that took
+        a tenth of a second a frame.
+
+        So as a zoom begins, the board is drawn once into a picture, and
+        while it goes on that picture is scaled: a frame costs a few
+        milliseconds whatever is on the board. Only what comes into view
+        past the picture's edges, and the tab of pinned notes, which is
+        never zoomed, are drawn as they are. The board is a little soft
+        while the zoom lasts, and drawn sharp again a moment after it
+        stops -- see QUICK_ZOOM_SETTLE.
+        """
+
+        self.quick_zoom_timer.start()
+        if self.quick_zoom is not None:
+            # Taken again once it has been scaled so far that it would
+            # look blurred -- or, zoomed out, would leave too much of the
+            # window to be drawn round it
+            _, then = self.quick_zoom
+            stretched = self.get_scale() / then.m11() if then.m11() else 1
+            low, high = self.QUICK_ZOOM_RANGE
+            if low <= stretched <= high:
+                return
+        viewport = self.viewport()
+        ratio = viewport.devicePixelRatioF()
+        picture = QtGui.QPixmap(
+            max(1, round(viewport.width() * ratio)),
+            max(1, round(viewport.height() * ratio)))
+        picture.setDevicePixelRatio(ratio)
+        picture.fill(self.backgroundBrush().color())
+        painter = QtGui.QPainter(picture)
+        painter.setRenderHints(self.renderHints())
+        # Without the pinned notes, which stay as they are
+        with self.scene.pinned_notes_hidden():
+            self.render(painter, QtCore.QRectF(viewport.rect()),
+                        viewport.rect())
+        painter.end()
+        self.quick_zoom = (picture, QtGui.QTransform(self.viewportTransform()))
+
+    def end_quick_zoom(self):
+        """The zoom has stopped: draw the board itself, sharp, again."""
+
+        if self.quick_zoom is None:
+            return
+        self.quick_zoom = None
+        self.viewport().update()
+
+    def paintEvent(self, event):
+        if self.quick_zoom is None:
+            super().paintEvent(event)
+            return
+        picture, then = self.quick_zoom
+        back, invertible = then.inverted()
+        if not invertible:
+            super().paintEvent(event)
+            return
+        # Where the picture lands now: from the window as it was, to the
+        # board, to the window as it is
+        mapping = back * self.viewportTransform()
+        size = picture.deviceIndependentSize()
+        landed = mapping.mapRect(QtCore.QRectF(0, 0, size.width(),
+                                               size.height()))
+        # Whole pixels inside it, so that no seam is left between the
+        # picture and what is drawn round it
+        inside = QtCore.QRect(
+            math.ceil(landed.left()), math.ceil(landed.top()),
+            max(0, math.floor(landed.right()) - math.ceil(landed.left())),
+            max(0, math.floor(landed.bottom()) - math.ceil(landed.top())))
+        window = self.viewport().rect()
+        drawn = QtGui.QRegion(window).subtracted(QtGui.QRegion(inside))
+        tab = self.pins_tab_rect().toAlignedRect()
+        if not tab.isEmpty():
+            drawn = drawn.united(QtGui.QRegion(tab))
+        drawn = drawn.intersected(event.region())
+        if not drawn.isEmpty():
+            super().paintEvent(QtGui.QPaintEvent(drawn))
+        shown = QtGui.QRegion(inside).intersected(event.region())
+        if not tab.isEmpty():
+            shown = shown.subtracted(QtGui.QRegion(tab))
+        if shown.isEmpty():
+            return
+        painter = QtGui.QPainter(self.viewport())
+        painter.setClipRegion(shown)
+        painter.setRenderHint(
+            QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setTransform(mapping)
+        painter.drawPixmap(QtCore.QPointF(0, 0), picture)
+        painter.end()
 
     def new_image_size(self):
         """How big an image arriving on the board should be.
@@ -3128,6 +3255,9 @@ class BeeGraphicsView(MainControlsMixin,
             return
 
     def mousePressEvent(self, event):
+        # Whatever the press does, it is to the board itself, not to a
+        # picture of it from a moment ago
+        self.end_quick_zoom()
         if self.mousePressEventMainControls(event):
             return
 
@@ -3250,6 +3380,8 @@ class BeeGraphicsView(MainControlsMixin,
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # A picture of the board as it was framed no longer fits it
+        self.end_quick_zoom()
         self.recalc_scene_rect()
         self.update_pinned_toolbars()
         self.welcome_overlay.resize(self.size())
@@ -3985,6 +4117,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.scene.deselect_all_items()
 
     def keyPressEvent(self, event):
+        self.end_quick_zoom()
         if self.keyPressEventMainControls(event):
             return
         if self.active_mode == self.SAMPLE_COLOR_MODE:

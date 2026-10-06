@@ -1106,7 +1106,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         elif items:
             base = items
         else:
-            base = filter_user_items(self.items())
+            # Only what stands on the board itself: a group's box is
+            # fitted round everything in it, so what is inside adds
+            # nothing -- and the board is measured on every frame of a
+            # zoom, where going through all of it cost more than drawing
+            base = filter_user_items(
+                item for item in self.items() if item.parentItem() is None)
 
         if not base:
             return QtCore.QRectF(0, 0, 0, 0)
@@ -1141,6 +1146,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             return
         self.keep_pinned_notes_apart()
         self.let_groups_speak_for_their_contents()
+        self.redraw_chosen()
         if self.has_multi_selection():
             self.multi_select_item.fit_selection_area(
                 self.itemsBoundingRect(selection_only=True))
@@ -1149,6 +1155,42 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             self.multi_select_item.bring_to_front()
         if not self.has_multi_selection() and self.multi_select_item.scene():
             self.removeItem(self.multi_select_item)
+
+    def redraw_chosen(self):
+        """Draw again what is chosen now, and what was a moment ago.
+
+        An item shows its handles only while it is the one thing chosen,
+        so choosing a second changes how the first looks without
+        anything happening to it -- and each item is kept drawn, so it
+        would go on showing them. See SelectableMixin.init_selectable.
+        """
+
+        chosen = self.selectedItems()
+        for item in set(getattr(self, '_last_chosen', [])) | set(chosen):
+            # One chosen a moment ago may have gone with a board cleared
+            if not sip.isdeleted(item) and item.scene() is self:
+                item.update()
+        self._last_chosen = chosen
+
+    @contextmanager
+    def drawn_afresh(self):
+        """Draw every item straight from what it is, for a picture of
+        the board -- an export, a file's thumbnail -- rather than from
+        how it was last drawn on the screen, which is at the screen's
+        size and not the picture's."""
+
+        cached = []
+        no_cache = QtWidgets.QGraphicsItem.CacheMode.NoCache
+        for item in self.items():
+            mode = item.cacheMode()
+            if mode != no_cache:
+                cached.append((item, mode))
+                item.setCacheMode(no_cache)
+        try:
+            yield
+        finally:
+            for item, mode in cached:
+                item.setCacheMode(mode)
 
     def keep_pinned_notes_apart(self):
         """A pinned note is chosen on its own, never along with the board.

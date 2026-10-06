@@ -133,7 +133,7 @@ class SceneToPixmapExporter(SceneExporterBase):
             self.size.height() - 2 * margin)
         logger.trace(f'Final export target_rect: {target_rect}')
         # A note pinned to the window is not part of the board
-        with self.scene.pinned_notes_hidden():
+        with self.scene.pinned_notes_hidden(), self.scene.drawn_afresh():
             self.scene.render(painter,
                               source=self.scene.itemsBoundingRect(),
                               target=target_rect)

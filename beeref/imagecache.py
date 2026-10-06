@@ -48,14 +48,19 @@ THUMBNAIL_SIDE = 256
 
 # How much opened pictures may take between them. Past this, the ones
 # seen longest ago are let go -- but never one drawn in the last moment,
-# which would only have to be opened again for the next frame.
-BUDGET = 512 * 2 ** 20
+# which would only have to be opened again for the next frame. With the
+# small copies, the items kept drawn (see BeeGraphicsView.DRAWN_ITEMS_MB)
+# and the rest of the application, this keeps the whole within about
+# 700 MB.
+BUDGET = 320 * 2 ** 20
 IN_USE_SECONDS = 2
 
 # Once a picture has not been seen for this long it is let go, unless it
 # is in view: that is what brings memory back down to what is on screen
-# when the board is left alone.
-KEEP_SECONDS = 8
+# when the board is left alone. Long enough that going back to a part of
+# the board just looked at finds it still open, rather than blurred
+# while it is opened again.
+KEEP_SECONDS = 30
 
 # Opening a large picture takes a moment and a good deal of memory while
 # it lasts, so only a couple are opened at once.

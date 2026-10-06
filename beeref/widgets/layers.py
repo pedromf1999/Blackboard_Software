@@ -163,8 +163,16 @@ class LayersTree(QtWidgets.QTreeWidget):
         return tuple(describe(self.get_items()))
 
     def schedule_refresh(self, *args):
-        """Refresh once the current batch of scene changes is done."""
+        """Refresh once the current batch of scene changes is done.
 
+        Not while the panel is put away: working out whether anything
+        changed walks every item, on every change of the board -- every
+        frame of a zoom, with notes pinned. It is rebuilt when opened.
+        """
+
+        if getattr(self.parent(), 'collapsed', False):
+            self.signature = None
+            return
         if self.refresh_pending:
             return
         self.refresh_pending = True
