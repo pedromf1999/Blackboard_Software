@@ -298,3 +298,54 @@ def test_pinned_notes_stay_out_of_the_picture(board):
     # Put back as they were once the picture was taken
     assert note.opacity() == 1
     assert board.quick_zoom is not None
+
+
+# What is kept drawn always matches what the item is
+
+def differences(view):
+    """How many sampled pixels of the window differ from the board drawn
+    afresh, with nothing kept."""
+
+    viewport = view.viewport()
+    viewport.repaint()
+    shown = viewport.grab().toImage()
+    with view.scene.drawn_afresh():
+        viewport.repaint()
+        fresh = viewport.grab().toImage()
+    viewport.repaint()
+    return sum(1 for x in range(0, shown.width(), 3)
+               for y in range(0, shown.height(), 3)
+               if shown.pixel(x, y) != fresh.pixel(x, y))
+
+
+@pytest.fixture
+def wide_note(main_window, view, qtbot):
+    """A note wider than the window it is seen in."""
+
+    main_window.resize(900, 600)
+    main_window.show()
+    qtbot.waitExposed(main_window)
+    view.shortcuts_hint.hide()
+    note = BeeTextItem('a very long note ' * 12)
+    view.scene.addItem(note)
+    view.setTransform(QtGui.QTransform.fromScale(2, 2))
+    view.centerOn(QtCore.QPointF(150, 10))
+    view.viewport().repaint()
+    assert note.sceneBoundingRect().width() * 2 > view.viewport().width()
+    return note
+
+
+def test_a_note_wider_than_the_window_is_drawn_true_when_chosen(
+        view, wide_note):
+    """Chosen, it grows on every side for its handles; what was kept of
+    it was put back out of place."""
+
+    wide_note.setSelected(True)
+    assert differences(view) <= 2
+    view.scene.clearSelection()
+    assert differences(view) <= 2
+
+
+def test_and_when_it_is_given_a_title(view, wide_note):
+    wide_note.title = 'A title'
+    assert differences(view) <= 2

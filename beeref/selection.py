@@ -261,6 +261,25 @@ class SelectableMixin(BaseItemMixin):
         self.active_mode = None
         self.is_editable = False
 
+    def prepareGeometryChange(self):
+        """Tell Qt the item is about to change size, and draw it afresh.
+
+        Every item is kept drawn as it is seen; see init_selectable. Of an
+        item larger than the window Qt keeps only the part in sight, and
+        when such an item changes size towards the top or the left --
+        chosen, so that its outline and handles go round it, or given a
+        title band -- it put the part it had kept back in the wrong
+        place: a note jumped up and across, cut off where the window had
+        been. What was kept is thrown away instead, and the item drawn
+        again as it is.
+        """
+
+        super().prepareGeometryChange()
+        mode = self.cacheMode()
+        if mode != QtWidgets.QGraphicsItem.CacheMode.NoCache:
+            self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.NoCache)
+            self.setCacheMode(mode)
+
     def fixed_length_for_viewport(self, value):
         """The interactable areas need to stay the same size on the
         screen so we need to adjust the values according to the scale
