@@ -597,6 +597,9 @@ class SelectableMixin(BaseItemMixin):
                         event.scenePos())
                     self.event_anchor = self.mapToScene(
                         self.get_scale_anchor(corner))
+                    # The corner dragged, so that it can be put on the
+                    # grid; see grid_scale_factor
+                    self.scale_corner = self.mapToScene(corner)
                     for item in self.selection_action_items():
                         item.scale_orig_factor = item.scale()
                     event.accept()
@@ -653,10 +656,35 @@ class SelectableMixin(BaseItemMixin):
                           for item in self.selection_action_items()
                           if item.reflows_text()}
 
-    def get_wrap_width(self, event):
-        """The width the text should wrap at, for the current drag."""
+    def grid_step(self):
+        """The grid's spacing while what is sized is to land on it, or
+        None. Never for a note pinned to the window, which is not on the
+        board the grid is drawn on."""
 
-        moved = event.scenePos() - self.event_anchor
+        scene = self.scene()
+        if (scene is None or not hasattr(scene, 'grid_step')
+                or getattr(self, 'is_pinned', False)):
+            return None
+        return scene.grid_step()
+
+    def grid_point(self, point):
+        """A point on the board, put on the grid while snapping to it."""
+
+        step = self.grid_step()
+        if not step:
+            return point
+        on_grid = self.scene().on_grid
+        return QtCore.QPointF(on_grid(point.x(), step),
+                              on_grid(point.y(), step))
+
+    def get_wrap_width(self, event):
+        """The width the text should wrap at, for the current drag.
+
+        The side dragged is where the mouse is, so that is what goes on
+        the grid while snapping to it.
+        """
+
+        moved = self.grid_point(event.scenePos()) - self.event_anchor
         distance = QtCore.QPointF.dotProduct(self.wrap_axis, moved)
         # The drag is measured on the canvas; the width is in the item's
         # own coordinates
@@ -693,9 +721,13 @@ class SelectableMixin(BaseItemMixin):
             item.stretch_orig = item.stretch
 
     def get_stretch_factor(self, event):
-        """How much the item has been stretched by the current drag."""
+        """How much the item has been stretched by the current drag.
 
-        moved = event.scenePos() - self.event_anchor
+        The edge dragged is where the mouse is, so that is what goes on
+        the grid while snapping to it.
+        """
+
+        moved = self.grid_point(event.scenePos()) - self.event_anchor
         distance = QtCore.QPointF.dotProduct(self.stretch_axis, moved)
         size = self.height if self.stretch_vertical else self.width
         # The size the item would have without any stretch
@@ -730,7 +762,34 @@ class SelectableMixin(BaseItemMixin):
         p = event.scenePos() - self.event_start
         direction = self.event_direction
         delta = QtCore.QPointF.dotProduct(direction, p) / imgsize
-        return (self.scale_orig_factor + delta) / self.scale_orig_factor
+        return self.grid_scale_factor(
+            (self.scale_orig_factor + delta) / self.scale_orig_factor)
+
+    def grid_scale_factor(self, factor):
+        """The scale nearest to this that puts the corner being dragged
+        on a line of the grid, across or down, while snapping to it.
+
+        Sizing from a corner keeps the shape, so the corner can only be
+        brought onto one line of the grid, not onto both at once: the
+        one it is nearest to.
+        """
+
+        step = self.grid_step()
+        corner = getattr(self, 'scale_corner', None)
+        if not step or corner is None:
+            return factor
+        on_grid = self.scene().on_grid
+        anchor = self.event_anchor
+        nearest = None
+        for reach, start in ((corner.x() - anchor.x(), anchor.x()),
+                             (corner.y() - anchor.y(), anchor.y())):
+            if abs(reach) < 1e-9:
+                continue
+            snapped = (on_grid(start + reach * factor, step) - start) / reach
+            if snapped > 0.01 and (nearest is None or abs(snapped - factor)
+                                   < abs(nearest - factor)):
+                nearest = snapped
+        return factor if nearest is None else nearest
 
     def get_scale_anchor(self, corner):
         """Get the anchor around which the scale for this corner operates."""

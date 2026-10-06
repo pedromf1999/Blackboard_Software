@@ -932,12 +932,17 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             if pinned is not None:
                 for view in self.views():
                     view.show_pin_drop(pinned)
-            elif (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-                    and self.multi_select_item.active_mode is None
-                    and all(item.active_mode is None for item in chosen)):
-                self.snap_dragged(self.moved_by_drag(chosen))
             else:
-                self.end_snapping()
+                to_items = bool(
+                    event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                step = self.grid_step()
+                if ((to_items or step)
+                        and self.multi_select_item.active_mode is None
+                        and all(item.active_mode is None for item in chosen)):
+                    self.snap_dragged(self.moved_by_drag(chosen),
+                                      to_items, step)
+                else:
+                    self.end_snapping()
 
     # How close, in pixels on the screen, an edge of something being
     # dragged with Shift held has to come to another's to be snapped to it
@@ -958,28 +963,46 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             local = item.bounding_rect_unselected()
         return item.mapToScene(local).boundingRect()
 
-    def snap_dragged(self, moved):
-        """Bring what is being dragged up against what it comes close to.
+    def grid_step(self):
+        """The grid's spacing while snapping to it, or None; see
+        BeeGraphicsView.grid_snap_step."""
 
-        With Shift held: an edge come within SNAP_DISTANCE of another
-        item's edge is moved onto it, so that the two touch -- or, side by
-        side, so that their tops or bottoms line up, and one under
-        another, their left or right sides. Whatever is nearest wins, on
-        each axis. Qt puts the items back where the mouse alone would
-        have them on every move, so this is worked out afresh each time.
+        views = self.views()
+        return views[0].grid_snap_step() if views else None
+
+    @staticmethod
+    def on_grid(value, step):
+        """The grid line nearest a position along one axis."""
+
+        return round(value / step) * step
+
+    def snap_dragged(self, moved, to_items=True, step=None):
+        """Bring what is being dragged up against what it comes close to,
+        or onto the grid.
+
+        ``to_items``, with Shift held: an edge come within SNAP_DISTANCE
+        of another item's edge is moved onto it, so that the two touch --
+        or, side by side, so that their tops or bottoms line up, and one
+        under another, their left or right sides. Whatever is nearest
+        wins, on each axis. ``step``, while snapping to the grid: on an
+        axis with nothing of that kind near, the top left corner goes to
+        the nearest grid line. Qt puts the items back where the mouse
+        alone would have them on every move, so this is worked out afresh
+        each time.
         """
 
         views = self.views()
         scale = views[0].get_scale() if views else 1
         if scale <= 0 or not moved:
-            self.set_snap_guides([])
+            self.end_snapping()
             return
         reach = self.SNAP_DISTANCE / scale
         rect = QtCore.QRectF()
         for item in moved:
             rect = rect.united(self.snap_rect(item))
         others = []
-        for item in self.items(rect.adjusted(-reach, -reach, reach, reach)):
+        area = rect.adjusted(-reach, -reach, reach, reach)
+        for item in self.items(area) if to_items else []:
             if (not hasattr(item, 'save_id') or not item.isVisible()
                     or getattr(item, 'is_pinned', False)
                     or any(item is mover or mover.isAncestorOf(item)
@@ -989,6 +1012,10 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
         dx = self.snap_along(rect, others, reach, across=True)
         dy = self.snap_along(rect, others, reach, across=False)
+        if dx is None:
+            dx = self.on_grid(rect.left(), step) - rect.left() if step else 0
+        if dy is None:
+            dy = self.on_grid(rect.top(), step) - rect.top() if step else 0
         if dx or dy:
             for item in moved:
                 parent = item.parentItem()
@@ -1031,7 +1058,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
 
     def snap_along(self, moving, others, reach, across):
         """The shift along one axis that brings the nearest edge home, or
-        nothing if no edge is close enough."""
+        None if no edge is close enough."""
 
         best = None
         for other in others:
@@ -1039,7 +1066,7 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
                 if abs(shift) <= reach and (best is None
                                             or abs(shift) < abs(best)):
                     best = shift
-        return best or 0
+        return best
 
     def snap_guides_for(self, moving, others, reach):
         """Lines along the edges the moving rectangle now stands against."""

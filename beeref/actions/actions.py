@@ -662,6 +662,14 @@ actions = ActionList([
         callback='on_action_show_grid',
     ),
     Action(
+        id='snap_to_grid',
+        text='S&nap to Grid',
+        shortcuts=['Shift+G'],
+        checkable=True,
+        settings='View/snap_to_grid',
+        callback='on_action_snap_to_grid',
+    ),
+    Action(
         id='show_scrollbars',
         text='Show &Scrollbars',
         checkable=True,

@@ -20,6 +20,7 @@ import logging
 from PyQt6 import QtCore, QtWidgets
 
 from beeref import constants
+from beeref.actions.actions import actions
 from beeref.assets import BeeAssets
 from beeref.items import BeeDrawItem
 
@@ -94,6 +95,19 @@ class DrawToolBar(QtWidgets.QWidget):
         self.find_text.clicked.connect(self.view.on_action_find_text)
         layout.addWidget(self.find_text)
 
+        # Not a tool either: a switch, which stays pressed while it is on
+        self.snap = QtWidgets.QToolButton(self)
+        self.snap.setCheckable(True)
+        self.snap.setToolTip(
+            'Snap to the grid (Shift+G): what is moved or sized lands on '
+            'the grid, in steps that follow the zoom')
+        self.snap.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        self.snap.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.snap.setIcon(BeeAssets().tool_icon('grid_snap'))
+        self.snap.setChecked(view.snap_to_grid)
+        self.snap.clicked.connect(self.on_snap_clicked)
+        layout.addWidget(self.snap)
+
         # Tools like the text tool: pressed, they wait for a click on
         # the board to say where the task list or the table goes
         self.insert_tasks = self.tool_button(
@@ -136,6 +150,12 @@ class DrawToolBar(QtWidgets.QWidget):
             button.clicked.connect(lambda checked: callback())
         self.buttons[kind] = button
         return button
+
+    def on_snap_clicked(self):
+        """Go through the menu entry, so that it, the setting and this
+        button keep step."""
+
+        actions['snap_to_grid'].qaction.trigger()
 
     def on_shapes_clicked(self):
         self.set_shapes_open(not self.shape_bar.isVisible())

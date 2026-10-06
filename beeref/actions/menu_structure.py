@@ -70,6 +70,7 @@ menu_structure = [
             'fit_selection',
             MENU_SEPARATOR,
             'show_grid',
+            'snap_to_grid',
             'show_layers',
             'show_legend',
             MENU_SEPARATOR,

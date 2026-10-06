@@ -137,6 +137,9 @@ class BeeGraphicsView(MainControlsMixin,
         # Set before the actions are built, since the grid toggle acts
         # on it as soon as it is restored from the settings
         self.show_grid = False
+        # Whether what is moved or sized lands on the grid; see
+        # grid_snap_step
+        self.snap_to_grid = False
         self.on_canvas_color_changed(
             self.settings.valueOrDefault('View/canvas_color'))
         settings_events.canvas_color_changed.connect(
@@ -736,6 +739,29 @@ class BeeGraphicsView(MainControlsMixin,
     def on_action_show_grid(self, checked):
         self.show_grid = checked
         self.viewport().update()
+
+    def on_action_snap_to_grid(self, checked):
+        """Have what is moved or sized land on the grid, or not."""
+
+        self.snap_to_grid = checked
+        toolbar = getattr(self, 'draw_toolbar', None)
+        if toolbar is not None:
+            toolbar.snap.setChecked(checked)
+
+    def grid_snap_step(self):
+        """The spacing things land on while snapping to the grid, on the
+        board -- or None while not snapping.
+
+        The grid as it is drawn at this zoom: its finer lines once they
+        are more than half in, else the coarser ones -- so that zoomed in,
+        things move and grow in small steps, and zoomed out in large ones.
+        """
+
+        if not self.snap_to_grid:
+            return None
+        fine, coarse, fade = self.grid_levels()
+        step = fine if fade >= 0.5 else coarse
+        return step if step > 0 else None
 
     def on_grid_changed(self):
         self.viewport().update()

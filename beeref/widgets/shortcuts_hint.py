@@ -45,6 +45,8 @@ class ShortcutsHint(QtWidgets.QWidget):
         ('Ctrl + F  /  F3', 'Find text, and jump to the next match'),
         ('Shift + C', 'Crop the selected image'),
         ('Alt + drag', 'Take an item out of its group'),
+        ('Shift + drag', 'Snap against whatever is near'),
+        ('Shift + G', 'Snap to the grid, or stop'),
         ('Ctrl + click', 'Open a link in a text note'),
     )
 
