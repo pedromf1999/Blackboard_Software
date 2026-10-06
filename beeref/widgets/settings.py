@@ -101,11 +101,15 @@ class RadioGroup(GroupBase):
 class IntegerGroup(GroupBase):
     MIN = None
     MAX = None
+    # Written after the number, to say what it counts
+    SUFFIX = None
 
     def __init__(self):
         super().__init__()
         self.input = QtWidgets.QSpinBox()
         self.input.setRange(self.MIN, self.MAX)
+        if self.SUFFIX:
+            self.input.setSuffix(self.SUFFIX)
         self.set_value(self.settings.valueOrDefault(self.KEY))
         self.input.valueChanged.connect(self.on_value_changed)
         self.layout.addWidget(self.input)
@@ -237,6 +241,16 @@ class ArrangeGapWidget(IntegerGroup):
     MAX = 200
 
 
+class PinnedTextSizeWidget(IntegerGroup):
+    TITLE = 'Pinned Note Text Size:'
+    HELPTEXT = ('The size every pinned note shows its words at, whatever'
+                ' size they were written at. Titles are a little bigger.')
+    KEY = 'Items/pinned_text_size'
+    MIN = 6
+    MAX = 48
+    SUFFIX = ' pt'
+
+
 class AllocationLimitWidget(IntegerGroup):
     TITLE = 'Maximum Image Size:'
     HELPTEXT = ('The maximum image size that can be loaded (in megabytes). '
@@ -276,6 +290,7 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(AllocationLimitWidget(), 0, 1)
         items_layout.addWidget(ArrangeGapWidget(), 1, 0)
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
+        items_layout.addWidget(PinnedTextSizeWidget(), 2, 0)
         tabs.addTab(items, '&Images && Items')
 
         # View

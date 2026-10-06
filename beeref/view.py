@@ -142,6 +142,8 @@ class BeeGraphicsView(MainControlsMixin,
         settings_events.canvas_color_changed.connect(
             self.on_canvas_color_changed)
         settings_events.grid_changed.connect(self.on_grid_changed)
+        settings_events.pinned_text_size_changed.connect(
+            self.on_pinned_text_size_changed)
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         # Without this, text on the canvas is left to whatever the
         # painter defaults to, which reads poorly at small sizes
@@ -3508,17 +3510,23 @@ class BeeGraphicsView(MainControlsMixin,
 
     def pinned_scale(self, note):
         """How much a pinned note is scaled for its words to show at the
-        size every pinned note's do: the size a note is written at, seen
-        with the board at its own size. Its title then shows at the same
-        size as every other pinned title; see BeeTextItem.title_size.
+        size every pinned note's do, set in the settings. Its title then
+        shows at the same size as every other pinned title; see
+        BeeTextItem.title_size.
         """
 
         usual = note.usual_point_size()
-        standard = QtGui.QFontInfo(QtWidgets.QApplication.font()).pointSizeF()
+        standard = self.settings.valueOrDefault('Items/pinned_text_size')
         if usual <= 0 or standard <= 0:
             return 1
         return min(max(standard / usual, self.PIN_MIN_SCALE),
                    self.PIN_MAX_SCALE)
+
+    def on_pinned_text_size_changed(self):
+        """Show the pinned notes at the size just set."""
+
+        self.place_pinned_notes()
+        self.update_pinned_toolbars()
 
     def notes_to_pin(self):
         """The notes the pin buttons act on: those chosen, or written in."""

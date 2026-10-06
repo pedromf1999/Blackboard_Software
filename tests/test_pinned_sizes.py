@@ -140,3 +140,85 @@ def test_the_size_on_the_board_is_saved_with_it(board, tmp_path):
     pin(board, opened)
 
     assert opened.scale() == pytest.approx(2.5)
+
+
+# The size, set in the settings -- the test settings, in a folder of
+# their own; see conftest
+
+def test_the_size_is_a_setting(board, settings):
+    note = note_at(board, QtCore.QPoint(100, 100), 'words')
+    pin(board, note)
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(9)
+
+    settings.setValue('Items/pinned_text_size', 14)
+
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(14)
+    assert on_screen(note, note.title_size()) == pytest.approx(
+        14 * BeeTextItem.TITLE_SIZE_FRACTION)
+
+
+def test_restoring_the_defaults_brings_it_back(board, settings):
+    note = note_at(board, QtCore.QPoint(100, 100), 'words')
+    pin(board, note)
+    settings.setValue('Items/pinned_text_size', 20)
+
+    settings.restore_defaults()
+
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(9)
+
+
+def test_a_size_out_of_reason_is_not_taken(board, settings):
+    settings.setValue('Items/pinned_text_size', 500)
+
+    assert settings.valueOrDefault('Items/pinned_text_size') == 9
+
+
+def test_the_settings_window_offers_it(board, settings):
+    from beeref.widgets.settings import PinnedTextSizeWidget
+
+    widget = PinnedTextSizeWidget()
+    assert widget.input.value() == 9
+    assert widget.input.suffix() == ' pt'
+
+    widget.input.setValue(12)
+
+    assert settings.valueOrDefault('Items/pinned_text_size') == 12
+
+
+# No buttons to size what cannot be sized
+
+def test_a_pinned_note_has_no_buttons_to_size_its_words(board):
+    toolbar = board.text_toolbar
+    note = note_at(board, QtCore.QPoint(100, 100), 'words')
+    board.scene.clearSelection()
+    note.setSelected(True)
+    board.update_text_toolbar()
+    assert toolbar.smaller.isVisibleTo(toolbar) is True
+    assert toolbar.bigger.isVisibleTo(toolbar) is True
+    wide = toolbar.width()
+
+    pin(board, note)
+    board.scene.clearSelection()
+    note.setSelected(True)
+    board.update_text_toolbar()
+
+    assert toolbar.smaller.isVisibleTo(toolbar) is False
+    assert toolbar.bigger.isVisibleTo(toolbar) is False
+    assert toolbar.width() < wide
+
+
+def test_a_note_on_the_board_has_them_again(board):
+    toolbar = board.text_toolbar
+    pinned = note_at(board, QtCore.QPoint(100, 100), 'pinned')
+    pin(board, pinned)
+    board.scene.clearSelection()
+    pinned.setSelected(True)
+    board.update_text_toolbar()
+    loose = note_at(board, QtCore.QPoint(100, 300), 'loose')
+
+    board.scene.clearSelection()
+    loose.setSelected(True)
+    board.update_text_toolbar()
+
+    assert toolbar.smaller.isVisibleTo(toolbar) is True
+    assert toolbar.bigger.isVisibleTo(toolbar) is True

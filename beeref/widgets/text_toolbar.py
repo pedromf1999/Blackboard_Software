@@ -105,3 +105,10 @@ class TextToolBar(PinnedToolBar):
         self.pin.setToolTip(
             'Unpin: back onto the board (Ctrl+P)' if item.is_pinned
             else 'Pin to the window, where it stays in sight (Ctrl+P)')
+        # A pinned note's words are the size every pinned note's are,
+        # set in the settings: nothing for these to do
+        sizable = not item.is_pinned
+        if self.smaller.isVisibleTo(self) != sizable:
+            self.smaller.setVisible(sizable)
+            self.bigger.setVisible(sizable)
+            self.adjustSize()

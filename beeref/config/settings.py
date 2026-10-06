@@ -118,6 +118,8 @@ class BeeSettingsEvents(QtCore.QObject):
     canvas_color_changed = QtCore.pyqtSignal(str)
     # Emitted when a grid setting changes, so the view can repaint
     grid_changed = QtCore.pyqtSignal()
+    # Emitted when the size pinned notes are shown at changes
+    pinned_text_size_changed = QtCore.pyqtSignal()
 
 
 # We want to send and receive settings events globally, not per
@@ -142,6 +144,15 @@ class BeeSettings(QtCore.QSettings):
             'default': 0,
             'cast': int,
             'validate': lambda x: 0 <= x <= 200,
+        },
+        # The size, in points, every pinned note's words are shown at,
+        # whatever they were written at; its title a step above that
+        'Items/pinned_text_size': {
+            'default': 9,
+            'cast': int,
+            'validate': lambda x: 6 <= x <= 48,
+            'post_save_callback':
+                lambda value: settings_events.pinned_text_size_changed.emit(),
         },
         'Items/arrange_default': {
             'default': 'optimal',
