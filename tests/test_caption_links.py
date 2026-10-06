@@ -182,3 +182,33 @@ def test_the_caption_being_written_is_drawn_with_its_address(view):
     painter.end()
 
     assert item.caption_editing is True
+
+
+@patch('PyQt6.QtGui.QDesktopServices.openUrl')
+def test_ctrl_click_opens_it_on_a_picture_in_a_group(
+        open_mock, main_window, view, qtbot):
+    from beeref import commands
+    from beeref.items import BeeGroupItem
+
+    main_window.resize(1000, 700)
+    main_window.show()
+    qtbot.waitExposed(main_window)
+    caption = 'Joint detail, https://example.com/joint here'
+    item = image(view, caption)
+    other = image(view, 'nothing')
+    other.setPos(700, 0)
+    group = BeeGroupItem()
+    commands.GroupItems(view.scene, [item, other], group).redo()
+    group.title = 'Chairs'
+    view.scene.clearSelection()
+    view.setTransform(QtGui.QTransform.fromScale(0.8, 0.8))
+    view.centerOn(item.sceneBoundingRect().center())
+
+    point = view.mapFromScene(item.mapToScene(
+        point_on(item, caption.index('example'))))
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.ControlModifier, point)
+
+    open_mock.assert_called_once()
+    assert open_mock.call_args[0][0].toString() == (
+        'https://example.com/joint')

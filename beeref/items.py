@@ -3599,6 +3599,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             data['pin'] = {
                 'order': int(self.pin.get('order') or 0),
                 'after': after if isinstance(after, int) else None,
+                # The size it had on the board, to go back to
+                'board_scale': self.pin.get('board_scale'),
                 'minimized': bool(self.pin.get('minimized')),
                 'corner': list(self.pin.get('corner', [0, 0])),
                 'offset': list(self.pin.get('offset', [16, 16]))}
@@ -3655,6 +3657,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             return census
         tasks, done, to_do = [], [], []
         largest = 0
+        # How many letters are written at each size; 0 for the note's own
+        letters = {}
         block = document.begin()
         while block.isValid():
             marker = block.blockFormat().marker()
@@ -3666,24 +3670,38 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
                 fragment = it.fragment()
                 it += 1
                 if fragment.isValid():
-                    largest = max(largest,
-                                  fragment.charFormat().fontPointSize())
+                    size = fragment.charFormat().fontPointSize()
+                    largest = max(largest, size)
+                    letters[size] = letters.get(size, 0) + fragment.length()
             block = block.next()
         census = {'revision': revision, 'tasks': tasks, 'done': done,
-                  'to_do': to_do, 'largest': largest}
+                  'to_do': to_do, 'largest': largest,
+                  'most': max(letters, key=letters.get) if letters else 0}
         self._census = census
         return census
 
     def forget_census(self):
         self._census = None
 
+    def usual_point_size(self):
+        """The size most of the note's words are written at, in points."""
+
+        size = self.census()['most']
+        if size <= 0:
+            size = QtGui.QFontInfo(self.font()).pointSizeF()
+        return size
+
     def title_size(self):
         """How big the title's letters are.
 
         The size the heading was given, or -- on a note that has not
         been given one -- a little more than the words underneath.
+        Pinned, every note's title is the same size, as its words are:
+        the usual step above them, whatever it was given on the board.
         """
 
+        if self.pin is not None:
+            return self.usual_point_size() * self.TITLE_SIZE_FRACTION
         if self._title_size:
             return self._title_size
         return self.title_size_from_text()
@@ -4832,6 +4850,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
     #   order      its place in the order the tab is laid out in
     #   after      the place of the note it stands to the right of, or
     #              None at the left of the tab
+    #   board_scale
+    #              the size it had on the board, to go back to unpinned
     #   minimized  whether it is folded away to a small label
     #   corner, offset
     #              where it was last shown, for the versions before the

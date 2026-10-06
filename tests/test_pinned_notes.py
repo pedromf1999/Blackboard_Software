@@ -72,14 +72,15 @@ def test_a_pinned_note_stays_put_whatever_the_board_does(board):
     assert abs(after.width() - before.width()) < 0.01
 
 
-def test_it_is_pinned_at_the_size_it_is_seen(board):
+def test_it_is_pinned_at_the_size_every_pinned_note_has(board):
+    """Whatever the zoom: a note written at the usual size shows as one
+    written with the board at its own size."""
+
     zoom_to(board, 2)
     note = note_at(board, QtCore.QPoint(100, 120))
-    before = note.screen_rect(board)
     pin(board, note)
 
-    assert note.scale() == pytest.approx(2)
-    assert note.screen_rect(board).size() == before.size()
+    assert note.scale() == pytest.approx(1)
 
 
 def test_one_pinned_far_zoomed_out_can_still_be_read(board):
@@ -87,7 +88,7 @@ def test_one_pinned_far_zoomed_out_can_still_be_read(board):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)
 
-    assert note.scale() == pytest.approx(board.PIN_MIN_SCALE)
+    assert note.scale() == pytest.approx(1)
 
 
 def test_dragged_onto_another_the_two_swap_and_it_is_no_edit(board):
@@ -222,21 +223,23 @@ def test_saved_and_opened_again_it_is_still_pinned(board):
     assert 'pin' not in BeeTextItem('old').get_extra_save_data()
 
 
-def test_unpinned_it_goes_on_the_board_just_as_it_is_seen(board):
+def test_unpinned_it_goes_back_to_its_size_on_the_board(board):
     note = note_at(board, QtCore.QPoint(100, 120))
+    note.setScale(3)
     pin(board, note)
     zoom_to(board, 2)
     before = note.screen_rect(board)
 
     pin(board, note)
     assert note.is_pinned is False
+    assert note.scale() == pytest.approx(3)
+    # Where it was seen
     after = note.screen_rect(board)
     assert close(after.topLeft(), before.topLeft())
-    assert after.width() == pytest.approx(before.width())
     # On the board again: it grows with the zoom
+    width = after.width()
     zoom_to(board, 4)
-    assert note.screen_rect(board).width() == pytest.approx(
-        2 * before.width())
+    assert note.screen_rect(board).width() == pytest.approx(2 * width)
 
 
 def test_pinning_is_one_step_to_undo_and_redo(board):
@@ -503,7 +506,7 @@ def test_a_pinned_note_keeps_its_size_by_its_corners(board):
     corner = QtCore.QPoint(round(rect.right()) - 1,
                            round(rect.bottom()) - 1)
     drag(board.viewport(), corner, corner + QtCore.QPoint(60, 60))
-    assert note.scale() == 2
+    assert note.scale() == pytest.approx(board.pinned_scale(note))
     # A note on the board still has them
     assert BeeTextItem('x').offers_corner_handles() is True
 

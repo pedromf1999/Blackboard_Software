@@ -1914,6 +1914,10 @@ class BeeGraphicsView(MainControlsMixin,
         if item is None:
             return False
         if getattr(item, 'TYPE', None) == BeeTextItem.TYPE:
+            if item.is_pinned:
+                # Every pinned note's title is the same size; see
+                # BeeTextItem.title_size
+                return True
             # A note's heading keeps a size of its own rather than a
             # share of the note, so that making the note's own words
             # bigger leaves the heading where it was
@@ -3495,11 +3499,26 @@ class BeeGraphicsView(MainControlsMixin,
         # and the bars have to catch up just the same
         self.update_pinned_toolbars()
 
-    # Notes pinned to the window: see BeeTextItem.set_pin. A note is
-    # pinned at the size it is seen at, within these bounds -- pinned
-    # while the board is zoomed far out, it would stay too small to read.
-    PIN_MIN_SCALE = 0.6
-    PIN_MAX_SCALE = 3
+    # Notes pinned to the window: see BeeTextItem.set_pin. Every pinned
+    # note shows its words at the same size, whatever size they were
+    # written at or the note was on the board -- see pinned_scale -- and
+    # within these bounds, should a note be written at an absurd size.
+    PIN_MIN_SCALE = 0.05
+    PIN_MAX_SCALE = 20
+
+    def pinned_scale(self, note):
+        """How much a pinned note is scaled for its words to show at the
+        size every pinned note's do: the size a note is written at, seen
+        with the board at its own size. Its title then shows at the same
+        size as every other pinned title; see BeeTextItem.title_size.
+        """
+
+        usual = note.usual_point_size()
+        standard = QtGui.QFontInfo(QtWidgets.QApplication.font()).pointSizeF()
+        if usual <= 0 or standard <= 0:
+            return 1
+        return min(max(standard / usual, self.PIN_MIN_SCALE),
+                   self.PIN_MAX_SCALE)
 
     def notes_to_pin(self):
         """The notes the pin buttons act on: those chosen, or written in."""
@@ -3538,11 +3557,11 @@ class BeeGraphicsView(MainControlsMixin,
         """Fasten a note to the window: into the tab of pinned notes.
 
         At the left of the tab, under what is there already; out of any
-        group it was in -- the window is not part of the board -- and at
-        the size it is seen at, within reason.
+        group it was in -- the window is not part of the board -- and with
+        its words the size every pinned note's are. The size it had on
+        the board is kept, to go back to when it is unpinned.
         """
 
-        on_screen = item.scale() * item.parent_scale() * self.get_scale()
         parent = item.parentItem()
         if parent is not None:
             scene_pos = item.scenePos()
@@ -3554,28 +3573,36 @@ class BeeGraphicsView(MainControlsMixin,
                 self.scene.refit_group(parent)
         order = max((self.pin_number(note, 'order') or 0
                      for note in self.scene.pinned_notes()), default=-1) + 1
-        item.set_pin({'order': order, 'after': None, 'minimized': False})
-        item.setScale(min(max(on_screen, self.PIN_MIN_SCALE),
-                          self.PIN_MAX_SCALE))
+        item.set_pin({'order': order, 'after': None, 'minimized': False,
+                      'board_scale': item.scale()})
+        item.setScale(self.pinned_scale(item))
         self.place_pinned_notes()
 
     def unpin_note(self, item):
-        """Put a pinned note back on the board, just as it is seen.
+        """Put a pinned note back on the board, where it is seen.
 
+        At the size it had on the board before it was pinned; or, pinned
+        in a version that did not keep that, at the size it is seen.
         Whatever stood beside it in the tab now stands beside what it
         stood beside, and closes up the gap it leaves.
         """
 
+        board_scale = None
         if item.pin is not None:
             order = self.pin_number(item, 'order')
             for note in self.scene.pinned_notes():
                 if (note is not item
                         and self.pin_number(note, 'after') == order):
                     note.pin['after'] = item.pin.get('after')
+            try:
+                board_scale = float(item.pin.get('board_scale') or 0)
+            except (TypeError, ValueError):
+                board_scale = 0
         before = item.screen_rect(self)
         on_screen = item.scale()
         item.set_pin(None)
-        item.setScale(on_screen / self.get_scale())
+        item.setScale(board_scale if board_scale and board_scale > 0
+                      else on_screen / self.get_scale())
         item.bring_to_front()
         after = item.screen_rect(self)
         item.setPos(item.pos()
@@ -3811,6 +3838,13 @@ class BeeGraphicsView(MainControlsMixin,
 
         folded = bool(self.scene.pins_tab.get('minimized'))
         pad = tab.PADDING
+        for note in notes:
+            # Its words written bigger or smaller, or pinned in a version
+            # that kept the size it was seen at: brought to the size every
+            # pinned note's words are
+            wanted = self.pinned_scale(note)
+            if abs(note.scale() - wanted) > 1e-6:
+                note.setScale(wanted)
         sizes = {}
         for note in notes:
             if note not in made:
