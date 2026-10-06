@@ -22,8 +22,8 @@ launch and behave normally.
 - Activate with `.venv\Scripts\activate`, then run the app with `beeref`, or
   `python -m beeref` if an Application Control policy blocks the venv's exe.
   The terminal stays busy while the app runs; errors and log output appear there.
-- Repo path contains spaces (`...\Desktop\Blackboard\BV Ref\beeref`). If
-  PyInstaller ever misbehaves, that is the first suspect.
+- The repo path contains spaces (on the first PC `...\Desktop\BV Ref\beeref`).
+  If PyInstaller ever misbehaves, that is the first suspect.
 - A venv copied from another machine does not work — `pyvenv.cfg` holds absolute
   paths to the interpreter it was built from. Rebuild it instead.
 
@@ -88,8 +88,9 @@ explicit step, so a build can never publish by accident.
     git push origin bvref --tags
     gh release create v<version> dist\Blackboard-<version>.zip --title "Blackboard <version>"
 
-`origin` is the private repo `pedromf1999/blackboard`; `upstream` is BeeRef,
-which cannot be pushed to. The release notes are the only place a change gets
+`origin` is the private repo `pedromf1999/Blackboard_Software` (it was
+`pedromf1999/blackboard`, and GitHub still redirects the old address);
+`upstream` is BeeRef, which cannot be pushed to. The release notes are the only place a change gets
 described in plain language for the other computer, so say what changed and how
 to install — not what the commits did.
 
@@ -152,60 +153,56 @@ the code: while another program holds the Windows clipboard, the three tests
 that copy something fail. Free the clipboard and run them again; never work
 round it in the tests.
 
-## Planned features, in intended order
+## What the application does
 
-Do these one at a time. Confirm each works and is committed before starting
-the next. Ask before making changes that go beyond the feature at hand.
+`docs/DOCUMENTO-DE-DESIGN.md` describes Blackboard as it is now, in
+Portuguese: every feature and how it behaves, the decisions behind them,
+the shortcuts, and the traps already fallen into. Read it before changing
+how something behaves. The nine features this fork set out with -- rename,
+canvas colour, grid, search, coloured text box, web links, highlighting,
+groups, layers -- are all done; new requests come from the owner, numbered.
 
-### 1. Rename to Blackboard
-Application name, organisation name, window title, about box, icon, and the
-PyInstaller spec. Renaming the organisation/app also moves the settings folder,
-which is desirable: it keeps this fork's config separate from the stock BeeRef
-install that is still in use.
+## Working with the owner
 
-### 2. Background colour setting
-A configurable canvas background colour, exposed in the existing settings
-dialog alongside the other appearance options.
-
-### 3. Zoom-aware background grid
-A guide grid drawn behind the items, via `drawBackground()` on the scene.
-Spacing should adapt to the zoom level (e.g. step through 10 / 50 / 100 px) so
-the grid never becomes a dense mess or disappears. Needs a toggle, and ideally
-configurable colour and spacing.
-
-### 4. Text search with F3
-Search across all text items in the scene. Matches should be selected and the
-view centred on them, with F3 cycling through results. Existing keyboard
-shortcut configuration must be respected — do not hardcode past the settings
-system if the project has a mechanism for it.
-
-### 5. Coloured box behind text
-A per-item background/fill colour for text items, with a UI to pick it. This is
-the first feature that stores a new property in the `.bee` file — see the file
-format warning below.
-
-### 6. Clickable web links in text
-URLs inside text items should open in the system browser on **Ctrl + left
-click**. Plain URL detection is enough; opening should go through
-`QDesktopServices.openUrl`. Must not interfere with normal click-to-select or
-with text edit mode.
-
-### 7. Text highlighting
-**Done.** Resolved in favour of the rich-text version: text items store HTML
-(`items.py` keeps an `html` key, `commands.ChangeText` handles undo/redo), so
-highlighting applies to selected words within a note rather than the whole item.
-
-### 8. Grouping with Ctrl+G
-BeeRef has no concept of groups. This touches selection, the custom transform
-logic (scaling/rotating/flipping is handled by BeeRef itself, not delegated to
-Qt), undo/redo, copy/paste, delete, and the file format. Plan it explicitly
-before writing code, and present the plan first.
-
-### 9. Layers / hierarchy panel with Ctrl+J
-A dockable side panel listing scene items in stacking order, with drag-and-drop
-reordering that writes back to z-values, kept in sync with canvas selection.
-Groups must appear as nodes in this tree, so it depends on feature 8. Items
-currently have no name property — one will likely need to be added.
+- Talk to the owner in European Portuguese. Code, comments and commit
+  messages stay in English, in the style already in the code: plain words,
+  saying why rather than what.
+- Requests come numbered ("141 - ..."). Do them one at a time, each in a
+  commit of its own. When a request can be read more than one way and the
+  reading changes the work, ask first, offering two or three options with
+  the recommended one first; otherwise take the sensible reading and say so.
+- For every change: implement; run `flake8 beeref tests` and the whole of
+  `pytest tests`; add tests for what changed (for a bug, a test that fails
+  without the fix -- check that it does); look at it in a real window with a
+  probe script and screenshots; raise `VERSION` by 0.1 and the baseline in
+  `tools/release.ps1` and here; commit, the message written to a file --
+  prose saying what changed and why, ending with the Co-Authored-By line;
+  restart the previewer; report in Portuguese what changed, what to look
+  at and any numbers measured; then wait.
+- Publish only when told ("publica"): `tools\release.ps1`, push with tags,
+  `gh release create` with notes in Portuguese -- what changed in plain
+  words, and how to install.
+- Reproduce a reported bug before fixing it, on a read-only copy of the
+  real board in the scratchpad where it helps. Measure before speeding
+  anything up, and again after.
+- The owner works in Blackboard while it is being developed. Never close or
+  touch their running copy. Before restarting the previewer, check whether
+  it is still open and its window title ends in `*` (unsaved changes); if
+  so, leave it and say so. Never force it shut blindly.
+- Probe scripts point Qt's settings at a folder of their own with
+  `QSettings.setPath(IniFormat, UserScope, <folder>)` before the application
+  is imported -- the APPDATA variable does not redirect them -- so the
+  recent-files list and settings stay untouched; and they call
+  `view.undo_stack.setClean()` before closing, so no "save changes?"
+  dialog appears.
+- Tests get a temporary settings folder from the autouse `settings` fixture
+  in `tests/conftest.py`; never define another fixture with that name.
+- The owner often runs a copy unzipped in Downloads rather than the
+  installed one. When a fixed bug is reported again, first check which copy
+  is running (`Get-Process Blackboard | Select Path`).
+- Reports are short, in plain language, without jargon -- the owner is a
+  product designer. A table for numbers before and after.
+- 500 to 700 MB of memory is fine; smoothness matters more.
 
 ## Constraints
 
