@@ -21,7 +21,7 @@ import platform
 import signal
 import sys
 
-from PyQt6 import QtCore, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 
 from beeref import constants, spacemouse
 from beeref.assets import BeeAssets
@@ -106,6 +106,41 @@ def handle_uncaught_exception(exc_type, exc, traceback):
 sys.excepthook = handle_uncaught_exception
 
 
+def measure_text_as_windows_does():
+    """Give a size in points the height it has on Windows.
+
+    A Mac counts 72 points to the inch where Windows counts 96, so a
+    note written at 9 points came out three quarters the size on a Mac,
+    in a box as wide as ever: the same board, with every line of every
+    note breaking somewhere else. Has to be said before the application
+    exists.
+
+    Told 96 alone, Qt takes a Mac's screen for one that wants everything
+    a third bigger, and makes it so, the boxes along with the words. So
+    it is also told not to size things by what the screen says; a Mac
+    sees to its sharper screens by itself, without Qt's help.
+    """
+
+    if sys.platform == 'darwin':
+        os.environ.setdefault('QT_FONT_DPI', '96')
+        os.environ.setdefault('QT_ENABLE_HIGHDPI_SCALING', '0')
+
+
+def use_the_note_font(app):
+    """Where the font notes are written in is not installed, write the
+    interface in its stand-in as well, at the size it has on Windows.
+
+    New notes take the interface font, and its name is what a board
+    keeps: a note written on a Mac has to name the font of Windows, or
+    it would be the one to look different there. The bars and panels
+    were laid out round this font at this size, too.
+    """
+
+    assets = BeeAssets()
+    if assets.note_font_stands_in:
+        app.setFont(QtGui.QFont(assets.NOTE_FONT, assets.NOTE_FONT_SIZE))
+
+
 def main():
     logger.info(f'Starting {constants.APPNAME} version {constants.VERSION}')
     logger.debug('System: %s', ' '.join(platform.uname()))
@@ -119,6 +154,7 @@ def main():
     assert not args.debug_raise_error, args.debug_raise_error
 
     os.environ["QT_DEBUG_PLUGINS"] = "1"
+    measure_text_as_windows_does()
     app = BeeRefApplication(sys.argv)
     # The platform's own style paints parts of the interface with the
     # system's colours, so a light Windows theme would show through.
@@ -131,6 +167,7 @@ def main():
     # The interface keeps the system font: it is hinted for small sizes,
     # so menus and panels stay crisp.
     logger.info(f'Canvas font: {BeeAssets().font_family}')
+    use_the_note_font(app)
     bee = BeeRefMainWindow(app)  # NOQA:F841
     # Here rather than in the window, so the test suite's many windows
     # do not each start listening. Kept on the window: the reader stops

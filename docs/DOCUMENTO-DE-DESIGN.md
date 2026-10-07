@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.4** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.5** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -214,6 +214,30 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - O executável não é assinado: o **Smart App Control** do Windows pode
   bloqueá-lo (num dos PCs foi desligado).
 
+### 11.1 Mac (processadores Apple, M1 e seguintes)
+- Não se compila a partir do Windows: é um Mac do GitHub que o faz
+  (`.github/workflows/build.yml`), sozinho, sempre que uma versão é
+  publicada, e junta `Blackboard-<versão>-mac.zip` à release. Instala-se
+  arrastando o `Blackboard.app` para a pasta Aplicações.
+- A aplicação não é assinada: na primeira vez o Mac recusa abri-la, e é
+  preciso autorizar em Definições do Sistema → Privacidade e Segurança →
+  "Abrir mesmo assim".
+- **O mesmo quadro tem de ficar igual nos dois sistemas.** As notas são
+  escritas em Segoe UI, que o Mac não tem; no Mac são desenhadas com a
+  **Blackboard Sans**, que vem dentro do programa. É uma cópia da Selawik
+  (a letra gratuita que a Microsoft fez para substituir a Segoe UI): as
+  mesmas larguras letra a letra, e a altura de linha acertada pela da Segoe
+  UI (`tools/make_note_font.py`). O Mac mede os tamanhos em pontos de outra
+  maneira (72 por polegada em vez de 96), por isso o programa pede-lhe que
+  os meça como o Windows. Medido no Mac do GitHub: as mesmas notas saem com
+  a mesma largura, a mesma altura e o mesmo número de linhas.
+- No Mac, Ctrl é a tecla Cmd e Alt é a tecla Option; o cartão de atalhos e
+  o ecrã de boas-vindas dizem-no assim.
+- **Não funciona no Mac:** o SpaceMouse (a leitura foi escrita para
+  Windows).
+- Ninguém aqui tem um Mac: a compilação abre a aplicação, tira uma
+  fotografia ao ecrã e guarda-a com o zip, para se ver antes de anunciar.
+
 ## 12. Mapa do código
 | Ficheiro | O que faz |
 |---|---|
@@ -273,6 +297,15 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **No Mac, uma nota de 9 pontos saía com três quartos do tamanho**, dentro
+  de uma caixa da largura de sempre, e todas as linhas quebravam noutro
+  sítio. Dizer ao Qt só "96 por polegada" (`QT_FONT_DPI`) não chega: no Mac
+  ele aumenta a janela inteira um terço. É preciso dizer-lhe também para não
+  dimensionar pelo ecrã (`QT_ENABLE_HIGHDPI_SCALING=0`). Ver
+  `measure_text_as_windows_does`.
+- **Uma letra diz a altura das suas linhas em dois sítios**, e o Windows lê
+  um e o Mac o outro. Na Selawik não coincidem (1,33 e 1,2 vezes o tamanho
+  da letra), por isso a cópia que vai no programa foi acertada.
 - **O que se escrevia numa nota de largura fixa não aparecia** enquanto se
   escrevia (11.6 a 12.3; notas afixadas incluídas). Depois de cada letra o Qt
   pede para redesenhar "tudo daqui para a frente", com um retângulo de dois

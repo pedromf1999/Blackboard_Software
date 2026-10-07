@@ -40,6 +40,19 @@ def test_welcome_overlay_when_no_recent_files(qapp):
     assert overlay.layout.indexOf(overlay.files_widget) < 0
 
 
+def test_on_a_mac_the_welcome_names_the_command_key(view):
+    with patch('beeref.widgets.welcome_overlay.sys.platform', 'darwin'):
+        said = WelcomeOverlay(view).label.text()
+    assert 'Cmd+T to start typing' in said
+    assert 'Ctrl' not in said
+
+
+def test_and_on_windows_the_control_key(view):
+    with patch('beeref.widgets.welcome_overlay.sys.platform', 'win32'):
+        said = WelcomeOverlay(view).label.text()
+    assert 'Ctrl+T to start typing' in said
+
+
 def test_recent_files_view_size_hint(qapp):
     parent = QtWidgets.QMainWindow()
     files_view = RecentFilesView(parent, None)

@@ -16,6 +16,7 @@
 """A reminder of the main shortcuts, shown when the app starts."""
 
 import logging
+import sys
 
 from PyQt6 import QtWidgets
 from PyQt6.QtCore import Qt
@@ -76,6 +77,7 @@ class ShortcutsHint(QtWidgets.QWidget):
         layout.addWidget(close, 0, 2, Qt.AlignmentFlag.AlignRight)
 
         for row, (keys, what) in enumerate(self.SHORTCUTS, start=1):
+            keys = self.keys_on_this_computer(keys)
             layout.addWidget(QtWidgets.QLabel(f'<b>{keys}</b>'), row, 0)
             layout.addWidget(QtWidgets.QLabel(what), row, 1, 1, 2)
 
@@ -88,6 +90,18 @@ class ShortcutsHint(QtWidgets.QWidget):
 
         self.setLayout(layout)
         self.adjustSize()
+
+    # What a Mac's keyboard calls them. Qt hands every shortcut written
+    # with Ctrl to the Command key there, clicks included.
+    MAC_KEYS = (('Ctrl', 'Cmd'), ('Alt', 'Option'))
+
+    def keys_on_this_computer(self, keys):
+        """The keys of a shortcut, by the names on this keyboard."""
+
+        if sys.platform == 'darwin':
+            for windows, mac in self.MAC_KEYS:
+                keys = keys.replace(windows, mac)
+        return keys
 
     def on_close_clicked(self):
         logger.debug('Closing the shortcuts hint')

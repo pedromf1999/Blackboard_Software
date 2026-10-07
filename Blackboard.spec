@@ -117,8 +117,11 @@ coll = COLLECT(
     name=appname)
 
 if sys.platform == 'darwin':
+    # The folder, not the executable alone: built as a folder (see
+    # above), the executable holds none of the libraries it needs, and
+    # an application made of it alone would not start
     app = BUNDLE(
-        exe,
+        coll,
         name='Blackboard.app',
         icon=join('beeref', 'assets', icon),
         bundle_identifier='org.bvref.app',
@@ -126,8 +129,21 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleDocumentTypes': [
                 {
-                    'CFBundleTypeExtensions': [ 'blk', 'bee' ],
-                    'CFBundleTypeRole': 'Viewer'
+                    # Boards are written as well as read, and a .blk is
+                    # Blackboard's own: it opens here on a double click
+                    'CFBundleTypeName': 'Blackboard board',
+                    'CFBundleTypeExtensions': [ 'blk' ],
+                    'CFBundleTypeRole': 'Editor',
+                    'LSHandlerRank': 'Owner'
+                },
+                {
+                    # A .bee can be opened here, and stays BeeRef's own
+                    # where BeeRef is installed -- as Install.cmd leaves
+                    # it on Windows
+                    'CFBundleTypeName': 'BeeRef file',
+                    'CFBundleTypeExtensions': [ 'bee' ],
+                    'CFBundleTypeRole': 'Editor',
+                    'LSHandlerRank': 'Alternate'
                 }
             ]
         })

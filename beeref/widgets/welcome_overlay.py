@@ -15,6 +15,7 @@
 
 import logging
 import os.path
+import sys
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
@@ -135,7 +136,11 @@ class WelcomeOverlay(MainControlsMixin, QtWidgets.QWidget):
         self.files_widget.hide()
 
         # Help text
-        self.label = QtWidgets.QLabel(self.txt, self)
+        txt = self.txt
+        if sys.platform == 'darwin':
+            # Qt hands the shortcut to the Command key of a Mac
+            txt = txt.replace('Ctrl+', 'Cmd+')
+        self.label = QtWidgets.QLabel(txt, self)
         self.label.setAlignment(Qt.AlignmentFlag.AlignVCenter
                                 | Qt.AlignmentFlag.AlignCenter)
         self.layout = QtWidgets.QHBoxLayout()

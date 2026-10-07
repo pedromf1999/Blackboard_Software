@@ -1,37 +1,89 @@
-name: build
+# Builds Blackboard for Macs with an Apple processor (M1 and later).
+#
+# A Mac application can only be built on a Mac, and Blackboard is written
+# on Windows, so one of GitHub's Macs does it. Run by hand from the Actions
+# tab to try a build; and by itself whenever a release is published, when
+# the zip is added to that release beside the one for Windows.
+#
+# Nobody sees the window this builds, so the build starts the application,
+# takes a picture of the screen and stops if the application has not stayed
+# open. The picture is kept with the zip under the run's artifacts.
 
-on: workflow_dispatch
+name: mac
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  # To add the zip to a release
+  contents: write
 
 jobs:
 
   build:
     name: build
-
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: ['macos-12',
-             'macos-13',
-             'macos-14',
-             'windows-latest']
+    # GitHub's "latest" Mac has had an Apple processor since macOS 14
+    runs-on: macos-latest
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: '3.11'
       - name: Install dependencies
         run: |
+          test "$(uname -m)" = arm64
           python -m pip install --upgrade pip
-          pip install -r requirements/build.txt
           pip install -e .
-      - name: Run Pyinstaller
+          # The PyInstaller the Windows release is built with
+          pip install pyinstaller==6.22.0
+      - name: Build
         run: |
-          pyinstaller BVRef.spec
-      - name: Upload artifact
+          pyinstaller --noconfirm Blackboard.spec
+          VERSION=$(python -c "from beeref import constants; print(constants.VERSION)")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          file dist/Blackboard.app/Contents/MacOS/Blackboard
+          # Signed by nobody, but signed: a Mac with an Apple processor
+          # runs nothing that is not, and calls it damaged instead
+          codesign --verify --deep --strict --verbose=2 dist/Blackboard.app
+      - name: Check that it opens
+        run: |
+          dist/Blackboard.app/Contents/MacOS/Blackboard > opened.log 2>&1 &
+          APP=$!
+          sleep 20
+          screencapture -x opened.png || true
+          tail -n 40 opened.log
+          # Stops the build here if the application has gone
+          kill -0 $APP
+          kill $APP
+      - name: Package
+        run: |
+          # ditto, not zip: it keeps the links and permissions a Mac
+          # application is made of
+          ditto -c -k --sequesterRsrc --keepParent dist/Blackboard.app "Blackboard-$VERSION-mac.zip"
+          ls -lh "Blackboard-$VERSION-mac.zip"
+          # And still whole once unpacked, as it will be on the Mac it
+          # is sent to
+          mkdir unpacked
+          ditto -x -k "Blackboard-$VERSION-mac.zip" unpacked
+          codesign --verify --deep --strict unpacked/Blackboard.app
+      - name: Keep the zip and the picture
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.os }}
-          path: dist/*
-          retention-days: 5
+          name: Blackboard-mac
+          path: |
+            Blackboard-*-mac.zip
+            opened.png
+            opened.log
+          retention-days: 14
+      - name: Add the zip to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" "Blackboard-$VERSION-mac.zip" --clobber

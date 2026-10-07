@@ -30,6 +30,27 @@ def test_the_hint_says_what_the_shortcuts_do_now(view):
     assert said['Alt + T'] == 'Add a table'
 
 
+def labels(hint):
+    return [label.text() for label in hint.findChildren(QtWidgets.QLabel)]
+
+
+def test_on_a_mac_the_keys_go_by_the_names_on_its_keyboard(view):
+    """Qt hands what is Ctrl on Windows to the Command key of a Mac."""
+
+    with patch('beeref.widgets.shortcuts_hint.sys.platform', 'darwin'):
+        said = labels(ShortcutsHint(view))
+    assert '<b>Cmd + Shift + T</b>' in said
+    assert '<b>Option + drag</b>' in said
+    assert not any('Ctrl' in text or 'Alt' in text for text in said)
+
+
+def test_and_on_windows_by_the_names_they_always_had(view):
+    with patch('beeref.widgets.shortcuts_hint.sys.platform', 'win32'):
+        said = labels(ShortcutsHint(view))
+    assert '<b>Ctrl + Shift + T</b>' in said
+    assert '<b>Alt + drag</b>' in said
+
+
 def test_closing_hides_it(view):
     hint = view.shortcuts_hint
     hint.on_close_clicked()

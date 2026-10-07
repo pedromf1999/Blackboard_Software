@@ -100,6 +100,32 @@ pure `cmd`/`reg` — no admin rights, no Python, no PowerShell policy to fight.
 It deliberately leaves `.bee` alone so a stock BeeRef install keeps its own
 files.
 
+**The Mac version.** A Mac application can only be built on a Mac, so
+`.github/workflows/build.yml` has one of GitHub's build it, for Apple
+processors (M1 and later). It runs by itself when a release is published and
+adds `Blackboard-<version>-mac.zip` to that release a few minutes after
+`gh release create`; `gh workflow run mac --ref bvref` tries a build without
+releasing anything. Nobody here has a Mac to look at, so the build starts the
+application, photographs the screen, and keeps the picture with the zip under
+the run's artifacts. Fetch it (`gh run download <run> -n Blackboard-mac`) and
+look at it before saying the Mac version is out. The application is signed by
+nobody: a Mac asks for leave the first time it is opened, and the release
+notes have to say how to give it.
+
+A board has to look the same on both. Three things make it so. Notes name the
+font of Windows, Segoe UI, which a Mac draws with the stand-in that travels
+with the application (Blackboard Sans, a copy of Microsoft's Selawik made by
+`tools/make_note_font.py`: as wide letter for letter, and as tall a line).
+Sizes in points are measured at the 96 to the inch of Windows rather than a
+Mac's 72 (`measure_text_as_windows_does` in `beeref/__main__.py`). And the
+interface takes that font at that size, so that a note written on a Mac names
+the font of Windows. Measured on GitHub's Mac, the same notes come out the same
+width, height and number of lines as on Windows. Anything that sizes text any
+other way will look different on a Mac without anyone here seeing it. Not on a
+Mac at all: the SpaceMouse, which is read through Windows. The tests do not
+run on GitHub's Mac yet -- they stop at the first one that needs a window and
+never come back -- so the build checks only that the application opens.
+
 **Opening a board written by a newer version is safe.** `fileio/sql.py` fetches
 items by absence of image data rather than by a list of known types, so an item
 this version does not understand still loads — as a red error item, which the
@@ -143,7 +169,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **2522 passing, 0 failing**. Nine tests inherited from
+Current baseline: **2537 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

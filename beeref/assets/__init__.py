@@ -72,11 +72,44 @@ class BeeAssets:
             families.update(
                 QtGui.QFontDatabase.applicationFontFamilies(font_id))
 
-        if not families:
+        self.note_font_stands_in = (
+            self.STAND_IN_FONT in families
+            and self.stand_in_where_missing(self.NOTE_FONT))
+        # The stand-in is never a choice of its own: it is only ever
+        # seen as the font it stands in for
+        offered = sorted(families - {self.STAND_IN_FONT})
+        if not offered:
             logger.warning('No bundled fonts loaded; using the default font')
             return None
         logger.debug(f'Loaded font families: {sorted(families)}')
-        return sorted(families)[0]
+        return offered[0]
+
+    # Notes are written in the interface font of Windows, where boards
+    # are mostly made. A Mac has no such font, and wrote the same note
+    # in one of its own, wider here and narrower there, so the lines
+    # broke in other places. A copy of Selawik, the font Microsoft made
+    # to stand in for it, travels with the application instead: the
+    # same widths letter for letter and the same height of line, so a
+    # note looks alike on both. See tools/make_note_font.py for what
+    # the copy changes, and why it goes by another name.
+    NOTE_FONT = 'Segoe UI'
+    NOTE_FONT_SIZE = 9
+    STAND_IN_FONT = 'Blackboard Sans'
+
+    def stand_in_where_missing(self, family):
+        """Draw the stand-in wherever a font that is not installed is
+        asked for by this name. Says whether it now stands in.
+
+        The note goes on naming the font it was written in, so it is
+        drawn in that font again wherever that font is installed.
+        """
+
+        if family in QtGui.QFontDatabase.families():
+            return False
+        QtGui.QFont.insertSubstitution(family, self.STAND_IN_FONT)
+        logger.info(f'{family} is not installed; drawn as '
+                    f'{self.STAND_IN_FONT}')
+        return True
 
     ICON_COLOR = (220, 220, 220)
     ICON_SIZE = 64
