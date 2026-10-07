@@ -1,4 +1,4 @@
-﻿import os.path
+import os.path
 from pathlib import Path
 import shutil
 import sqlite3
@@ -2537,7 +2537,30 @@ def test_drop_when_url(insert_mock, view, imgfilename3x3):
     event.position.return_value = QtCore.QPointF(10.0, 20.0)
 
     view.dropEvent(event)
-    insert_mock.assert_called_once_with([url], QtCore.QPoint(10, 20))
+    insert_mock.assert_called_once()
+    [(path, held)], pos = insert_mock.call_args.args
+    # Held open from the moment it is dropped: it may not outlast that
+    assert path == os.path.normpath(imgfilename3x3)
+    assert held.closed is False
+    held.close()
+    assert pos == QtCore.QPoint(10, 20)
+
+
+@patch('beeref.view.BeeGraphicsView.do_insert_images')
+def test_drop_naming_a_file_that_is_gone_but_carrying_its_picture(
+        insert_mock, view, imgfilename3x3, tmpdir):
+    mimedata = QtCore.QMimeData()
+    mimedata.setUrls([QtCore.QUrl.fromLocalFile(str(tmpdir.join('gone.png')))])
+    mimedata.setImageData(QtGui.QImage(imgfilename3x3))
+    event = MagicMock()
+    event.mimeData.return_value = mimedata
+    event.position.return_value = QtCore.QPointF(10.0, 20.0)
+
+    view.dropEvent(event)
+
+    insert_mock.assert_not_called()
+    assert len(view.scene.items()) == 1
+    view.scene.clearSelection()
 
 
 @patch('beeref.view.BeeGraphicsView.open_from_file')

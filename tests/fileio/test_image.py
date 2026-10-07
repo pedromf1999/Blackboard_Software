@@ -9,7 +9,12 @@ import plum
 
 from PyQt6 import QtCore, QtGui
 
-from beeref.fileio.image import exif_rotated_image, load_image
+from beeref.fileio.image import (
+    exif_rotated_image,
+    held_open,
+    let_go,
+    load_image,
+)
 
 
 def test_exif_rotated_image_without_path(qapp):
@@ -226,3 +231,70 @@ def test_nor_does_failing_to_read_which_way_up_keep_it_out(qapp):
         img = exif_rotated_image(jpeg())
 
     assert img.isNull() is False
+
+
+# Files held open from the moment they are dropped
+
+@pytest.fixture
+def dropped(tmpdir, imgfilename3x3):
+    """A picture in a folder of its own, and the address it is dropped by."""
+
+    import shutil
+    path = os.path.normpath(str(tmpdir.join('Screenshot at 4.20 PM.png')))
+    shutil.copy(imgfilename3x3, path)
+    return path, QtCore.QUrl.fromLocalFile(path)
+
+
+def test_a_dropped_file_is_held_open(dropped):
+    path, url = dropped
+    [(name, held)] = held_open([url])
+
+    assert name == path
+    assert held.closed is False
+    let_go([(name, held)])
+    assert held.closed is True
+
+
+def test_what_is_not_a_file_on_this_computer_is_left_as_it_came():
+    address = QtCore.QUrl('http://example.com/picture.png')
+    assert held_open([address, 'by-name.png']) == [address, 'by-name.png']
+
+
+def test_a_file_that_is_not_there_is_left_as_it_came(tmpdir):
+    gone = QtCore.QUrl.fromLocalFile(str(tmpdir.join('gone.png')))
+    assert held_open([gone]) == [gone]
+
+
+def test_only_so_many_are_held_open_at_once(dropped):
+    """A program may only have so many files open."""
+
+    path, url = dropped
+    with patch('beeref.fileio.image.HELD_AT_ONCE', 2):
+        held = held_open([url, url, url])
+
+    assert [isinstance(one, tuple) for one in held] == [True, True, False]
+    let_go(held)
+
+
+def test_a_file_held_open_is_read_and_let_go(dropped, qapp):
+    path, url = dropped
+    [source] = held_open([url])
+
+    img, filename = load_image(source)
+
+    assert img.isNull() is False
+    assert filename == path
+    assert source[1].closed is True
+
+
+def test_which_way_up_is_read_from_what_the_file_held(qapp):
+    """Not from the file a second time: it may have been taken away."""
+
+    path = jpeg('test3x3_orientation6.jpg')
+    with open(path, 'rb') as f:
+        data = f.read()
+
+    from_contents = exif_rotated_image('no such file.jpg', data)
+
+    assert from_contents == exif_rotated_image(path)
+    assert from_contents.isNull() is False

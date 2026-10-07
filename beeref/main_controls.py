@@ -93,23 +93,37 @@ class MainControlsMixin:
         pos = QtCore.QPoint(round(event.position().x()),
                             round(event.position().y()))
         if mimedata.hasUrls():
-            logger.debug(f'Found dropped urls: {mimedata.urls()}')
+            urls = mimedata.urls()
+            logger.debug(f'Found dropped urls: {urls}')
             if not self.control_target.scene.items():
                 # Check if we have a bee file we can open directly
-                path = mimedata.urls()[0]
+                path = urls[0]
                 if (path.isLocalFile()
                         and fileio.is_bee_file(path.toLocalFile())):
                     self.control_target.open_from_file(path.toLocalFile())
                     return
-            self.control_target.do_insert_images(mimedata.urls(), pos)
+            # Held open from here on: the file may not outlast the drop
+            held = fileio.held_open(urls)
+            if (len(urls) == 1 and urls[0].isLocalFile()
+                    and held == urls and mimedata.hasImage()):
+                # It names a file that is not there, and carries the
+                # picture itself as well
+                self.drop_picture(mimedata, pos)
+                return
+            self.control_target.do_insert_images(held, pos)
         elif mimedata.hasImage():
-            img = QtGui.QImage(mimedata.imageData())
-            item = BeePixmapItem(without_pointless_alpha(img))
-            pos = self.control_target.mapToScene(pos)
-            # Dropped on a group, it goes into the group
-            self.control_target.insert_at([item], pos, 'Drop image')
+            self.drop_picture(mimedata, pos)
         else:
             logger.info('Drop not an image')
+
+    def drop_picture(self, mimedata, pos):
+        """Put the picture a drop carries on the board, where it fell."""
+
+        img = QtGui.QImage(mimedata.imageData())
+        item = BeePixmapItem(without_pointless_alpha(img))
+        pos = self.control_target.mapToScene(pos)
+        # Dropped on a group, it goes into the group
+        self.control_target.insert_at([item], pos, 'Drop image')
 
     def mousePressEventMainControls(self, event):
         if self.movewin_active:

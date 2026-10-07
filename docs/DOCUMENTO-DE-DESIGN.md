@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.9** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -312,6 +312,14 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **Um ficheiro largado no quadro pode não durar mais do que o próprio
+  arrastar.** A miniatura que o Mac mostra depois de um screenshot é um
+  ficheiro numa pasta temporária, apagado mal é largado em algum sítio; as
+  imagens eram lidas um instante depois, em segundo plano, e já lá não
+  estava ("1 image could not be opened"). Os ficheiros largados são abertos
+  no próprio momento e ficam seguros até serem lidos (`fileio.held_open`):
+  um ficheiro aberto continua legível depois de apagado. Cada ficheiro é
+  lido uma só vez, para a imagem e para a orientação.
 - **O programa fechava-se sozinho, sem erro, ao escolher um elemento depois
   de abrir outro quadro na mesma janela**, se o painel de camadas tivesse
   sido usado. Cada linha do painel guarda o elemento que representa, e
@@ -324,8 +332,10 @@ não executar nenhum — está por resolver.
   existe, em vez de abrir outra como o Windows. Passa pelo mesmo caminho
   de "abrir outro quadro", que pergunta primeiro (`open_from_outside`).
 - **No Mac, o que vem na linha de comandos é entregue ao programa como
-  ficheiro a abrir.** Correr `pytest tests` lá fazia o programa tentar abrir
-  a pasta `tests` e parar num aviso; corre-se `pytest` sem caminho.
+  ficheiro a abrir.** Os testes automáticos param lá por isso logo no
+  primeiro que usa uma janela, num aviso de "ficheiro inválido", mesmo sem
+  dar um caminho ao `pytest`. Ainda não correm no Mac; o guião de usos
+  principais faz as vezes deles.
 - **No Mac, a janela "Loading images" ficava presa** por cima de um quadro
   que deixava de responder (12.5 e 12.6). O Mac mostra um diálogo modal à
   sua janela como uma "folha" que desce da barra de título; uma imagem só

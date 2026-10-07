@@ -19,12 +19,13 @@ from PyQt6 import QtCore
 
 from beeref import commands
 from beeref.fileio.errors import BeeFileIOError
-from beeref.fileio.image import load_image
+from beeref.fileio.image import held_open, let_go, load_image, name_of
 from beeref.fileio.sql import SQLiteIO, is_bee_file
 from beeref.items import BeePixmapItem, without_pointless_alpha
 
 
 __all__ = [
+    'held_open',
     'is_bee_file',
     'load_bee',
     'save_bee',
@@ -121,7 +122,7 @@ def load_images(filenames, pos, scene, worker=None, fit_size=None):
     items = []
     worker.begin_processing.emit(len(filenames))
     for i, filename in enumerate(filenames):
-        logger.info(f'Loading image from file {filename}')
+        logger.info(f'Loading image from file {name_of(filename)}')
         try:
             item, filename = picture_from(filename, pos, fit_size)
         except Exception:
@@ -130,10 +131,9 @@ def load_images(filenames, pos, scene, worker=None, fit_size=None):
             # untold it stayed up for good, over a board that could no
             # longer be used -- and what went wrong on this thread was
             # taken for a reason to close the application.
+            filename = name_of(filename)
             logger.exception(f'Failed on image {filename}')
             item = None
-            if not isinstance(filename, str):
-                filename = filename.toString()
         worker.progress.emit(i)
         if item is None:
             logger.info(f'Could not load file {filename}')
@@ -147,6 +147,8 @@ def load_images(filenames, pos, scene, worker=None, fit_size=None):
         # Give main thread time to process items:
         worker.msleep(10)
 
+    # Those never reached, when the work was called off
+    let_go(filenames)
     scene.undo_stack.push(
         commands.InsertItems(scene, items, ignore_first_redo=True))
     worker.finished.emit('', errors)

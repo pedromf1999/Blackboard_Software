@@ -120,3 +120,63 @@ def test_a_dropped_picture_that_goes_wrong_is_named_by_its_address(view):
 
     worker.finished.emit.assert_called_once_with(
         '', ['file:///somewhere/shot.png'])
+
+
+# A file taken away as soon as it has been dropped
+
+def dropped_file(tmpdir, imgfilename3x3):
+    import shutil
+    path = os.path.normpath(str(tmpdir.join('Screenshot at 4.20 PM.png')))
+    shutil.copy(imgfilename3x3, path)
+    return path, QtCore.QUrl.fromLocalFile(path)
+
+
+def take_away(path):
+    """What a Mac does to the picture of a screenshot once it has been
+    dropped. Windows will not take away a file that is held open, which
+    does just as well."""
+
+    try:
+        os.remove(path)
+    except PermissionError:
+        pass
+
+
+def test_a_picture_taken_away_after_the_drop_still_comes_in(
+        view, tmpdir, imgfilename3x3):
+    path, url = dropped_file(tmpdir, imgfilename3x3)
+    view.scene.undo_stack = MagicMock()
+    worker = MagicMock(canceled=False)
+
+    held = fileio.held_open([url])
+    take_away(path)
+    fileio.load_images(held, QtCore.QPointF(5, 6), view.scene, worker)
+
+    worker.finished.emit.assert_called_once_with('', [])
+    assert len(queue2list(view.scene.items_to_add)) == 1
+
+
+def test_left_to_be_opened_afterwards_it_is_gone(
+        view, tmpdir, imgfilename3x3):
+    """Which is what used to happen: "1 image could not be opened"."""
+
+    path, url = dropped_file(tmpdir, imgfilename3x3)
+    view.scene.undo_stack = MagicMock()
+    worker = MagicMock(canceled=False)
+
+    take_away(path)
+    fileio.load_images([url], QtCore.QPointF(5, 6), view.scene, worker)
+
+    worker.finished.emit.assert_called_once_with('', [path])
+
+
+def test_files_never_reached_are_let_go_when_the_work_is_called_off(
+        view, tmpdir, imgfilename3x3):
+    path, url = dropped_file(tmpdir, imgfilename3x3)
+    view.scene.undo_stack = MagicMock()
+    worker = MagicMock(canceled=True)
+
+    held = fileio.held_open([url, url])
+    fileio.load_images(held, QtCore.QPointF(5, 6), view.scene, worker)
+
+    assert [one[1].closed for one in held] == [True, True]
