@@ -23,10 +23,12 @@ from PyQt6 import QtGui
 
 import exif
 from lxml import etree
-import plum
 
 
 logger = logging.getLogger(__name__)
+
+# What every JPEG file begins with
+JPEG_START = b'\xff\xd8'
 
 
 def exif_rotated_image(path=None):
@@ -39,9 +41,19 @@ def exif_rotated_image(path=None):
         return img
 
     with open(path, 'rb') as f:
+        # Only a JPEG says which way up it is in a way the reader below
+        # knows. Given anything else it goes through the picture itself
+        # for the two bytes that would begin that in a JPEG, finds them
+        # sooner or later in a file of any size, and reads what follows
+        # as though it meant something: a screenshot of a few megabytes
+        # was sure to send it wrong.
+        if f.read(len(JPEG_START)) != JPEG_START:
+            return img
+        f.seek(0)
         try:
             exifimg = exif.Image(f)
-        except (plum.exceptions.UnpackError, NotImplementedError):
+        except Exception:
+            # Which way up it is can be done without; the picture cannot
             logger.exception(f'Exif parser failed on image: {path}')
             return img
 
@@ -50,7 +62,7 @@ def exif_rotated_image(path=None):
             orientation = exifimg.orientation
         else:
             return img
-    except (NotImplementedError, ValueError):
+    except Exception:
         logger.exception(f'Exif failed reading orientation of image: {path}')
         return img
 

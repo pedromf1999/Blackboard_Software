@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.6** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.7** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -305,6 +305,24 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **No Mac, a janela "Loading images" ficava presa** por cima de um quadro
+  que deixava de responder (12.5 e 12.6). O Mac mostra um diálogo modal à
+  sua janela como uma "folha" que desce da barra de título; uma imagem só
+  é carregada antes de a folha acabar de descer, e fechar a folha tão cedo
+  deixava o Qt à espera para sempre (3 em 4 tentativas no Mac do GitHub).
+  No Mac o diálogo é modal à aplicação inteira, que é uma janela normal
+  (`BeeProgressDialog.modality`): 16 em 16.
+- **Um erro ao ler uma imagem não pode deixar o carregamento a meio.** O
+  carregamento corre à parte e só avisa quando acaba; um erro inesperado
+  deixava o diálogo aberto para sempre, e o programa tomava-o por motivo
+  para fechar (perguntava se queria gravar). Agora a imagem com erro entra
+  na lista das que não abriram e as outras continuam
+  (`fileio.load_images`).
+- **Só um JPEG diz para que lado está virado.** A biblioteca que lê essa
+  informação, dada um PNG, procura no meio da imagem os dois bytes que num
+  JPEG a anunciam, acaba por encontrá-los num ficheiro grande e lê o que
+  vem a seguir como se fizesse sentido. Só lhe são dados JPEG
+  (`fileio.image.exif_rotated_image`).
 - **No Mac, uma nota de 9 pontos saía com três quartos do tamanho**, dentro
   de uma caixa da largura de sempre, e todas as linhas quebravam noutro
   sítio. Dizer ao Qt só "96 por polegada" (`QT_FONT_DPI`) não chega: no Mac

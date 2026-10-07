@@ -97,3 +97,31 @@ def test_progress_bar_sits_below_the_wordmark(view):
     middle = view.mapToGlobal(view.rect().center()).y()
     assert dialog.y() > middle
     dialog.deleteLater()
+
+
+# How the progress dialog stands in the way while the work goes on
+
+def test_the_progress_dialog_keeps_its_own_window_out_of_reach(view):
+    from beeref.widgets import BeeProgressDialog
+    from unittest.mock import MagicMock
+    from PyQt6.QtCore import Qt
+
+    with patch('beeref.widgets.sys.platform', 'win32'):
+        dialog = BeeProgressDialog('Loading', worker=MagicMock(), parent=view)
+    assert dialog.windowModality() == Qt.WindowModality.WindowModal
+    dialog.deleteLater()
+
+
+def test_on_a_mac_it_is_not_a_sheet_on_the_window(view):
+    """A Mac lets a dialog modal to its window down from the title bar
+    as a sheet, and one put away as soon as it is shown -- as this is
+    for a single picture -- left the board waiting for ever."""
+
+    from beeref.widgets import BeeProgressDialog
+    from unittest.mock import MagicMock
+    from PyQt6.QtCore import Qt
+
+    with patch('beeref.widgets.sys.platform', 'darwin'):
+        dialog = BeeProgressDialog('Loading', worker=MagicMock(), parent=view)
+    assert dialog.windowModality() == Qt.WindowModality.ApplicationModal
+    dialog.deleteLater()

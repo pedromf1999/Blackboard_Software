@@ -15,6 +15,7 @@
 
 from importlib.resources import files as rsc_files
 import logging
+import sys
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtCore import Qt
@@ -52,7 +53,7 @@ class BeeProgressDialog(QtWidgets.QProgressDialog):
         super().__init__(label, 'Cancel', 0, maximum, parent=parent)
         logger.debug('Initialised progress bar')
         self.setMinimumDuration(0)
-        self.setWindowModality(Qt.WindowModality.WindowModal)
+        self.setWindowModality(self.modality())
         self.setAutoReset(False)
         self.setAutoClose(False)
         worker.begin_processing.connect(self.on_begin_processing)
@@ -60,6 +61,23 @@ class BeeProgressDialog(QtWidgets.QProgressDialog):
         worker.finished.connect(self.on_finished)
         worker.user_input_required.connect(self.on_finished)
         self.canceled.connect(worker.on_canceled)
+
+    def modality(self):
+        """What the dialog keeps out of reach while the work goes on.
+
+        The window it belongs to -- except on a Mac, which shows such a
+        dialog as a sheet let down from the window's title bar. One
+        picture is brought in before the sheet has finished coming
+        down, and a sheet put away that soon left Qt waiting for ever:
+        the dialog stayed up over a board that no longer answered,
+        three times out of four on the Mac it was tried on. Modal to
+        the whole application it is an ordinary dialog there, and came
+        and went sixteen times out of sixteen.
+        """
+
+        if sys.platform == 'darwin':
+            return Qt.WindowModality.ApplicationModal
+        return Qt.WindowModality.WindowModal
 
     def move_below_center(self, share=0.78):
         """Sit lower than the middle of the window.

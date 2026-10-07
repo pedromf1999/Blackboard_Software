@@ -184,3 +184,45 @@ def test_load_image_from_pinterest_when_url_errors(view, imgdata3x3):
     )
     img, filename = load_image(QtCore.QUrl(url))
     assert img.isNull() is True
+
+
+def jpeg(name='test3x3_orientation1.jpg'):
+    return os.path.join(os.path.dirname(__file__), '..', 'assets', name)
+
+
+def test_only_a_jpeg_is_asked_which_way_up_it_is(qapp, imgfilename3x3):
+    """Given any other file, the reader goes through the picture itself
+    for what would begin that in a JPEG, and takes what follows for
+    something it is not."""
+
+    with patch('beeref.fileio.image.exif.Image') as reader:
+        img = exif_rotated_image(imgfilename3x3)
+
+    reader.assert_not_called()
+    assert img.isNull() is False
+
+
+def test_and_a_jpeg_still_is(qapp):
+    with patch('beeref.fileio.image.exif.Image') as reader:
+        exif_rotated_image(jpeg())
+
+    reader.assert_called_once()
+
+
+@pytest.mark.parametrize('error', [KeyError('x'), IndexError('x'),
+                                   RuntimeError('x'), ValueError('x')])
+def test_a_jpeg_the_reader_makes_nothing_of_still_comes_in(error, qapp):
+    """Which way up it is can be done without; the picture cannot."""
+
+    with patch('beeref.fileio.image.exif.Image', side_effect=error):
+        img = exif_rotated_image(jpeg())
+
+    assert img.isNull() is False
+
+
+def test_nor_does_failing_to_read_which_way_up_keep_it_out(qapp):
+    with patch('beeref.fileio.image.exif.Image.list_all',
+               side_effect=KeyError('x')):
+        img = exif_rotated_image(jpeg())
+
+    assert img.isNull() is False

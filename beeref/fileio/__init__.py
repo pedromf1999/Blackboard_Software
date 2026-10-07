@@ -93,6 +93,27 @@ def has_lossless_images(filename):
         return False
 
 
+def picture_from(filename, pos, fit_size):
+    """The picture in a file, ready to go on the board: (item, filename).
+
+    The item is None for a file that holds no picture Qt can read.
+    """
+
+    img, filename = load_image(filename)
+    if img.isNull():
+        return None, filename
+    item = BeePixmapItem(without_pointless_alpha(img), filename)
+    # Compressed here, on this thread, as it would be when the board
+    # is next saved: kept open until then, a few large pictures
+    # brought in at once took as much memory as a whole board did
+    item.compress()
+    del img
+    if fit_size is not None:
+        item.setScale(item.fit_scale_to(fit_size))
+    item.set_pos_center(pos)
+    return item, filename
+
+
 def load_images(filenames, pos, scene, worker=None, fit_size=None):
     """Add images to existing scene."""
 
@@ -101,22 +122,24 @@ def load_images(filenames, pos, scene, worker=None, fit_size=None):
     worker.begin_processing.emit(len(filenames))
     for i, filename in enumerate(filenames):
         logger.info(f'Loading image from file {filename}')
-        img, filename = load_image(filename)
+        try:
+            item, filename = picture_from(filename, pos, fit_size)
+        except Exception:
+            # Whatever goes wrong with one picture, the rest still come
+            # in and the dialog is still told when it is over. Left
+            # untold it stayed up for good, over a board that could no
+            # longer be used -- and what went wrong on this thread was
+            # taken for a reason to close the application.
+            logger.exception(f'Failed on image {filename}')
+            item = None
+            if not isinstance(filename, str):
+                filename = filename.toString()
         worker.progress.emit(i)
-        if img.isNull():
+        if item is None:
             logger.info(f'Could not load file {filename}')
             errors.append(filename)
             continue
 
-        item = BeePixmapItem(without_pointless_alpha(img), filename)
-        # Compressed here, on this thread, as it would be when the board
-        # is next saved: kept open until then, a few large pictures
-        # brought in at once took as much memory as a whole board did
-        item.compress()
-        del img
-        if fit_size is not None:
-            item.setScale(item.fit_scale_to(fit_size))
-        item.set_pos_center(pos)
         scene.add_item_later({'item': item, 'type': 'pixmap'}, selected=True)
         items.append(item)
         if worker.canceled:

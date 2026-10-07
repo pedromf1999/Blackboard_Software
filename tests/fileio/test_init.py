@@ -84,3 +84,39 @@ def test_load_images_error(view, imgfilename3x3):
     assert cmd.scene == view.scene
     assert cmd.ignore_first_redo is True
     assert item.pos() == QtCore.QPointF(3.5, 4.5)
+
+
+def test_load_images_goes_on_when_a_picture_goes_wrong(view, imgfilename3x3):
+    """And says so when it is over: left untold, the dialog stayed up
+    for good over a board that could no longer be used."""
+
+    view.scene.undo_stack = MagicMock()
+    worker = MagicMock(canceled=False)
+    read = fileio.load_image
+
+    def read_or_fail(filename):
+        if filename == 'bad.png':
+            raise RuntimeError('anything at all')
+        return read(filename)
+
+    with patch('beeref.fileio.load_image', side_effect=read_or_fail):
+        fileio.load_images(['bad.png', imgfilename3x3],
+                           QtCore.QPointF(5, 6), view.scene, worker)
+
+    worker.progress.emit.assert_any_call(0)
+    worker.progress.emit.assert_any_call(1)
+    worker.finished.emit.assert_called_once_with('', ['bad.png'])
+    assert len(queue2list(view.scene.items_to_add)) == 1
+
+
+def test_a_dropped_picture_that_goes_wrong_is_named_by_its_address(view):
+    view.scene.undo_stack = MagicMock()
+    worker = MagicMock(canceled=False)
+    dropped = QtCore.QUrl('file:///somewhere/shot.png')
+
+    with patch('beeref.fileio.load_image', side_effect=OSError('gone')):
+        fileio.load_images([dropped], QtCore.QPointF(5, 6), view.scene,
+                           worker)
+
+    worker.finished.emit.assert_called_once_with(
+        '', ['file:///somewhere/shot.png'])
