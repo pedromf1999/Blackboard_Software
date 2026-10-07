@@ -15,6 +15,8 @@ on:
   workflow_dispatch:
   release:
     types: [published]
+  push:
+    branches: [mac-trial]
 
 permissions:
   # To add the zip to a release
@@ -60,6 +62,21 @@ jobs:
           # Stops the build here if the application has gone
           kill -0 $APP
           kill $APP
+      - name: TRIAL go through the main uses
+        run: |
+          mkdir -p scenarios
+          PROBE_OUT="$PWD/scenarios" python -u .github/mac_probe.py > scenarios/probe.log 2>&1 || echo "probe ended with $?" >> scenarios/probe.log
+          grep -E "^SCENARIO|^==|UNHANDLED|message box|Timeout|ended with|fatal" scenarios/probe.log | cut -c 1-260
+      - name: TRIAL open a board the way a double click does
+        run: |
+          rm -f ~/.config/Blackboard/Blackboard.log
+          open -a "$PWD/dist/Blackboard.app" "$PWD/scenarios/probe-board.blk"
+          sleep 15
+          screencapture -x scenarios/double-click.png || true
+          grep -E "Opening file|Loading from|CRITICAL|ERROR" ~/.config/Blackboard/Blackboard.log | cut -c 1-200 || echo "nothing about opening in the log"
+          osascript -e 'tell application "Blackboard" to quit' || true
+          sleep 3
+          cp ~/.config/Blackboard/Blackboard.log scenarios/app.log || true
       - name: Package
         run: |
           # ditto, not zip: it keeps the links and permissions a Mac
@@ -80,6 +97,7 @@ jobs:
             Blackboard-*-mac.zip
             opened.png
             opened.log
+            scenarios/*
           retention-days: 14
       - name: Add the zip to the release
         if: github.event_name == 'release'
