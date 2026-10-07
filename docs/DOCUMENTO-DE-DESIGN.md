@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -104,6 +104,13 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Zoom** com a roda (invertido de origem), suavizado ao longo de alguns
   frames; Ctrl + botão do meio para zoom arrastado. 1 = ver tudo, 2 = ver a
   seleção.
+- **Trackpad (Mac):** dois dedos deslocam o quadro, à distância que os dedos
+  andaram e continuando a deslizar depois de os levantar; a pinça faz zoom
+  no ponto debaixo dos dedos, de imediato (sem a suavização da roda). É como
+  no Affinity e no Illustrator. A roda de um rato continua a fazer zoom, e
+  no Windows nada muda: o programa distingue os dois pelas fases do gesto,
+  que só um trackpad de Mac (ou um Magic Mouse) envia. Com Shift, os dois
+  dedos fazem o que a roda faria.
 - **SpaceMouse** (3Dconnexion) para deslocar e fazer zoom, com velocidade e
   inversão nas definições.
 - **Grelha** de linhas ou de pontos, com espaçamento que acompanha o zoom
@@ -287,6 +294,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | R | Repor a escala, rotação e viragem dos escolhidos |
 | Roda / Shift+roda / Ctrl+Shift+roda | Zoom / deslocar na horizontal / na vertical |
 | Botão do meio / Ctrl + botão do meio | Deslocar / zoom arrastando |
+| Trackpad do Mac: dois dedos / pinça | Deslocar / zoom |
 | F11 / Ctrl+M | Ecrã inteiro / mover a janela |
 | F1 | Ajuda e atalhos |
 

@@ -3269,6 +3269,61 @@ class BeeGraphicsView(MainControlsMixin,
             return 0
         return 1 - (1 - self.ZOOM_SMOOTHING) ** intervals
 
+    # What a scroll made with fingers goes through, from touching the
+    # trackpad to gliding on after they lift. The wheel of a mouse goes
+    # through none of it, and neither does a trackpad on Windows, which
+    # is told apart from a wheel no other way.
+    TRACKPAD_PHASES = (Qt.ScrollPhase.ScrollBegin,
+                       Qt.ScrollPhase.ScrollUpdate,
+                       Qt.ScrollPhase.ScrollEnd,
+                       Qt.ScrollPhase.ScrollMomentum)
+
+    def is_trackpad_scroll(self, event):
+        return event.phase() in self.TRACKPAD_PHASES
+
+    def trackpad_movement(self, event):
+        """How far two fingers on a trackpad ask the board to move.
+
+        As far as the fingers went, so that the board stays under them;
+        which way round is the Mac's own setting, already seen to by the
+        time the movement arrives here.
+        """
+
+        moved = event.pixelDelta()
+        if moved.isNull():
+            # No distance given: go by the turns of a wheel it stands for,
+            # as far as the wheel moves the board when it pans
+            moved = QtCore.QPointF(event.angleDelta()) * 0.5
+        return QtCore.QPointF(-moved.x(), -moved.y())
+
+    def viewportEvent(self, event):
+        if (event.type() == QtCore.QEvent.Type.NativeGesture
+                and self.pinch(event)):
+            return True
+        return super().viewportEvent(event)
+
+    def pinch(self, event):
+        """Zoom by two fingers pinched or spread on a trackpad.
+
+        About the point under the fingers, and at once rather than over
+        the next few frames as a turn of the wheel is: the board has to
+        stay under the fingers. Says whether the gesture was a pinch.
+        """
+
+        if event.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        # How much bigger the fingers ask for, as a share of what is
+        # seen now: 0.02 is two hundredths bigger, -0.02 as much smaller
+        grown = event.value()
+        if grown > 0:
+            self.zoom(1000 * grown, event.position())
+        elif -0.9 < grown < 0:
+            # zoom makes smaller by dividing, where what is asked for
+            # here is to multiply by a little less than one
+            self.zoom(-1000 * (1 / (1 + grown) - 1), event.position())
+        event.accept()
+        return True
+
     def wheelEvent(self, event):
         spacemouse = getattr(self, 'spacemouse', None)
         if spacemouse is not None and spacemouse.is_moving():
@@ -3280,6 +3335,14 @@ class BeeGraphicsView(MainControlsMixin,
             return
         action, inverted\
             = self.keyboard_settings.mousewheel_action_for_event(event)
+
+        if action == 'zoom' and self.is_trackpad_scroll(event):
+            # Two fingers drawn across a trackpad move the board, as in
+            # every other program on a Mac, where a wheel would zoom it.
+            # Pinching is what zooms there; see pinch.
+            self.pan(self.trackpad_movement(event))
+            event.accept()
+            return
 
         delta = event.angleDelta().y()
         if inverted:
