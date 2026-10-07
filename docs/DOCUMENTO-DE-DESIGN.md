@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.7** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.8** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -240,6 +240,13 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   a mesma largura, a mesma altura e o mesmo número de linhas.
 - No Mac, Ctrl é a tecla Cmd e Alt é a tecla Option; o cartão de atalhos e
   o ecrã de boas-vindas dizem-no assim.
+- Teclas que o Mac não tem ou guarda para si: apagar responde também à
+  tecla delete do MacBook (que é o Backspace), e o ecrã inteiro também a
+  Control+Cmd+F (o F11 é do macOS). PgUp/PgDown fazem-se com Fn+setas, e
+  F1/F3 com Fn. Cmd+H é do macOS (esconder a aplicação), por isso a ajuda
+  só responde a F1.
+- No Mac há um só Blackboard aberto: um quadro aberto com duplo clique
+  toma o lugar do que está na janela, depois de perguntar se é para gravar.
 - **Não funciona no Mac:** o SpaceMouse (a leitura foi escrita para
   Windows).
 - Ninguém aqui tem um Mac: a compilação abre a aplicação, tira uma
@@ -305,6 +312,20 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **O programa fechava-se sozinho, sem erro, ao escolher um elemento depois
+  de abrir outro quadro na mesma janela**, se o painel de camadas tivesse
+  sido usado. Cada linha do painel guarda o elemento que representa, e
+  pedir a uma linha um elemento que já não existe termina o programa na
+  hora. O painel larga tudo antes de o quadro ser limpo
+  (`LayersTree.forget_items`, chamado em `clear_scene`). Qualquer coisa que
+  guarde elementos do quadro tem de os largar aí.
+- **No Mac, um quadro aberto com duplo clique substituía o que estava
+  aberto sem perguntar nada.** O Mac entrega o ficheiro à janela que já
+  existe, em vez de abrir outra como o Windows. Passa pelo mesmo caminho
+  de "abrir outro quadro", que pergunta primeiro (`open_from_outside`).
+- **No Mac, o que vem na linha de comandos é entregue ao programa como
+  ficheiro a abrir.** Correr `pytest tests` lá fazia o programa tentar abrir
+  a pasta `tests` e parar num aviso; corre-se `pytest` sem caminho.
 - **No Mac, a janela "Loading images" ficava presa** por cima de um quadro
   que deixava de responder (12.5 e 12.6). O Mac mostra um diálogo modal à
   sua janela como uma "folha" que desce da barra de título; uma imagem só

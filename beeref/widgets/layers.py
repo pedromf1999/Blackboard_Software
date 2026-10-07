@@ -162,6 +162,22 @@ class LayersTree(QtWidgets.QTreeWidget):
 
         return tuple(describe(self.get_items()))
 
+    def forget_items(self):
+        """Let go of every item: the board they are on is being put away.
+
+        Each entry holds the item it stands for, and asking an entry for
+        an item that is gone ends the application on the spot, with no
+        error to show for it. A board opened in the place of another
+        left the tree full of such entries -- unseen, if the panel was
+        put away -- until the selection next changed, which is the
+        first thing done on a new board.
+        """
+
+        self.updating = True
+        self.clear()
+        self.updating = False
+        self.signature = None
+
     def schedule_refresh(self, *args):
         """Refresh once the current batch of scene changes is done.
 

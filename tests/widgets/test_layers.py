@@ -679,3 +679,45 @@ def test_the_panel_starts_put_away_every_time(view):
 
     assert all_actions['show_layers'].settings is None
     assert all_actions['show_layers'].checked is False
+
+
+# A board put away, with the panel holding on to what was on it
+
+def test_a_board_put_away_takes_its_entries_out_of_the_panel(view):
+    """An entry asked for an item that is gone ends the application on
+    the spot, and the next change of selection asked every one."""
+
+    add_text(view, 'on the first board', 1)
+    tree = tree_of(view)
+    assert tree.topLevelItemCount() == 1
+
+    view.clear_scene()
+
+    assert tree.topLevelItemCount() == 0
+
+
+def test_and_with_the_panel_put_away_as_well(view):
+    """Put away, the panel is not told of changes, and went on holding
+    the old board until it was opened again."""
+
+    add_text(view, 'on the first board', 1)
+    view.on_action_show_layers(True)
+    tree = view.layers_dock.tree
+    assert tree.topLevelItemCount() == 1
+    view.on_action_show_layers(False)
+
+    view.clear_scene()
+
+    assert tree.topLevelItemCount() == 0
+
+
+def test_the_next_board_is_listed_when_the_panel_is_opened(view):
+    add_text(view, 'on the first board', 1)
+    tree_of(view)
+    view.clear_scene()
+
+    add_text(view, 'on the second board', 1)
+    add_text(view, 'and another', 2)
+
+    assert [label for _, label in entries(tree_of(view))] == [
+        'and another', 'on the second board']

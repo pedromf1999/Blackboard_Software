@@ -15,6 +15,7 @@
 
 from functools import cached_property
 import logging
+import sys
 
 from PyQt6 import QtGui
 
@@ -24,6 +25,18 @@ from beeref.utils import ActionList
 
 
 logger = logging.getLogger(__name__)
+
+
+def with_mac_keys(shortcuts, on_a_mac):
+    """An action's shortcuts, with those only a Mac needs added there.
+
+    For the keys a Mac's keyboard does not have, or keeps for itself.
+    The first stays the one written beside the command in the menu.
+    """
+
+    if sys.platform == 'darwin':
+        return shortcuts + on_a_mac
+    return shortcuts
 
 
 class Action:
@@ -213,7 +226,10 @@ actions = ActionList([
     Action(
         id='delete',
         text='&Delete',
-        shortcuts=['Del'],
+        # The key that says "delete" on a MacBook is Backspace: it has
+        # no other, and nothing could be deleted from the keyboard. A
+        # note being written keeps the key to itself, as it keeps Del.
+        shortcuts=with_mac_keys(['Del'], ['Backspace']),
         callback='on_action_delete_items',
         group='active_when_selection',
     ),
@@ -699,7 +715,10 @@ actions = ActionList([
     Action(
         id='fullscreen',
         text='&Fullscreen',
-        shortcuts=['F11'],
+        # A Mac keeps F11 for showing the desktop; Control+Command+F is
+        # what it uses for this (Qt calls the Command key Ctrl there,
+        # and the Control key Meta)
+        shortcuts=with_mac_keys(['F11'], ['Meta+Ctrl+F']),
         checkable=True,
         callback='on_action_fullscreen',
     ),

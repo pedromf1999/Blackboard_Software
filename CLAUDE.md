@@ -122,9 +122,14 @@ interface takes that font at that size, so that a note written on a Mac names
 the font of Windows. Measured on GitHub's Mac, the same notes come out the same
 width, height and number of lines as on Windows. Anything that sizes text any
 other way will look different on a Mac without anyone here seeing it. Not on a
-Mac at all: the SpaceMouse, which is read through Windows. The tests do not
-run on GitHub's Mac yet -- they stop at the first one that needs a window and
-never come back -- so the build checks only that the application opens.
+Mac at all: the SpaceMouse, which is read through Windows. The tests are not
+part of the build on GitHub's Mac, which checks only that the application
+opens. To run them there, give pytest no path on its command line: a Mac hands
+whatever is on it to the application as a file to open, and `pytest tests`
+stopped for ever at a warning that the folder `tests` is not a board. A
+script that goes through the main uses on the Mac -- writing, pasting,
+saving, closing with changes, opening a board the way a double click does --
+found more than the tests did; write one again rather than guess.
 
 **Opening a board written by a newer version is safe.** `fileio/sql.py` fetches
 items by absence of image data rather than by a list of known types, so an item
@@ -169,7 +174,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **2559 passing, 0 failing**. Nine tests inherited from
+Current baseline: **2571 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

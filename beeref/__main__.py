@@ -38,7 +38,7 @@ class BeeRefApplication(QtWidgets.QApplication):
         if event.type() == QtCore.QEvent.Type.FileOpen:
             for widget in self.topLevelWidgets():
                 if isinstance(widget, BeeRefMainWindow):
-                    widget.view.open_from_file(event.file())
+                    widget.view.open_from_outside(event.file())
                     return True
             return False
         else:

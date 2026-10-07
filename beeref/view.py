@@ -1126,6 +1126,10 @@ class BeeGraphicsView(MainControlsMixin,
         logging.debug('Clearing scene...')
         self.cancel_active_modes()
         self.end_quick_zoom()
+        # Before the items go: the layers panel holds on to each of them
+        dock = getattr(self, 'layers_dock', None)
+        if dock is not None:
+            dock.tree.forget_items()
         self.scene.clear()
         # Nothing of the old board's pictures is wanted any more
         imagecache.opened_pictures().clear()
@@ -2384,6 +2388,24 @@ class BeeGraphicsView(MainControlsMixin,
             'Save them before opening another board?')
         if confirm:
             self.open_from_file(filename)
+
+    def open_from_outside(self, filename):
+        """Open a file the system hands over to a window already open.
+
+        On a Mac that is every board double-clicked while Blackboard is
+        running: there is one Blackboard there, where Windows starts
+        another for each. The board takes the place of the one that is
+        open, so what is not saved in that one is asked about first, as
+        it is when a board is opened from inside -- opened straight
+        away, the open board was thrown away without a word. Anything
+        that is not a board is taken for a picture, and put on the board
+        that is open.
+        """
+
+        if fileio.is_bee_file(filename):
+            self.on_action_open_recent_file(filename)
+        else:
+            self.do_insert_images([filename])
 
     def open_from_file(self, filename):
         logger.info(f'Opening file {filename}')
