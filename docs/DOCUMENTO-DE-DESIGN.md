@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **12.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -273,6 +273,12 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **O que se escrevia numa nota de largura fixa não aparecia** enquanto se
+  escrevia (11.6 a 12.3; notas afixadas incluídas). Depois de cada letra o Qt
+  pede para redesenhar "tudo daqui para a frente", com um retângulo de dois
+  mil milhões de largura, e esse tamanho não cabe no desenho guardado do
+  elemento: nada era redesenhado. A nota pede agora para ser redesenhada
+  inteira (`BeeTextItem.draw_afresh`, 12.4).
 - **Elementos maiores que a janela** guardados desenhados ficavam deslocados
   quando mudavam de tamanho para cima ou para a esquerda (12.2). Resolvido em
   `SelectableMixin.prepareGeometryChange`.

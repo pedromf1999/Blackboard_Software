@@ -3416,6 +3416,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # them; see census
         self._census = None
         self.document().contentsChanged.connect(self.forget_census)
+        self.document().documentLayout().update.connect(self.draw_afresh)
         # Fastened to the window rather than to the board; see set_pin.
         # Set before anything can give the note a place in the stack.
         self.pin = None
@@ -3682,6 +3683,22 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
     def forget_census(self):
         self._census = None
+
+    def draw_afresh(self, rect=None):
+        """Draw the whole note again when its words are laid out again.
+
+        After a change to the words Qt asks for "everything from here
+        on" to be drawn again, as a rectangle two thousand million
+        across. A note is kept drawn as it is seen -- see
+        SelectableMixin.init_selectable -- and a size like that
+        overflows on its way to what is kept, so none of it was drawn
+        again: in a note of a set width, which typing does not make
+        wider, what was typed stayed out of sight until the writing
+        ended. Asking for the whole note takes the place of that
+        rectangle.
+        """
+
+        self.update()
 
     def usual_point_size(self):
         """The size most of the note's words are written at, in points."""

@@ -349,3 +349,62 @@ def test_a_note_wider_than_the_window_is_drawn_true_when_chosen(
 def test_and_when_it_is_given_a_title(view, wide_note):
     wide_note.title = 'A title'
     assert differences(view) <= 2
+
+
+@pytest.fixture
+def set_width_note(main_window, view, qtbot):
+    """A note of a set width, which what is typed does not make wider."""
+
+    main_window.resize(900, 600)
+    main_window.show()
+    qtbot.waitExposed(main_window)
+    view.shortcuts_hint.hide()
+    # A cursor that blinked between the two pictures compared would
+    # count as a difference
+    flash_time = QtWidgets.QApplication.cursorFlashTime()
+    QtWidgets.QApplication.setCursorFlashTime(0)
+    note = BeeTextItem('Ribs', text_width=300)
+    view.scene.addItem(note)
+    view.setTransform(QtGui.QTransform.fromScale(2, 2))
+    view.centerOn(note)
+    view.viewport().repaint()
+    yield note
+    QtWidgets.QApplication.setCursorFlashTime(flash_time)
+    # Nothing left chosen or being written when the window goes
+    if note.edit_mode:
+        note.exit_edit_mode(commit=False)
+    view.scene.clearSelection()
+
+
+def write_at_the_end(view, note, words):
+    """What typing after the note's last word amounts to."""
+
+    note.enter_edit_mode()
+    cursor = note.textCursor()
+    cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+    note.setTextCursor(cursor)
+    view.viewport().repaint()
+    for char in words:
+        note.sceneEvent(QtGui.QKeyEvent(
+            QtCore.QEvent.Type.KeyPress, Qt.Key.Key_A,
+            Qt.KeyboardModifier.NoModifier, char))
+
+
+def test_what_is_typed_into_a_note_of_a_set_width_is_drawn(
+        view, set_width_note):
+    """Qt asks for the words after a change to be drawn again as a
+    rectangle too big for what is kept of the note, and none of it was:
+    what was typed stayed out of sight until the writing ended."""
+
+    write_at_the_end(view, set_width_note, ' and what was typed')
+    assert differences(view) <= 2
+
+
+def test_and_into_a_pinned_note(view, set_width_note):
+    view.scene.clearSelection()
+    set_width_note.setSelected(True)
+    view.on_action_pin_note()
+    view.viewport().repaint()
+
+    write_at_the_end(view, set_width_note, ' and what was typed')
+    assert differences(view) <= 2
