@@ -3541,7 +3541,10 @@ class BeeGraphicsView(MainControlsMixin,
         for item in items[1:]:
             rect = rect.united(item.sceneBoundingRect())
         toolbar.pin_to(self.mapFromScene(rect).boundingRect(), avoid=avoid)
-        toolbar.show()
+        if toolbar.isHidden():
+            toolbar.show()
+            # Over the labels of pinned notes; see bring_into_sight
+            toolbar.raise_()
 
     def update_text_toolbar(self):
         """Show the text buttons over the selected text, or not at all."""
@@ -4044,8 +4047,7 @@ class BeeGraphicsView(MainControlsMixin,
             if not label.dragging:
                 # A label being dragged goes where the mouse takes it
                 label.move(round(slot.x()), round(slot.y()))
-            label.show()
-            label.raise_()
+            self.bring_into_sight(label)
             return
         note.setVisible(True)
         label.hide()
@@ -4080,8 +4082,37 @@ class BeeGraphicsView(MainControlsMixin,
                 controls.hide()
                 continue
             self.place_pinned_controls(note, controls)
-            controls.show()
-            controls.raise_()
+            self.bring_into_sight(controls)
+
+    # The bars of buttons that float over whatever is chosen
+    FLOATING_BARS = ('text_toolbar', 'table_toolbar', 'draw_item_toolbar',
+                     'group_toolbar', 'image_toolbar')
+
+    def bring_into_sight(self, widget):
+        """Show something that floats over the board: over the rest of
+        what floats there, and under the bars of buttons.
+
+        The label of a pinned note that is folded away, and the buttons
+        a pinned note shows under the mouse, used to be put on top each
+        time the pinned notes were laid out, which is every time the
+        board moves. The bar over a note being written in then lay under
+        the labels of the notes folded away above it, with its first
+        buttons out of reach. A bar is what is in use at that moment, so
+        it stays over all of them.
+
+        On top only as it comes into sight, and the bars back over it
+        only then: done on every frame, moving the board with a note
+        pinned took a tenth longer.
+        """
+
+        if not widget.isHidden():
+            return
+        widget.show()
+        widget.raise_()
+        for name in self.FLOATING_BARS:
+            bar = getattr(self, name, None)
+            if bar is not None and not bar.isHidden():
+                bar.raise_()
 
     # How far the buttons of a pinned note keep in from the edges of what
     # they sit in

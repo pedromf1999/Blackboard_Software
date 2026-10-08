@@ -688,3 +688,70 @@ def test_deleted_it_takes_its_buttons_with_it(board):
     board.place_pinned_notes()
     assert note.is_pinned is True
     assert note in board.pinned_note_widgets
+
+
+# The bar of buttons over a pinned note, and what else floats there
+
+def over(widget, other):
+    """Whether one of two things floating on the board is drawn over
+    the other, where they meet."""
+
+    floating = widget.parentWidget().children()
+    return floating.index(widget) > floating.index(other)
+
+
+def written_under_folded_notes(board):
+    """A pinned note being written in, with two folded away above it."""
+
+    folded = [note_at(board, QtCore.QPoint(100, 120 + 90 * n), text=text)
+              for n, text in enumerate(('first', 'second'))]
+    written = note_at(board, QtCore.QPoint(100, 400), text='written in')
+    for note in folded + [written]:
+        pin(board, note)
+    for note in folded:
+        note.set_minimized(True)
+    board.place_pinned_notes()
+    board.scene.clearSelection()
+    written.setSelected(True)
+    written.enter_edit_mode()
+    board.update_pinned_toolbars()
+    labels = [board.pinned_note_widgets[note][1] for note in folded]
+    return written, labels
+
+
+def test_the_text_bar_is_over_the_labels_of_notes_folded_away(board):
+    """Under them, its first buttons could not be reached."""
+
+    written, labels = written_under_folded_notes(board)
+
+    assert board.text_toolbar.isVisible()
+    assert all(label.isVisible() for label in labels)
+    assert all(over(board.text_toolbar, label) for label in labels)
+    written.exit_edit_mode(commit=False)
+    board.scene.clearSelection()
+
+
+def test_and_stays_there_when_the_pinned_notes_are_laid_out_again(board):
+    """As they are every time the board moves, which puts every label
+    on top again."""
+
+    written, labels = written_under_folded_notes(board)
+
+    board.place_pinned_notes()
+    board.pan(QtCore.QPointF(30, 10))
+
+    assert all(over(board.text_toolbar, label) for label in labels)
+    written.exit_edit_mode(commit=False)
+    board.scene.clearSelection()
+
+
+def test_nor_do_the_buttons_of_the_note_under_the_mouse_cover_it(board):
+    written, labels = written_under_folded_notes(board)
+    controls = board.pinned_note_widgets[written][0]
+
+    board.update_pinned_controls(written.screen_rect(board).center())
+
+    assert controls.isVisible()
+    assert over(board.text_toolbar, controls)
+    written.exit_edit_mode(commit=False)
+    board.scene.clearSelection()

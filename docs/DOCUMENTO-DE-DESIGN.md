@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.1** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.2** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -312,6 +312,12 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **As barras de botões ficam por cima de tudo o que flutua sobre o
+  quadro.** As etiquetas das notas afixadas minimizadas eram postas por
+  cima em cada frame, e tapavam a barra da nota em edição. Agora cada coisa
+  que flutua só é posta por cima no momento em que aparece, com as barras
+  de volta por cima dela (`BeeGraphicsView.bring_into_sight`). Reordenar
+  em cada frame custava um décimo do tempo de deslocar o quadro.
 - **O traço de uma lista, e a caixa e o número de uma tarefa, copiam o
   aspeto da primeira letra da linha -- menos a cor de uma letra com
   destaque.** Essa cor é escolhida para se ler sobre o destaque (preta sobre
