@@ -146,9 +146,12 @@ class BeeSettings(QtCore.QSettings):
             'validate': lambda x: 0 <= x <= 200,
         },
         # The size, in points, every pinned note's words are shown at,
-        # whatever they were written at; its title a step above that
+        # whatever they were written at; its title a step above that.
+        # Larger than a note on the board starts out at: a pinned note
+        # is read at a glance, from wherever the work is, and at the
+        # nine points it used to be had to be made bigger every time.
         'Items/pinned_text_size': {
-            'default': 9,
+            'default': 14,
             'cast': int,
             'validate': lambda x: 6 <= x <= 48,
             'post_save_callback':

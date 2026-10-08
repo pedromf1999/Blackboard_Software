@@ -145,16 +145,26 @@ def test_the_size_on_the_board_is_saved_with_it(board, tmp_path):
 # The size, set in the settings -- the test settings, in a folder of
 # their own; see conftest
 
+def test_a_pinned_note_starts_out_at_fourteen_points(board, settings):
+    """Read at a glance, from wherever the work is: bigger than the nine
+    points a note on the board starts out at."""
+
+    note = note_at(board, QtCore.QPoint(100, 100), 'words')
+    pin(board, note)
+
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(14)
+
+
 def test_the_size_is_a_setting(board, settings):
     note = note_at(board, QtCore.QPoint(100, 100), 'words')
     pin(board, note)
-    assert on_screen(note, note.usual_point_size()) == pytest.approx(9)
-
-    settings.setValue('Items/pinned_text_size', 14)
-
     assert on_screen(note, note.usual_point_size()) == pytest.approx(14)
+
+    settings.setValue('Items/pinned_text_size', 18)
+
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(18)
     assert on_screen(note, note.title_size()) == pytest.approx(
-        14 * BeeTextItem.TITLE_SIZE_FRACTION)
+        18 * BeeTextItem.TITLE_SIZE_FRACTION)
 
 
 def test_restoring_the_defaults_brings_it_back(board, settings):
@@ -164,20 +174,20 @@ def test_restoring_the_defaults_brings_it_back(board, settings):
 
     settings.restore_defaults()
 
-    assert on_screen(note, note.usual_point_size()) == pytest.approx(9)
+    assert on_screen(note, note.usual_point_size()) == pytest.approx(14)
 
 
 def test_a_size_out_of_reason_is_not_taken(board, settings):
     settings.setValue('Items/pinned_text_size', 500)
 
-    assert settings.valueOrDefault('Items/pinned_text_size') == 9
+    assert settings.valueOrDefault('Items/pinned_text_size') == 14
 
 
 def test_the_settings_window_offers_it(board, settings):
     from beeref.widgets.settings import PinnedTextSizeWidget
 
     widget = PinnedTextSizeWidget()
-    assert widget.input.value() == 9
+    assert widget.input.value() == 14
     assert widget.input.suffix() == ' pt'
 
     widget.input.setValue(12)

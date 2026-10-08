@@ -80,7 +80,8 @@ def test_it_is_pinned_at_the_size_every_pinned_note_has(board):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)
 
-    assert note.scale() == pytest.approx(1)
+    # Fourteen points, whatever its words were written at
+    assert note.scale() * note.usual_point_size() == pytest.approx(14)
 
 
 def test_one_pinned_far_zoomed_out_can_still_be_read(board):
@@ -88,7 +89,7 @@ def test_one_pinned_far_zoomed_out_can_still_be_read(board):
     note = note_at(board, QtCore.QPoint(100, 120))
     pin(board, note)
 
-    assert note.scale() == pytest.approx(1)
+    assert note.scale() * note.usual_point_size() == pytest.approx(14)
 
 
 def test_dragged_onto_another_the_two_swap_and_it_is_no_edit(board):

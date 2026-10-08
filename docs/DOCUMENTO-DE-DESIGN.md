@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **12.9** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.0** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -159,7 +159,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - Os botões de minimizar e desafixar **aparecem ao passar o rato**, dentro da
   faixa do título (ou no canto, sem título).
 - **Tamanho igual:** todas mostram o texto ao tamanho definido em Settings →
-  Images & Items → "Pinned Note Text Size" (9 pt de origem); o título fica
+  Images & Items → "Pinned Note Text Size" (14 pt de origem); o título fica
   um pouco maior.
 - A arrumação, a posição do separador e se está recolhido ficam gravados no
   quadro.
