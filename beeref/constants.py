@@ -29,7 +29,7 @@ APPNAME_FULL = f'{APPNAME} Reference Image Viewer'
 # one on every commit, so the version in the About box names the exact
 # commit a build came from. This is the only place it is written down;
 # pyproject.toml reads it from here.
-VERSION = '13.0'
+VERSION = '13.1'
 
 UPSTREAM_NAME = 'BeeRef'
 WEBSITE = 'https://github.com/rbreu/beeref'

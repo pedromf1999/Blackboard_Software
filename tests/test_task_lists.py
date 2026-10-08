@@ -607,3 +607,25 @@ def test_a_task_saved_struck_through_opens_mended(qapp):
     assert struck(to_do) is False
     assert to_do.charFormat().fontStrikeOut() is False
     assert struck(done) is True
+
+
+def test_the_box_and_number_before_a_highlighted_task_can_be_seen(view):
+    """As the dash of a list can: they stand beside the highlight, on
+    the note, and took the black the words are read in on yellow."""
+
+    item = task_note(view)
+    block = item.task_blocks()[0]
+    cursor = item.textCursor()
+    cursor.setPosition(block.position())
+    cursor.setPosition(block.position() + block.length() - 1,
+                       QtGui.QTextCursor.MoveMode.KeepAnchor)
+    item.setTextCursor(cursor)
+    item.apply_highlight(QtGui.QColor('#ff8800'))
+    item.set_tasks_numbered(True)
+
+    first, *others = item.list_markers()
+
+    assert first['box'] is not None
+    assert first['color'] == item.text_color_over()
+    assert first['color'] != item.box_color
+    assert all(other['color'] == first['color'] for other in others)

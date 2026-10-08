@@ -320,3 +320,77 @@ def test_the_dash_is_drawn_in_front_of_an_item(view):
 
     image = render(item)
     assert len(colours_in(image, clear)) > 1
+
+
+# What stands in front of a line whose words are highlighted
+
+YELLOW = QtGui.QColor('#ffd500')
+
+
+def highlight_line(item, number, color):
+    """Highlight one whole line, the way the toolbar's button does."""
+
+    block = item.document().findBlockByNumber(number)
+    cursor = item.textCursor()
+    cursor.setPosition(block.position())
+    cursor.setPosition(block.position() + block.length() - 1,
+                       QtGui.QTextCursor.MoveMode.KeepAnchor)
+    item.setTextCursor(cursor)
+    item.apply_highlight(color)
+
+
+def test_the_dash_before_highlighted_words_can_still_be_seen(view):
+    """The words turn black to be read on the yellow, and the dash, which
+    stands beside the yellow on a black note, turned black with them."""
+
+    item = empty_note(view)
+    type_text(item, '- apples')
+    highlight_line(item, 0, YELLOW)
+    item.exit_edit_mode()
+    item.setSelected(False)
+    item.setPos(0, 0)
+    marker = item.list_markers()[0]
+
+    assert marker['color'] == item.text_color_over()
+    assert marker['color'] != item.box_color
+    # And drawn: more than the box shows where the dash goes
+    assert len(colours_in(render(item), marker['clear'])) > 1
+
+
+def test_the_words_themselves_keep_the_colour_read_on_the_highlight(view):
+    item = empty_note(view)
+    type_text(item, '- apples')
+    highlight_line(item, 0, YELLOW)
+
+    _, letter = item.char_look(item.document().begin())
+
+    assert letter == item.text_color_over(YELLOW)
+    assert letter != item.text_color_over()
+
+
+def test_the_dash_still_takes_a_colour_the_words_were_given(view):
+    """Only a highlight is left out of it: words written in red have a
+    red dash, as they always had."""
+
+    item = empty_note(view)
+    type_text(item, '- apples')
+    cursor = item.textCursor()
+    cursor.select(QtGui.QTextCursor.SelectionType.Document)
+    red = QtGui.QTextCharFormat()
+    red.setForeground(QtGui.QColor('#ff0000'))
+    cursor.mergeCharFormat(red)
+
+    assert item.list_markers()[0]['color'] == QtGui.QColor('#ff0000')
+
+
+def test_a_highlight_that_cannot_be_seen_changes_nothing(view):
+    item = empty_note(view)
+    type_text(item, '- apples')
+    cursor = item.textCursor()
+    cursor.select(QtGui.QTextCursor.SelectionType.Document)
+    fmt = QtGui.QTextCharFormat()
+    fmt.setForeground(QtGui.QColor('#00ff00'))
+    fmt.setBackground(QtGui.QColor(0, 0, 0, 0))
+    cursor.mergeCharFormat(fmt)
+
+    assert item.list_markers()[0]['color'] == QtGui.QColor('#00ff00')

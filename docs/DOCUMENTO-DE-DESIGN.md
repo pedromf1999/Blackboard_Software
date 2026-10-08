@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.0** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.1** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -312,6 +312,12 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **O traço de uma lista, e a caixa e o número de uma tarefa, copiam o
+  aspeto da primeira letra da linha -- menos a cor de uma letra com
+  destaque.** Essa cor é escolhida para se ler sobre o destaque (preta sobre
+  amarelo ou laranja), e o traço fica ao lado do destaque, em cima da nota:
+  saía preto sobre uma nota preta. Aí leva a cor que o texto tem sobre a
+  nota (`BeeTextItem.marker_look`).
 - **Um ficheiro largado no quadro pode não durar mais do que o próprio
   arrastar.** A miniatura que o Mac mostra depois de um screenshot é um
   ficheiro numa pasta temporária, apagado mal é largado em algum sítio; as

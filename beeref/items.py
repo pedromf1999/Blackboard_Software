@@ -5665,7 +5665,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
         # Looking like the item's first letter, whatever goes in front
         # grows with the words it stands before and is as readable
-        font, color = self.char_look(block)
+        font, color = self.marker_look(block)
         metrics = QtGui.QFontMetricsF(font)
         gap = metrics.height() * self.LIST_MARKER_GAP_FRACTION
         marker = {'clear': clear, 'font': font, 'color': color,
@@ -5711,20 +5711,43 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         next letter typed into it would have.
         """
 
-        position = block.position() + offset
-        fmt = block.charFormat()
-        it = block.begin()
-        while not it.atEnd():
-            fragment = it.fragment()
-            it += 1
-            if fragment.isValid() and fragment.contains(position):
-                fmt = fragment.charFormat()
-                break
+        fmt = self.char_format_at(block, offset)
         font = fmt.font().resolve(self.document().defaultFont())
         brush = fmt.foreground()
         if brush.style() == Qt.BrushStyle.NoBrush:
             return font, QtGui.QColor(self.defaultTextColor())
         return font, brush.color()
+
+    def char_format_at(self, block, offset=0):
+        """How a letter in a paragraph is written, or how the next one
+        typed into an empty paragraph would be."""
+
+        position = block.position() + offset
+        it = block.begin()
+        while not it.atEnd():
+            fragment = it.fragment()
+            it += 1
+            if fragment.isValid() and fragment.contains(position):
+                return fragment.charFormat()
+        return block.charFormat()
+
+    def marker_look(self, block):
+        """The font and colour of whatever stands in front of a list item.
+
+        Those of the item's first letter, so that it grows with the words
+        it stands before and is as readable -- but not the colour of a
+        letter that is highlighted. That colour was chosen to be read on
+        the highlight, and what stands in front of the line stands beside
+        the highlight, on the box: in front of words highlighted in yellow
+        the dash, the box of a task and its number all came out black on
+        a black note. There they take the colour words have on the box.
+        """
+
+        font, color = self.char_look(block)
+        highlight = self.run_background(self.char_format_at(block))
+        if highlight is not None and highlight.alpha() > 0:
+            color = self.text_color_over()
+        return font, color
 
     def path_without_markers(self, option, markers):
         """Everything the text may be drawn over, less the dashes' room."""
