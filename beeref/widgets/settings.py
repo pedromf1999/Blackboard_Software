@@ -19,7 +19,7 @@ import logging
 from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from beeref import constants
+from beeref import constants, spelling
 from beeref.config import BeeSettings, settings_events
 from beeref.utils import qcolor_to_hex
 from beeref.widgets.color_dialog import simplify_color_dialog
@@ -269,11 +269,61 @@ class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
     KEY = 'Save/confirm_close_unsaved'
 
 
+class ChoiceGroup(GroupBase):
+    """A list to pick one of several from."""
+
+    OPTIONS = None
+
+    def __init__(self):
+        super().__init__()
+        self.ignore_value_changed = True
+        self.input = QtWidgets.QComboBox()
+        for value, label in self.options():
+            self.input.addItem(label, value)
+        self.set_value(self.settings.valueOrDefault(self.KEY))
+        self.input.currentIndexChanged.connect(self.on_value_changed)
+        self.layout.addWidget(self.input)
+        self.layout.addStretch(100)
+        self.ignore_value_changed = False
+
+    def options(self):
+        return self.OPTIONS
+
+    def set_value(self, value):
+        index = self.input.findData(value)
+        self.input.setCurrentIndex(max(index, 0))
+
+    def convert_value_from_qt(self, index):
+        return self.input.itemData(index)
+
+
+class SpellingLanguageWidget(ChoiceGroup):
+    TITLE = 'Spelling language:'
+    HELPTEXT = ('The language words are checked in. Its dictionary is '
+                'read the first time a note is written in, which takes a '
+                'second or two.')
+    KEY = 'Text/spelling_language'
+
+    def options(self):
+        return [(code, language[0])
+                for code, language in spelling.LANGUAGES.items()]
+
+
+class SecondSpellingLanguageWidget(SpellingLanguageWidget):
+    TITLE = 'Second spelling language:'
+    HELPTEXT = ('A word is taken as right when either language knows it, '
+                'so the two can be mixed, even in one line.')
+    KEY = 'Text/second_spelling_language'
+
+    def options(self):
+        return [('', 'None')] + super().options()
+
+
 class CheckSpellingWidget(SingleCheckboxGroup):
     TITLE = 'Spelling:'
     HELPTEXT = (
         'While a note is written in, underline the words neither '
-        'Portuguese nor English knows. Right-click one for suggestions.')
+        'spelling language knows. Right-click one for suggestions.')
     LABEL = 'Check spelling'
     KEY = 'Text/check_spelling'
 
@@ -300,6 +350,8 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 0, 0)
         misc_layout.addWidget(CheckSpellingWidget(), 1, 0)
         misc_layout.addWidget(CorrectSlipsWidget(), 1, 1)
+        misc_layout.addWidget(SpellingLanguageWidget(), 2, 0)
+        misc_layout.addWidget(SecondSpellingLanguageWidget(), 2, 1)
         tabs.addTab(misc, '&Miscellaneous')
 
         # Images & Items

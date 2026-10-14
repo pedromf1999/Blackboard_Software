@@ -120,6 +120,8 @@ class BeeSettingsEvents(QtCore.QObject):
     grid_changed = QtCore.pyqtSignal()
     # Emitted when the size pinned notes are shown at changes
     pinned_text_size_changed = QtCore.pyqtSignal()
+    # Emitted when other languages are chosen for spelling
+    spelling_languages_changed = QtCore.pyqtSignal()
 
 
 # We want to send and receive settings events globally, not per
@@ -127,6 +129,10 @@ class BeeSettingsEvents(QtCore.QObject):
 # globally on module level (because the Qt app doesn't exist yet), we
 # use this events proxy
 settings_events = BeeSettingsEvents()
+
+
+def spelling_languages_changed(value):
+    settings_events.spelling_languages_changed.emit()
 
 
 class BeeSettings(QtCore.QSettings):
@@ -167,6 +173,19 @@ class BeeSettings(QtCore.QSettings):
         'Text/correct_slips': {
             'default': True,
             'cast': as_bool,
+        },
+        # The languages words are checked in: one, and a second or none.
+        # The names are those of spelling.LANGUAGES, which also leaves
+        # out any it does not know.
+        'Text/spelling_language': {
+            'default': 'pt-PT',
+            'cast': str,
+            'post_save_callback': spelling_languages_changed,
+        },
+        'Text/second_spelling_language': {
+            'default': 'en',
+            'cast': str,
+            'post_save_callback': spelling_languages_changed,
         },
         'Items/arrange_default': {
             'default': 'optimal',

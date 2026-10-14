@@ -15,18 +15,19 @@
 
 """Spelling: the words no dictionary knows, and what they might be.
 
-Notes are written in Portuguese and English, often both in one line, so
-a word is spelt right when either language knows it. English is checked
-as written in Britain and in America alike.
+Notes are often written in two languages at once, even in one line, so
+up to two are chosen in the settings and a word is spelt right when
+either knows it. English is checked as written in Britain and in America
+alike.
 
 The dictionaries are LibreOffice's, read by spylls, a Hunspell written
 in Python alone: the same on Windows and on a Mac, with nothing to
-build. They take a second or two to read, so that is done away from
-the window, the first time a note is written in.
+build. They take up to three seconds to read, so that is done away
+from the window, the first time a note is written in.
 
 The corrections made while typing are LibreOffice's lists of common
 slips ("nao" for "não", "teh" for "the"). Only a word that is not a
-word in either language is ever changed: in one written in two, a slip
+word in either language is ever changed: in text written in two, a slip
 in one language is often a word in the other.
 """
 
@@ -38,27 +39,32 @@ import logging
 import os.path
 import re
 import threading
+import unicodedata
 from xml.etree import ElementTree
 
 from PyQt6 import QtCore
 
 from beeref.assets import BeeAssets
-from beeref.config import BeeSettings
+from beeref.config import BeeSettings, settings_events
 
 
 logger = logging.getLogger(__name__)
 
 
-# Each language and the dictionaries spelling it. Portuguese first: it
-# is the language the lists of slips are trusted in when they disagree.
+# The languages that can be chosen: the name shown, the dictionaries
+# spelling it and LibreOffice's lists of its common slips
 LANGUAGES = {
-    'pt': ('pt_PT',),
-    'en': ('en_GB', 'en_US'),
+    'pt-PT': ('Português (Portugal)', ('pt_PT',), ('pt-PT',)),
+    'pt-BR': ('Português (Brasil)', ('pt_BR',), ('pt-BR',)),
+    'en': ('English (UK and US)', ('en_GB', 'en_US'), ('en-GB', 'en-US')),
+    'es': ('Español', ('es_ES',), ('es',)),
+    'fr': ('Français', ('fr_FR',), ('fr',)),
+    'de': ('Deutsch', ('de_DE',), ('de',)),
+    'it': ('Italiano', ('it_IT',), ('it',)),
 }
-AUTOCORRECT_LISTS = {
-    'pt': ('pt-PT',),
-    'en': ('en-GB', 'en-US'),
-}
+# No more than two: each one more is a word more often taken as right
+# when it is a slip in the other, and a second or more to read
+MAX_LANGUAGES = 2
 
 # A run of letters, with the apostrophes and hyphens that join words
 # like "don't" and "disse-lhe"
@@ -86,6 +92,18 @@ FROM_OTHER_LANGUAGE = 2
 WORDS_FILE = 'words.txt'
 
 
+def chosen_languages():
+    """The languages chosen in the settings, first one first."""
+
+    settings = BeeSettings()
+    chosen = []
+    for key in ('Text/spelling_language', 'Text/second_spelling_language'):
+        language = settings.valueOrDefault(key)
+        if language in LANGUAGES and language not in chosen:
+            chosen.append(language)
+    return tuple(chosen[:MAX_LANGUAGES])
+
+
 def is_capitalized(word):
     return word[:1].isupper() and word[1:].islower()
 
@@ -96,10 +114,24 @@ def is_shouted(word):
     return len(word) > 1 and word.isupper()
 
 
-def likeness(word, suggestion):
-    """How much of a word a suggestion keeps, from 0 to 1."""
+def without_accents(word):
+    return ''.join(c for c in unicodedata.normalize('NFD', word.lower())
+                   if not unicodedata.combining(c))
 
-    return SequenceMatcher(None, word.lower(), suggestion.lower()).ratio()
+
+def likeness(word, suggestion):
+    """How much of a word a suggestion keeps, from 0 to 1, and more than
+    that for one that only adds the accents left out.
+
+    A letter with an accent counts as the letter: "diseño" is what
+    "diseno" was meant to be far more often than "disenso" is.
+    """
+
+    plain_word = without_accents(word)
+    plain_suggestion = without_accents(suggestion)
+    if plain_word == plain_suggestion:
+        return 2
+    return SequenceMatcher(None, plain_word, plain_suggestion).ratio()
 
 
 def like(word, correction):
@@ -113,7 +145,9 @@ def like(word, correction):
 
 
 class SpellerEvents(QtCore.QObject):
-    # Emitted once the dictionaries have been read
+    # Emitted, away from the window, once dictionaries have been read
+    loaded = QtCore.pyqtSignal()
+    # Emitted once they are in use
     ready = QtCore.pyqtSignal()
 
 
@@ -123,9 +157,15 @@ class Speller:
     def __init__(self, folder=None):
         self.folder = folder or str(BeeAssets.PATH.joinpath('spelling'))
         self.events = SpellerEvents()
+        self.events.loaded.connect(self.take_up_loaded)
+        # The languages in use, and their dictionaries by name, each with
+        # the language it spells
+        self.languages = ()
         self.dictionaries = {}
         self.slips = {}
         self.is_ready = False
+        self._wanted = ()
+        self._loaded = None
         self._loading = None
         self._lock = threading.Lock()
         self._own_words = None
@@ -137,17 +177,40 @@ class Speller:
 
     # Reading the dictionaries
 
-    def start_loading(self):
-        """Read the dictionaries away from the window, if not yet done."""
+    def start_loading(self, languages=None):
+        """Read the dictionaries of the languages chosen, away from the
+        window, unless they are the ones in use already.
 
+        Choosing others while some are being read has them read next.
+        """
+
+        wanted = tuple(languages or chosen_languages())
         with self._lock:
-            if self.is_ready or self._loading is not None:
+            self._wanted = wanted
+            if self._loading is not None and self._loading.is_alive():
+                return
+            if self.languages == wanted and self._loaded is None:
                 return
             self._loading = threading.Thread(
-                target=self.load, name='spelling', daemon=True)
-        self._loading.start()
+                target=self.load_wanted, name='spelling', daemon=True)
+            self._loading.start()
 
-    def load(self):
+    def load_wanted(self):
+        while True:
+            with self._lock:
+                wanted = self._wanted
+            self.load(wanted)
+            with self._lock:
+                if self._wanted == wanted:
+                    return
+
+    def load(self, languages):
+        """Read the dictionaries and the lists of slips of the languages.
+
+        They are put in use by take_up_loaded, in the window's own
+        thread, so that no question is asked of them half changed.
+        """
+
         # The dictionaries are a couple of million small things in
         # memory, kept for as long as Blackboard runs. Python's collector
         # of what is no longer used looks through everything now and
@@ -160,13 +223,12 @@ class Speller:
             # Imported here: it is only needed once a note is written in
             from spylls.hunspell import Dictionary
             dictionaries = {}
-            for language, names in LANGUAGES.items():
-                for name in names:
+            for language in languages:
+                for name in LANGUAGES[language][1]:
                     path = os.path.join(self.folder, name)
                     dictionaries[name] = (language,
                                           Dictionary.from_files(path))
-            self.dictionaries = dictionaries
-            self.slips = self.read_slips()
+            slips = self.read_slips(languages, dictionaries)
         except Exception:
             # Without dictionaries, notes are simply not checked
             logger.exception('Could not read the spelling dictionaries')
@@ -174,19 +236,43 @@ class Speller:
         finally:
             gc.freeze()
             gc.enable()
+        logger.debug(f'Spelling dictionaries read: {languages}')
+        self._loaded = (languages, dictionaries, slips)
+        self.events.loaded.emit()
+
+    def take_up_loaded(self):
+        """Put the dictionaries just read in use."""
+
+        loaded, self._loaded = self._loaded, None
+        if loaded is None:
+            return
+        # The dictionaries put aside are freed as they are let go of,
+        # frozen or not: all but a handful of their things are held by
+        # nothing else. Handing them back to the collector to look for
+        # the handful stopped the window for up to 0.7 s.
+        self.languages, self.dictionaries, self.slips = loaded
+        self._prepared = {}
+        self.dictionaries_know.cache_clear()
+        self.forget_answers()
         self.is_ready = True
-        logger.debug('Spelling dictionaries read')
         self.events.ready.emit()
 
-    def wait_until_ready(self, timeout=None):
+    def languages_changed(self):
+        """Read the languages now chosen, if spelling is in use."""
+
+        if self.languages or self._loading is not None:
+            self.start_loading()
+
+    def wait_until_ready(self, timeout=None, languages=None):
         """For tests and probes: read the dictionaries, and wait."""
 
-        self.start_loading()
+        self.start_loading(languages)
         if self._loading is not None:
             self._loading.join(timeout)
+        self.take_up_loaded()
         return self.is_ready
 
-    def read_slips(self):
+    def read_slips(self, languages, dictionaries):
         """The common slips worth correcting while typing.
 
         From every list, the ones that turn something no language knows
@@ -194,9 +280,13 @@ class Speller:
         the first language's correction is kept.
         """
 
+        def known(word):
+            return any(dictionary.lookup(word)
+                       for language, dictionary in dictionaries.values())
+
         slips = {}
-        for language, names in AUTOCORRECT_LISTS.items():
-            for name in names:
+        for language in languages:
+            for name in LANGUAGES[language][2]:
                 path = os.path.join(self.folder, f'autocorrect_{name}.xml')
                 for slip, correction in self.read_slip_list(path):
                     key = slip.lower()
@@ -204,7 +294,7 @@ class Speller:
                         continue
                     if not CORRECTION_RE.match(correction):
                         continue
-                    if slip == correction or self.dictionaries_know(slip):
+                    if slip == correction or known(slip):
                         continue
                     slips[key] = correction
         return slips
@@ -309,15 +399,21 @@ class Speller:
                 found.append((start, end))
         return tuple(found)
 
-    def language_of(self, text):
-        """The language most of the words in this text are in."""
+    def language_of(self, text, dictionaries=None):
+        """The language most of the words in this text are in; the first
+        one chosen when it cannot be told."""
 
-        counts = dict.fromkeys(LANGUAGES, 0)
+        dictionaries = dictionaries or self.dictionaries
+        counts = {}
+        for language, dictionary in dictionaries.values():
+            counts.setdefault(language, 0)
         for match in WORD_RE.finditer(text):
-            for language, dictionary in self.dictionaries.values():
+            for language, dictionary in dictionaries.values():
                 if dictionary.lookup(match.group()):
                     counts[language] += 1
-        return max(counts, key=counts.get)
+        # max() gives the first of equals, and the dictionaries are kept
+        # in the order the languages were chosen in
+        return max(counts, key=counts.get) if counts else None
 
     def prepare_suggestions(self, word, context=''):
         """Start working out the suggestions for a word, away from the
@@ -360,8 +456,9 @@ class Speller:
         left for the other, since a line may be written in both.
         """
 
-        first = self.language_of(context) if context else 'pt'
-        order = sorted(self.dictionaries.values(),
+        dictionaries = self.dictionaries
+        first = self.language_of(context, dictionaries)
+        order = sorted(dictionaries.values(),
                        key=lambda pair: pair[0] != first)
         found = {language: [] for language, dictionary in order}
         for language, dictionary in order:
@@ -381,10 +478,12 @@ class Speller:
                     unique.append(suggestion)
             unique.sort(key=lambda suggestion: -likeness(word, suggestion))
             lists.append(unique)
-        first_list, other_list = lists
-        room = min(len(other_list), FROM_OTHER_LANGUAGE)
+        if not lists:
+            return []
+        first_list, others = lists[0], sum(lists[1:], [])
+        room = min(len(others), FROM_OTHER_LANGUAGE)
         chosen = first_list[:MAX_SUGGESTIONS - room]
-        return chosen + other_list[:MAX_SUGGESTIONS - len(chosen)]
+        return chosen + others[:MAX_SUGGESTIONS - len(chosen)]
 
     @staticmethod
     def close_words(dictionary, word):
@@ -421,3 +520,4 @@ class Speller:
 
 
 speller = Speller()
+settings_events.spelling_languages_changed.connect(speller.languages_changed)

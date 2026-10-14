@@ -8,6 +8,8 @@ from beeref.widgets.settings import (
     CheckSpellingWidget,
     ConfirmCloseUnsavedWidget,
     CorrectSlipsWidget,
+    SecondSpellingLanguageWidget,
+    SpellingLanguageWidget,
     ImageStorageFormatWidget,
     SettingsDialog,
 )
@@ -127,6 +129,32 @@ def test_spelling_switches_read_back_as_off(settings, view):
     assert settings.valueOrDefault('Text/check_spelling') is False
     widget = CheckSpellingWidget()
     assert widget.input.isChecked() is False
+
+
+def test_spelling_languages_at_first(settings, view):
+    first = SpellingLanguageWidget()
+    second = SecondSpellingLanguageWidget()
+    assert first.input.currentData() == 'pt-PT'
+    assert second.input.currentData() == 'en'
+    assert first.input.findData('') == -1
+    assert second.input.itemText(0) == 'None'
+
+
+def test_spelling_languages_save_change(settings, view):
+    first = SpellingLanguageWidget()
+    second = SecondSpellingLanguageWidget()
+    first.input.setCurrentIndex(first.input.findData('es'))
+    second.input.setCurrentIndex(0)
+    assert settings.valueOrDefault('Text/spelling_language') == 'es'
+    assert settings.valueOrDefault('Text/second_spelling_language') == ''
+    assert 'Spelling language: ✎' == first.title()
+
+
+def test_spelling_languages_restore_defaults(settings, view):
+    first = SpellingLanguageWidget()
+    first.input.setCurrentIndex(first.input.findData('de'))
+    settings.restore_defaults()
+    assert first.input.currentData() == 'pt-PT'
 
 
 def test_confirm_closed_saves_change(settings, view):

@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.3** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -75,9 +75,20 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   divisórias; colar uma tabela do Excel, Word, Sheets ou Teams cria uma
   tabela.
 - Uma nota escrita ou colada por cima de um grupo entra no grupo.
-- **Ortografia** (13.3), em português de Portugal e em inglês (britânico e
-  americano) ao mesmo tempo, porque as notas misturam as duas línguas: uma
-  palavra está certa se qualquer uma a conhecer.
+- **Ortografia** (13.3), em duas línguas ao mesmo tempo, porque as notas
+  misturam-nas: uma palavra está certa se qualquer uma a conhecer.
+  - **As línguas escolhem-se** em Settings → Miscellaneous (13.4): uma
+    primeira e uma segunda, que pode ser "None". No máximo duas: cada uma a
+    mais deixa passar mais erros (o erro numa é palavra noutra) e demora
+    mais a ler. De início: português de Portugal e inglês.
+  - Línguas: português (Portugal), português (Brasil), inglês (britânico e
+    americano juntos), espanhol, francês, alemão, italiano. Juntar outra é
+    copiar o dicionário do LibreOffice e a lista de erros comuns para
+    `beeref/assets/spelling/` e acrescentá-la a `LANGUAGES` em
+    `spelling.py`.
+  - Ficam prontas na primeira nota editada: menos de 1,5 s cada, 3 s o
+    português do Brasil. Mudar de língua com uma nota aberta
+    troca os dicionários sem fechar a nota.
   - Enquanto se escreve numa nota, as palavras que nenhuma língua conhece
     ficam sublinhadas a vermelho ondulado. Só durante a edição: o quadro fica
     limpo quando se sai. A palavra que se está a escrever só é julgada
@@ -87,7 +98,8 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     algarismos. Uma palavra que o dicionário só conhece em maiúsculas ("OK",
     "PDF") também é aceite em minúsculas.
   - Clique direito numa palavra sublinhada: sugestões (primeiro na língua do
-    resto da linha, ordenadas pela parecença) e "Add to Dictionary". As
+    resto da linha, ordenadas pela parecença, e à frente de todas a que só
+    acrescenta acentos: "diseno" → "diseño") e "Add to Dictionary". As
     palavras acrescentadas ficam em `words.txt`, na pasta das definições,
     só neste computador.
   - **Correção automática** ao carregar espaço, Enter ou pontuação, só dos
@@ -98,7 +110,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   - Os dois interruptores estão em Settings → Miscellaneous.
   - Dicionários Hunspell do LibreOffice lidos pelo spylls (Python puro, igual
     no Windows e no Mac). São lidos em segundo plano na primeira vez que se
-    edita uma nota (cerca de 1 s); até lá não há sublinhados nem correções.
+    edita uma nota; até lá não há sublinhados nem correções.
 
 ### 3.3 Desenhos
 - Ferramentas: esboço à mão, linha, curva, seta, seta curva, e cinco formas
@@ -426,3 +438,8 @@ não executar nenhum — está por resolver.
 - **Pedir sugestões a três dicionários leva até meio segundo.** São
   calculadas em segundo plano assim que uma palavra fica sublinhada, para o
   clique direito abrir logo (13.3).
+- **Os dicionários são lidos fora da janela mas postos em uso dentro dela**
+  (`take_up_loaded`), para nenhuma pergunta apanhar meio dicionário velho e
+  meio novo ao mudar de língua. Os antigos não são entregues ao coletor de
+  lixo: quase tudo neles se liberta sozinho, e procurar o resto parava a
+  janela 0,7 s (13.4).

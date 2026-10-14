@@ -10,7 +10,8 @@ from PyQt6.QtCore import Qt
 import pytest
 
 from beeref.items import BeeTextItem
-from beeref.spelling import Speller, speller
+from beeref.spelling import (
+    chosen_languages, LANGUAGES, Speller, speller)
 
 
 @pytest.fixture
@@ -113,7 +114,8 @@ def test_misspelt_nothing_until_ready():
 
 def test_load_without_dictionaries_leaves_spelling_off(tmpdir):
     broken = Speller(folder=str(tmpdir))
-    broken.load()
+    broken.load(('pt-PT', 'en'))
+    broken.take_up_loaded()
     assert broken.is_ready is False
     assert broken.misspelt('enclosre') == ()
 
@@ -122,7 +124,8 @@ def test_dictionaries_kept_out_of_the_collectors_sight(ready):
     # Two million small things the collector would otherwise go through
     # each time it runs, stopping the window for a quarter of a second
     fresh = Speller()
-    fresh.load()
+    fresh.load(('en',))
+    fresh.take_up_loaded()
     dictionary = fresh.dictionaries['en_US'][1]
     assert not any(thing is dictionary for thing in gc.get_objects())
     assert gc.isenabled()
@@ -183,6 +186,13 @@ def test_suggestions_closest_first(ready):
     assert ready.suggestions('enclosre', 'the cooling enclosre')[0] == (
         'enclosure')
     assert 'desenho' in ready.suggestions('desenhu', 'o desenhu da peça')
+
+
+def test_suggestions_accents_left_out_first(ready, settings):
+    assert ready.suggestions('arvore', 'a arvore')[0] == 'árvore'
+    settings.setValue('Text/spelling_language', 'es')
+    assert ready.wait_until_ready(timeout=60)
+    assert ready.suggestions('diseno', 'el diseno de')[0] == 'diseño'
 
 
 def test_suggestions_language_of_the_line_first(ready):
@@ -426,3 +436,89 @@ def test_spelling_ready_draws_the_note_being_written(view):
     with patch.object(item, 'update') as update:
         view.on_spelling_ready()
     update.assert_called()
+
+
+# The languages
+
+def test_chosen_languages_at_first(settings):
+    assert chosen_languages() == ('pt-PT', 'en')
+
+
+def test_chosen_languages_second_none(settings):
+    settings.setValue('Text/second_spelling_language', '')
+    assert chosen_languages() == ('pt-PT',)
+
+
+def test_chosen_languages_the_same_twice(settings):
+    settings.setValue('Text/spelling_language', 'es')
+    settings.setValue('Text/second_spelling_language', 'es')
+    assert chosen_languages() == ('es',)
+
+
+def test_chosen_languages_leaves_out_unknown(settings):
+    settings.setValue('Text/spelling_language', 'klingon')
+    settings.setValue('Text/second_spelling_language', 'es')
+    assert chosen_languages() == ('es',)
+
+
+def test_every_language_has_its_files():
+    folder = speller.folder
+    for code, (name, dictionaries, slips) in LANGUAGES.items():
+        for dictionary in dictionaries:
+            assert os.path.exists(os.path.join(folder, f'{dictionary}.dic'))
+            assert os.path.exists(os.path.join(folder, f'{dictionary}.aff'))
+        for slip_list in slips:
+            assert os.path.exists(
+                os.path.join(folder, f'autocorrect_{slip_list}.xml'))
+
+
+def test_spanish_and_english(ready, settings):
+    settings.setValue('Text/spelling_language', 'es')
+    assert ready.wait_until_ready(timeout=60)
+    assert ready.languages == ('es', 'en')
+    text = 'el diseño de la pieza, the enclosure, não'
+    assert [text[s:e] for s, e in ready.misspelt(text)] == ['não']
+    assert ready.suggestions('tambien', 'el tambien')[0] == 'también'
+
+
+def test_one_language_only(ready, settings):
+    settings.setValue('Text/second_spelling_language', '')
+    assert ready.wait_until_ready(timeout=60)
+    assert ready.languages == ('pt-PT',)
+    assert ready.misspelt('a enclosure') == ((2, 11),)
+    assert ready.correction('teh') is None
+    assert 'parafuso' in ready.suggestions('parafuzo', 'o parafuzo')
+
+
+def test_slips_from_both_languages(ready):
+    both = ready.read_slips(('pt-PT', 'en'), ready.dictionaries)
+    assert both['nao'] == 'não'
+    assert both['teh'] == 'the'
+
+
+def test_changing_language_reads_the_new_ones(ready, settings):
+    with patch.object(ready, 'start_loading') as start_loading:
+        settings.setValue('Text/second_spelling_language', 'fr')
+    start_loading.assert_called_once()
+
+
+def test_changing_language_reads_nothing_before_spelling_is_used(settings):
+    fresh = Speller()
+    with patch.object(fresh, 'start_loading') as start_loading:
+        fresh.languages_changed()
+    start_loading.assert_not_called()
+
+
+def test_choosing_while_reading_reads_the_last_chosen(ready, settings):
+    ready.start_loading(('es',))
+    ready.start_loading(('it', 'en'))
+    assert ready.wait_until_ready(timeout=60, languages=('it', 'en'))
+    assert ready.languages == ('it', 'en')
+    assert ready.knows('raffreddamento')
+
+
+def test_new_languages_forget_old_answers(ready, settings):
+    assert ready.misspelt('también') == ((0, 7),)
+    settings.setValue('Text/spelling_language', 'es')
+    assert ready.wait_until_ready(timeout=60)
+    assert ready.misspelt('también') == ()
