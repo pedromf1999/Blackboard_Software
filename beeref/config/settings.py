@@ -157,6 +157,17 @@ class BeeSettings(QtCore.QSettings):
             'post_save_callback':
                 lambda value: settings_events.pinned_text_size_changed.emit(),
         },
+        # Words no dictionary knows underlined while a note is written
+        # in, and common slips put right as they are typed; see
+        # spelling.py
+        'Text/check_spelling': {
+            'default': True,
+            'cast': as_bool,
+        },
+        'Text/correct_slips': {
+            'default': True,
+            'cast': as_bool,
+        },
         'Items/arrange_default': {
             'default': 'optimal',
             'validate': lambda x: x in (

@@ -5,7 +5,9 @@ from PyQt6 import QtGui, QtWidgets
 from beeref.widgets.settings import (
     ArrangeGapWidget,
     CanvasColorWidget,
+    CheckSpellingWidget,
     ConfirmCloseUnsavedWidget,
+    CorrectSlipsWidget,
     ImageStorageFormatWidget,
     SettingsDialog,
 )
@@ -101,6 +103,30 @@ def test_confirm_closed_sets_title_when_edited(settings, view):
     settings.setValue('Save/confirm_close_unsaved', False)
     widget = ConfirmCloseUnsavedWidget()
     assert widget.title() == 'Offer to save when closing an unsaved board: ✎'
+
+
+def test_spelling_switches_on_at_first(settings, view):
+    spelling = CheckSpellingWidget()
+    slips = CorrectSlipsWidget()
+    assert spelling.input.isChecked() is True
+    assert slips.input.isChecked() is True
+
+
+def test_spelling_switches_save_change(settings, view):
+    spelling = CheckSpellingWidget()
+    slips = CorrectSlipsWidget()
+    spelling.input.setChecked(False)
+    slips.input.setChecked(False)
+    assert settings.valueOrDefault('Text/check_spelling') is False
+    assert settings.valueOrDefault('Text/correct_slips') is False
+
+
+def test_spelling_switches_read_back_as_off(settings, view):
+    # An .ini file keeps the word "false", which must not read as on
+    settings.setValue('Text/check_spelling', 'false')
+    assert settings.valueOrDefault('Text/check_spelling') is False
+    widget = CheckSpellingWidget()
+    assert widget.input.isChecked() is False
 
 
 def test_confirm_closed_saves_change(settings, view):

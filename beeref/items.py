@@ -34,6 +34,7 @@ from beeref.assets import BeeAssets
 from beeref.config import BeeSettings
 from beeref.constants import COLORS, CORNER_RADIUS
 from beeref.selection import SelectableMixin
+from beeref.spelling import speller
 from beeref.utils import blend_over, readable_grey
 
 
@@ -3952,6 +3953,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             super().paint(painter, option, widget)
         self.paint_done_bar(painter)
         self.paint_url_underlines(painter)
+        self.paint_misspelt(painter)
         self.paint_selectable(painter, option, widget)
 
     # How close to a boundary counts as grabbing it, and how small a
@@ -4814,6 +4816,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # entered by clicking the item
         self.setFocus()
         self.scene().edit_item = self
+        if (self.settings.valueOrDefault('Text/check_spelling')
+                or self.settings.valueOrDefault('Text/correct_slips')):
+            speller.start_loading()
 
     def cursor_may_have_moved(self):
         """Keep the table commands in step with the cell being written in.
@@ -4827,6 +4832,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         scene = self.scene()
         if scene is not None and self.edit_mode:
             scene.text_cursor_moved()
+        if self.checks_spelling():
+            # The word the cursor leaves may be underlined now
+            self.update()
 
     def exit_edit_mode(self, commit=True):
         logger.debug(f'Exiting edit mode on {self}')
@@ -4835,6 +4843,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.setTextCursor(QtGui.QTextCursor(self.document()))
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.scene().edit_item = None
+        # Words are underlined only while being written
+        self.update()
         if commit:
             self.scene().undo_stack.push(
                 commands.ChangeText(self, self.toHtml(), self.old_text))
@@ -6129,6 +6139,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # A finished task keeps the words it was ticked off with
             event.accept()
             return
+        word_end = self.word_ended_by(event)
         if self.list_key_press(event):
             event.accept()
         else:
@@ -6145,7 +6156,148 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             else:
                 # And so does a tenth numbered line
                 self.refresh_numbers()
+        if word_end is not None:
+            self.word_finished(word_end)
         self.cursor_may_have_moved()
+
+    # The keys and characters that end a word being typed
+    WORD_ENDING_KEYS = (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+    WORD_ENDING_CHARACTERS = ' .,;:!?)]}"”»'
+
+    def word_ended_by(self, event):
+        """Where the word a key finishes ends, if it finishes one."""
+
+        if not self.edit_mode or self.textCursor().hasSelection():
+            return None
+        if (event.key() in self.WORD_ENDING_KEYS
+                or (event.text() and event.text()
+                    in self.WORD_ENDING_CHARACTERS)):
+            return self.textCursor().position()
+        return None
+
+    def word_finished(self, position):
+        """Put right a common slip just typed, and get ready to be asked
+        about the words underlined in that line.
+
+        The key that finished the word has been answered by now, and
+        whatever it typed is after the word, so the word is still where
+        it was.
+        """
+
+        if self.settings.valueOrDefault('Text/correct_slips'):
+            self.correct_slip_before(position)
+        if self.checks_spelling():
+            block = self.document().findBlock(position)
+            text = block.text()
+            for start, end in speller.misspelt(text):
+                speller.prepare_suggestions(text[start:end], text)
+
+    def correct_slip_before(self, position):
+        block = self.document().findBlock(position)
+        slip = speller.slip_at_end(block.text()[:position - block.position()])
+        if slip is None:
+            return
+        start, correction = slip
+        self.replace_words(block.position() + start, position, correction)
+
+    def replace_words(self, start, end, words):
+        """Put words in place of a stretch of the text, in its own look.
+
+        One step for Undo, which then gives back what was there.
+        """
+
+        cursor = QtGui.QTextCursor(self.document())
+        # The look of its first letter: the one before it, which is what
+        # Qt would take, may be in another colour or not highlighted
+        cursor.setPosition(start + 1)
+        charformat = cursor.charFormat()
+        cursor.setPosition(start)
+        cursor.setPosition(end, QtGui.QTextCursor.MoveMode.KeepAnchor)
+        cursor.beginEditBlock()
+        cursor.insertText(words, charformat)
+        cursor.endEditBlock()
+        self.update()
+
+    def checks_spelling(self):
+        """Whether words are underlined: only while being written in."""
+
+        return (self.edit_mode
+                and self.settings.valueOrDefault('Text/check_spelling'))
+
+    def misspelt_words(self):
+        """The words no language knows, as (block, start, end) each.
+
+        The word the cursor is at the end of is still being typed, and
+        is not called wrong until it is finished. Finished tasks stay as
+        they were written.
+        """
+
+        if not self.checks_spelling():
+            return []
+        cursor = self.textCursor()
+        found = []
+        block = self.document().begin()
+        while block.isValid():
+            if (block.layout().lineCount() > 0
+                    and not self.task_is_done(block)):
+                for start, end in speller.misspelt(block.text()):
+                    if (block == cursor.block()
+                            and not cursor.hasSelection()
+                            and cursor.positionInBlock() == end):
+                        continue
+                    found.append((block, start, end))
+            block = block.next()
+        return found
+
+    def misspelt_word_at_cursor(self):
+        """The underlined word the cursor is in or at the end of, as
+        (start, end) in the whole text and the line it is in; or None.
+        """
+
+        cursor = self.textCursor()
+        block = cursor.block()
+        if not self.checks_spelling() or self.task_is_done(block):
+            return None
+        at = cursor.positionInBlock()
+        for start, end in speller.misspelt(block.text()):
+            if start <= at <= end:
+                return (block.position() + start, block.position() + end,
+                        block.text())
+        return None
+
+    # The colour of the line under a word no language knows
+    MISSPELT_COLOR = QtGui.QColor(235, 70, 70)
+
+    def paint_misspelt(self, painter):
+        words = self.misspelt_words()
+        if not words:
+            return
+        painter.save()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for block, start, end in words:
+            for line, thickness, color in self.underline_parts(
+                    block, start, end):
+                painter.setPen(QtGui.QPen(self.MISSPELT_COLOR, thickness))
+                painter.drawPath(self.wavy_line(line, thickness))
+        painter.restore()
+
+    @staticmethod
+    def wavy_line(line, thickness):
+        """A line that waves up and down along a straight one."""
+
+        height = thickness * 1.5
+        step = thickness * 2
+        path = QtGui.QPainterPath(line.p1())
+        x = line.x1()
+        y = line.y1()
+        up = True
+        while x < line.x2():
+            next_x = min(x + step, line.x2())
+            path.quadTo((x + next_x) / 2, y - height if up else y + height,
+                        next_x, y)
+            x = next_x
+            up = not up
+        return path
 
     def tidy_task(self):
         """Keep a box and the line it sits on in step, after a key press.

@@ -269,6 +269,24 @@ class ConfirmCloseUnsavedWidget(SingleCheckboxGroup):
     KEY = 'Save/confirm_close_unsaved'
 
 
+class CheckSpellingWidget(SingleCheckboxGroup):
+    TITLE = 'Spelling:'
+    HELPTEXT = (
+        'While a note is written in, underline the words neither '
+        'Portuguese nor English knows. Right-click one for suggestions.')
+    LABEL = 'Check spelling'
+    KEY = 'Text/check_spelling'
+
+
+class CorrectSlipsWidget(SingleCheckboxGroup):
+    TITLE = 'Typing slips:'
+    HELPTEXT = (
+        'Put common slips right as they are typed, such as "nao" for '
+        '"não" or "teh" for "the". Undo puts the word back.')
+    LABEL = 'Correct common slips'
+    KEY = 'Text/correct_slips'
+
+
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -280,6 +298,8 @@ class SettingsDialog(QtWidgets.QDialog):
         misc_layout = QtWidgets.QGridLayout()
         misc.setLayout(misc_layout)
         misc_layout.addWidget(ConfirmCloseUnsavedWidget(), 0, 0)
+        misc_layout.addWidget(CheckSpellingWidget(), 1, 0)
+        misc_layout.addWidget(CorrectSlipsWidget(), 1, 1)
         tabs.addTab(misc, '&Miscellaneous')
 
         # Images & Items

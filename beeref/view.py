@@ -39,6 +39,7 @@ from beeref.items import (
     in_reading_order, passages, without_pointless_alpha)
 from beeref.main_controls import MainControlsMixin
 from beeref.scene import BeeGraphicsScene
+from beeref.spelling import speller
 from beeref.utils import get_file_extension_from_format, qcolor_to_hex
 
 
@@ -147,6 +148,7 @@ class BeeGraphicsView(MainControlsMixin,
         settings_events.grid_changed.connect(self.on_grid_changed)
         settings_events.pinned_text_size_changed.connect(
             self.on_pinned_text_size_changed)
+        speller.events.ready.connect(self.on_spelling_ready)
         self.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         # Without this, text on the canvas is left to whatever the
         # painter defaults to, which reads poorly at small sizes
@@ -1033,6 +1035,52 @@ class BeeGraphicsView(MainControlsMixin,
         finally:
             self.context_menu_pos = None
 
+    def add_spelling_actions(self, item, menu):
+        """Offer what a word no language knows might have been meant to
+        be, at the top of the menu, when it was right-clicked while being
+        written. Returns the entries added, to be taken out again.
+        """
+
+        found = item.misspelt_word_at_cursor() if item.edit_mode else None
+        if found is None:
+            return []
+        start, end, line = found
+        word = item.document().toPlainText()[start:end]
+        added = []
+        suggestions = speller.suggestions(word, line)
+        for suggestion in suggestions:
+            action = QtGui.QAction(suggestion, menu)
+            font = action.font()
+            font.setBold(True)
+            action.setFont(font)
+            action.triggered.connect(
+                partial(item.replace_words, start, end, suggestion))
+            added.append(action)
+        if not suggestions:
+            action = QtGui.QAction('No suggestions', menu)
+            action.setEnabled(False)
+            added.append(action)
+        action = QtGui.QAction(f'Add “{word}” to Dictionary', menu)
+        action.triggered.connect(partial(self.add_to_dictionary, item, word))
+        added.append(action)
+        separator = QtGui.QAction(menu)
+        separator.setSeparator(True)
+        added.append(separator)
+        first = menu.actions()[0] if menu.actions() else None
+        menu.insertActions(first, added)
+        return added
+
+    def add_to_dictionary(self, item, word):
+        speller.add_word(word)
+        item.update()
+
+    def on_spelling_ready(self):
+        # The note being written in, written before the dictionaries
+        # were read, can be underlined now
+        item = self.scene.edit_item
+        if item is not None:
+            item.update()
+
     def show_context_menu(self, point):
         # Text items offer the text options, even inside a group, so
         # that their colours stay reachable
@@ -1048,7 +1096,13 @@ class BeeGraphicsView(MainControlsMixin,
             # Work the table commands from the cell that was clicked
             item.put_cursor_at(item.mapFromScene(self.mapToScene(point)))
             self.update_table_actions()
-            self.text_context_menu.exec(self.mapToGlobal(point))
+            added = self.add_spelling_actions(item, self.text_context_menu)
+            try:
+                self.text_context_menu.exec(self.mapToGlobal(point))
+            finally:
+                for action in added:
+                    self.text_context_menu.removeAction(action)
+                    action.deleteLater()
             return
 
         # Images offer their own options the same way, so that cropping

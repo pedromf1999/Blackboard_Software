@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.3** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -75,6 +75,30 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   divisórias; colar uma tabela do Excel, Word, Sheets ou Teams cria uma
   tabela.
 - Uma nota escrita ou colada por cima de um grupo entra no grupo.
+- **Ortografia** (13.3), em português de Portugal e em inglês (britânico e
+  americano) ao mesmo tempo, porque as notas misturam as duas línguas: uma
+  palavra está certa se qualquer uma a conhecer.
+  - Enquanto se escreve numa nota, as palavras que nenhuma língua conhece
+    ficam sublinhadas a vermelho ondulado. Só durante a edição: o quadro fica
+    limpo quando se sai. A palavra que se está a escrever só é julgada
+    depois de acabada.
+  - Ficam de fora: palavras em MAIÚSCULAS (siglas, títulos), letras soltas,
+    endereços web e de email, nomes de ficheiro e pastas, tudo o que tenha
+    algarismos. Uma palavra que o dicionário só conhece em maiúsculas ("OK",
+    "PDF") também é aceite em minúsculas.
+  - Clique direito numa palavra sublinhada: sugestões (primeiro na língua do
+    resto da linha, ordenadas pela parecença) e "Add to Dictionary". As
+    palavras acrescentadas ficam em `words.txt`, na pasta das definições,
+    só neste computador.
+  - **Correção automática** ao carregar espaço, Enter ou pontuação, só dos
+    erros comuns das listas do LibreOffice ("nao" → "não", "teh" → "the"),
+    mantendo as maiúsculas escritas. Nunca troca uma palavra que exista em
+    qualquer das línguas, nem troca por símbolos (":-)" fica como está).
+    Ctrl+Z logo a seguir devolve o que foi escrito.
+  - Os dois interruptores estão em Settings → Miscellaneous.
+  - Dicionários Hunspell do LibreOffice lidos pelo spylls (Python puro, igual
+    no Windows e no Mac). São lidos em segundo plano na primeira vez que se
+    edita uma nota (cerca de 1 s); até lá não há sublinhados nem correções.
 
 ### 3.3 Desenhos
 - Ferramentas: esboço à mão, linha, curva, seta, seta curva, e cinco formas
@@ -261,6 +285,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | `beeref/items.py` | Imagens, notas, grupos, desenhos, títulos, descrições, tarefas, tabelas |
 | `beeref/selection.py` | Pegas, redimensionar, rodar, esticar, contorno de seleção |
 | `beeref/imagecache.py` | Imagens comprimidas e abertas ao tamanho visto |
+| `beeref/spelling.py` e `beeref/assets/spelling/` | Ortografia: dicionários, sugestões, erros comuns |
 | `beeref/commands.py` | Os passos de desfazer/refazer |
 | `beeref/actions/` | Menus, atalhos e o que cada um chama |
 | `beeref/fileio/` | Ler e gravar `.blk`, exportar |
@@ -394,3 +419,10 @@ não executar nenhum — está por resolver.
 - O caminho do repositório tem espaços: se o PyInstaller falhar, é a primeira
   suspeita.
 - Um ambiente `.venv` copiado de outro PC não funciona; refaz-se.
+- **Os dicionários são uns dois milhões de pequenos objetos** do Python. O
+  coletor de lixo do Python percorre de vez em quando tudo o que existe, e
+  com eles lá dentro parava a janela um quarto de segundo de cada vez. São
+  lidos com o coletor desligado e postos de lado com `gc.freeze()` (13.3).
+- **Pedir sugestões a três dicionários leva até meio segundo.** São
+  calculadas em segundo plano assim que uma palavra fica sublinhada, para o
+  clique direito abrir logo (13.3).

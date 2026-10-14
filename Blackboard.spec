@@ -69,7 +69,10 @@ a = Analysis(
         (join('beeref', 'assets', 'fonts'), join('beeref', 'assets',
                                                  'fonts')),
         (join('beeref', 'assets', 'icons'), join('beeref', 'assets',
-                                                 'icons'))],
+                                                 'icons')),
+        # The dictionaries and the lists of common slips; see spelling.py
+        (join('beeref', 'assets', 'spelling'), join('beeref', 'assets',
+                                                    'spelling'))],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
