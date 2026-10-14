@@ -3218,6 +3218,9 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.unset_cursor()
 
     def mousePressEvent(self, event):
+        # Each press starts afresh: the letting go of one that opened a
+        # web address can go to the browser instead
+        self.press_answered = False
         if (not self.crop_mode
                 and event.button() == Qt.MouseButton.LeftButton
                 and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
@@ -3226,6 +3229,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             if url:
                 logger.debug(f'Opening url: {url}')
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+                self.press_answered = True
                 event.accept()
                 return
         if not self.crop_mode:
@@ -3449,10 +3453,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.box_color = QtGui.QColor(*(box_color or self.DEFAULT_BOX_COLOR))
         self.setFont(self.get_text_font())
         self.table_drag = None
-        # Whether the press being answered landed on a box to tick off
-        # or on the strip of finished tasks, which the note does not
-        # then get dragged about by
-        self.pressed_on_task = False
+        # Whether the press being answered was answered by the note
+        # itself -- a box ticked off, the strip of finished tasks opened,
+        # a web address opened -- and so is not the start of dragging
+        # the note about
+        self.press_answered = False
         # Finished tasks are kept out of sight until they are asked for,
         # the way they are in Google Keep. Set before any text arrives:
         # putting text in is what hides them.
@@ -4131,12 +4136,16 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
+        # Each press starts afresh: the letting go of one that opened a
+        # web address can go to the browser instead
+        self.press_answered = False
         if (event.button() == Qt.MouseButton.LeftButton
                 and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
             url = self.get_url_at(event.pos())
             if url:
                 logger.debug(f'Opening url: {url}')
                 QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+                self.press_answered = True
                 event.accept()
                 return
 
@@ -4154,13 +4163,13 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # A box is ticked off with one press, without opening the
             # note for writing first
             if self.toggle_task_at(event.pos()):
-                self.pressed_on_task = True
+                self.press_answered = True
                 event.accept()
                 return
             if (self.shows_done_bar()
                     and self.done_bar_rect().contains(event.pos())):
                 self.set_tasks_collapsed(not self.tasks_collapsed)
-                self.pressed_on_task = True
+                self.press_answered = True
                 event.accept()
                 return
             grip = self.table_grip_at(event.pos())
@@ -4205,10 +4214,11 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.drag_table_boundary(event.pos())
             event.accept()
             return
-        if getattr(self, 'pressed_on_task', False):
-            # A box or the strip was pressed, so the press never reached
-            # the part that moves a note about: there is no drag to
-            # follow, and asking it to follow one raised an error
+        if getattr(self, 'press_answered', False):
+            # A box, the strip or a web address was pressed, so the
+            # press never reached the part that moves a note about:
+            # there is no drag to follow, and asking it to follow one
+            # raised an error that closed Blackboard
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -4236,8 +4246,8 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             self.drop_task(drag)
             event.accept()
             return
-        if getattr(self, 'pressed_on_task', False):
-            self.pressed_on_task = False
+        if getattr(self, 'press_answered', False):
+            self.press_answered = False
             event.accept()
             return
         drag = getattr(self, 'table_drag', None)

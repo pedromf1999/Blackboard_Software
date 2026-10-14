@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -439,6 +439,12 @@ não executar nenhum — está por resolver.
 - **Pedir sugestões a três dicionários leva até meio segundo.** São
   calculadas em segundo plano assim que uma palavra fica sublinhada, para o
   clique direito abrir logo (13.3).
+- **Um clique que o elemento responde sozinho** (abrir um endereço com
+  Ctrl+clique, marcar uma tarefa, abrir a faixa das concluídas) não chega à
+  parte que arrasta. Mexer o rato antes de o largar fazia-a procurar onde o
+  arrasto começou, e o erro fechava o Blackboard (13.6). Esses cliques
+  marcam `press_answered`, que `SelectableMixin` respeita até se largar o
+  rato; cada clique novo limpa-o, porque o largar pode ir para o browser.
 - **Os dicionários são lidos fora da janela mas postos em uso dentro dela**
   (`take_up_loaded`), para nenhuma pergunta apanhar meio dicionário velho e
   meio novo ao mudar de língua. Os antigos não são entregues ao coletor de

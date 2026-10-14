@@ -892,6 +892,14 @@ class SelectableMixin(BaseItemMixin):
         return QtGui.QCursor(Qt.CursorShape.SizeHorCursor)
 
     def mouseMoveEvent(self, event):
+        if (getattr(self, 'press_answered', False)
+                or getattr(self, 'event_start', None) is None):
+            # The press was answered by the item itself -- a web address
+            # opened, a box ticked off -- and never got here, so there
+            # is no drag to follow. Following one anyway looked for
+            # where it began, and the error closed Blackboard.
+            event.accept()
+            return
         if (event.scenePos() - self.event_start).manhattanLength() > 5:
             self.scene().views()[0].reset_previous_transform()
 
@@ -926,6 +934,10 @@ class SelectableMixin(BaseItemMixin):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if getattr(self, 'press_answered', False):
+            self.press_answered = False
+            event.accept()
+            return
         if self.active_mode == self.SCALE_MODE:
             if self.get_scale_factor(event) != 1:
                 self.scene().undo_stack.push(

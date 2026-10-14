@@ -316,7 +316,7 @@ def test_dragging_on_from_a_box_does_not_take_the_note_with_it(view):
     release = MagicMock()
     release.button.return_value = Qt.MouseButton.LeftButton
     item.mouseReleaseEvent(release)
-    assert item.pressed_on_task is False
+    assert item.press_answered is False
 
 
 def test_clicking_the_strip_opens_and_closes_it(view):

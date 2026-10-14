@@ -152,6 +152,62 @@ def test_mouse_press_ctrl_click_opens_url(open_mock, qapp):
     event.accept.assert_called_once()
 
 
+def press_at(item, modifiers=Qt.KeyboardModifier.NoModifier):
+    press = MagicMock()
+    press.button.return_value = Qt.MouseButton.LeftButton
+    press.modifiers.return_value = modifiers
+    press.pos.return_value = QtCore.QPointF(5, 5)
+    press.scenePos.return_value = QtCore.QPointF(5, 5)
+    item.mousePressEvent(press)
+
+
+def move_to(item, x, y):
+    move = MagicMock()
+    move.pos.return_value = QtCore.QPointF(x, y)
+    move.scenePos.return_value = QtCore.QPointF(x, y)
+    move.buttons.return_value = Qt.MouseButton.LeftButton
+    move.modifiers.return_value = Qt.KeyboardModifier.NoModifier
+    item.mouseMoveEvent(move)
+
+
+def let_go(item):
+    release = MagicMock()
+    release.button.return_value = Qt.MouseButton.LeftButton
+    item.mouseReleaseEvent(release)
+
+
+@patch('PyQt6.QtGui.QDesktopServices.openUrl')
+def test_moving_on_after_opening_a_url_does_not_crash(open_mock, view):
+    """Ctrl+clicking a web address and moving the mouse before letting
+    go raised an error looking for where a drag began, which closed
+    Blackboard."""
+
+    item = BeeTextItem('see https://example.com now')
+    view.scene.addItem(item)
+    item.setPos(0, 0)
+    with patch.object(item, 'get_url_at', return_value='https://example.com'):
+        press_at(item, Qt.KeyboardModifier.ControlModifier)
+    move_to(item, 50, 50)
+    assert item.pos() == QtCore.QPointF(0, 0)
+    let_go(item)
+    assert item.press_answered is False
+
+
+@patch('PyQt6.QtGui.QDesktopServices.openUrl')
+def test_note_drags_after_a_url_whose_letting_go_was_lost(open_mock, view):
+    """The browser can take the letting go of the press that opened it;
+    the next press still drags the note."""
+
+    item = BeeTextItem('see https://example.com now')
+    view.scene.addItem(item)
+    with patch.object(item, 'get_url_at', return_value='https://example.com'):
+        press_at(item, Qt.KeyboardModifier.ControlModifier)
+    with patch.object(item, 'get_url_at', return_value=None):
+        with patch('beeref.selection.SelectableMixin.mousePressEvent'):
+            press_at(item)
+    assert item.press_answered is False
+
+
 @patch('beeref.selection.SelectableMixin.mousePressEvent')
 @patch('PyQt6.QtGui.QDesktopServices.openUrl')
 def test_mouse_press_ctrl_click_without_url_selects_as_usual(

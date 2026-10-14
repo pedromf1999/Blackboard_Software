@@ -212,3 +212,27 @@ def test_ctrl_click_opens_it_on_a_picture_in_a_group(
     open_mock.assert_called_once()
     assert open_mock.call_args[0][0].toString() == (
         'https://example.com/joint')
+
+
+@patch('PyQt6.QtGui.QDesktopServices.openUrl')
+def test_moving_on_after_opening_it_does_not_crash(open_mock, view):
+    """As in a note: moving the mouse before letting go looked for where
+    a drag began, and the error closed Blackboard."""
+
+    caption = 'Inspired by https://example.com/chair'
+    item = image(view, caption)
+    item.setPos(0, 0)
+    ctrl_click(item, point_on(item, caption.index('example')))
+
+    move = MagicMock()
+    move.pos.return_value = QtCore.QPointF(50, 50)
+    move.scenePos.return_value = QtCore.QPointF(50, 50)
+    move.buttons.return_value = Qt.MouseButton.LeftButton
+    move.modifiers.return_value = Qt.KeyboardModifier.ControlModifier
+    item.mouseMoveEvent(move)
+    assert item.pos() == QtCore.QPointF(0, 0)
+
+    release = MagicMock()
+    release.button.return_value = Qt.MouseButton.LeftButton
+    item.mouseReleaseEvent(release)
+    assert item.press_answered is False
