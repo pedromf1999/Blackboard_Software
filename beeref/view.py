@@ -1479,7 +1479,8 @@ class BeeGraphicsView(MainControlsMixin,
         for i, color in enumerate(colors[:48]):
             QtWidgets.QColorDialog.setStandardColor(i, color)
 
-    def pick_color_live(self, title, initial, preview, alpha=True):
+    def pick_color_live(self, title, initial, preview, alpha=True,
+                        none_label=None):
         """Ask for a colour, showing each choice on the board as it is made.
 
         ``QColorDialog.getColor()`` reports nothing until OK is pressed,
@@ -1489,6 +1490,10 @@ class BeeGraphicsView(MainControlsMixin,
         change.
 
         Returns the chosen colour, or None if the dialog was cancelled.
+        With ``none_label``, the dialog also has a button by that name
+        for no colour at all, which is previewed and returned as an
+        invalid colour.
+
         The preview writes straight to the items and deliberately does
         not touch the undo stack, so the caller has to put the original
         colours back afterwards -- see the callers below for why that
@@ -1503,10 +1508,24 @@ class BeeGraphicsView(MainControlsMixin,
         dialog.currentColorChanged.connect(preview)
         widgets.color_dialog.simplify_color_dialog(
             dialog, self.scene.legend)
+        chose_none = []
+        if none_label:
+            def choose_none():
+                chose_none.append(True)
+                preview(QtGui.QColor())
+                dialog.accept()
+
+            buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+            none_button = buttons.addButton(
+                none_label, QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
+            none_button.setAutoDefault(False)
+            none_button.clicked.connect(choose_none)
         # After simplifying, so the dialog is placed at the size it
         # ends up being rather than the size Qt built it at
         self.move_dialog_beside_selection(dialog)
         accepted = dialog.exec()
+        if chose_none:
+            return QtGui.QColor()
         color = dialog.currentColor()
         if accepted and color.isValid():
             return color
@@ -2320,7 +2339,8 @@ class BeeGraphicsView(MainControlsMixin,
                 item.apply_highlight(color)
 
         color = self.pick_color_live(
-            'Choose Highlight Colour', QtGui.QColor(), preview)
+            'Choose Highlight Colour', QtGui.QColor(), preview,
+            none_label='No Highlight')
         # Whatever the last preview left behind is the chosen result;
         # the originals go back so the undo command records the text as
         # it was before any of this

@@ -4700,12 +4700,40 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return [cell] if cell.isValid() else []
 
     def apply_highlight(self, color):
-        """Highlight the selection, in a colour the words can be read on."""
+        """Highlight the selection, in a colour the words can be read on.
 
+        No colour takes the highlight off.
+        """
+
+        if color is None or not color.isValid():
+            self.remove_highlight()
+            return
         charformat = QtGui.QTextCharFormat()
         charformat.setBackground(color)
         charformat.setForeground(self.text_color_over(color))
         self.apply_char_format(charformat)
+
+    def remove_highlight(self):
+        """Take the highlight off the selection, or off all the text.
+
+        A highlight cannot be merged away, since merging only adds to a
+        format: each run is given its own format back without one, in
+        the colour of the box, and keeps everything else it had.
+        """
+
+        start, end = self.selected_range()
+        cursor = QtGui.QTextCursor(self.document())
+        cursor.beginEditBlock()
+        for run_start, run_end, charformat in self.text_runs(start, end):
+            if self.run_background(charformat) is None:
+                continue
+            charformat.clearBackground()
+            charformat.setForeground(self.text_color_over(None))
+            cursor.setPosition(run_start)
+            cursor.setPosition(run_end, QtGui.QTextCursor.MoveMode.KeepAnchor)
+            cursor.setCharFormat(charformat)
+        cursor.endEditBlock()
+        self.update()
 
     def refresh_text_colors(self):
         """Recolour every run for the background it sits on.

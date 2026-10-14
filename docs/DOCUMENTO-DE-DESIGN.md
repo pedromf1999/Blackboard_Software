@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.4** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.5** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -61,7 +61,8 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 ### 3.2 Notas (texto)
 - Criar: T (ferramenta de texto) ou Ctrl+T. Começa-se logo a escrever.
 - Texto rico (HTML): negrito (Ctrl+B), tamanho (Ctrl+= / Ctrl+-, por
-  percentagem), cor das palavras, **destaque**, cor da caixa (o texto escolhe
+  percentagem), cor das palavras, **destaque** (o botão "No Highlight" na
+  janela da cor tira-o, 13.5), cor da caixa (o texto escolhe
   sozinho branco ou preto conforme o fundo), letra da interface ou Ranade.
 - **Título:** faixa por cima da nota, com cor, alinhamento (esquerda/centro) e
   tamanho próprios. Duplo clique na faixa para escrever.
