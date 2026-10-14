@@ -2000,8 +2000,31 @@ class BeeGraphicsView(MainControlsMixin,
             return
         self.undo_stack.push(commands.ChangeOutline(items, widths))
 
+    def scale_selected_images(self, factor):
+        """Make the selected images bigger or smaller, about their middle.
+
+        The size buttons used to change only an image's contour, and
+        stood greyed out on an image without one -- which is most of
+        them. The contour has entries of its own in the Images menu.
+        """
+
+        items = self.scene.selected_images()
+        if not items:
+            return
+        middle = QtCore.QRectF()
+        for item in items:
+            middle = middle.united(item.sceneBoundingRect())
+        self.undo_stack.push(
+            commands.ScaleItemsBy(items, factor, middle.center()))
+
+    def on_action_image_outline_thinner(self):
+        self.scale_selected_outlines(1 / self.LINE_WIDTH_STEP)
+
+    def on_action_image_outline_thicker(self):
+        self.scale_selected_outlines(self.LINE_WIDTH_STEP)
+
     def on_action_size_increase(self):
-        """Make whatever is selected bigger: text, line, title or contour."""
+        """Make whatever is selected bigger: text, line, title or image."""
 
         self.scale_by(self.TEXT_SIZE_STEP, self.LINE_WIDTH_STEP)
 
@@ -2021,7 +2044,8 @@ class BeeGraphicsView(MainControlsMixin,
             return
         self.scale_selected_text(text_factor)
         self.scale_selected_drawings(line_factor)
-        self.scale_selected_outlines(line_factor)
+        # An image by the same step as words: a tenth at a time
+        self.scale_selected_images(text_factor)
         self.scale_selected_titles(text_factor)
 
     def scale_band_being_written(self, factor):

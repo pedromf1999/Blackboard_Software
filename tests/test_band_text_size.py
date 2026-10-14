@@ -196,19 +196,20 @@ def test_sizing_the_caption_leaves_the_contour_alone(view):
     assert item.band_scale > 1
 
 
-def test_with_no_caption_open_the_buttons_size_the_contour(view):
-    """Which is what they always did, and still do."""
+def test_with_no_caption_open_the_buttons_size_the_picture(view):
+    """And the caption with it, as part of the picture; the contour's
+    width is in the Images menu."""
 
     item = captioned(view)
     item.setSelected(True)
     view.on_action_image_outline()
     thickness = item.outline_width
-    caption = item.caption_size()
+    scale = item.scale()
 
     view.on_action_size_increase()
 
-    assert item.outline_width > thickness
-    assert item.caption_size() == caption
+    assert item.scale() == pytest.approx(scale * 1.1)
+    assert item.outline_width == thickness
 
 
 def test_the_caption_size_is_saved_with_the_picture(view, tmpdir):
@@ -284,7 +285,7 @@ def test_the_picture_bar_says_which_job_its_pair_is_doing(view):
     view.on_action_image_outline()
 
     bar.update_state([item])
-    assert bar.thicker.toolTip() == 'Thicker outline'
+    assert bar.thicker.toolTip() == 'Bigger image (Ctrl++)'
 
     item.enter_caption_edit_mode()
     bar.update_state([item])

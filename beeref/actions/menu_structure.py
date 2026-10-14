@@ -130,6 +130,8 @@ menu_structure = [
             'image_caption',
             'image_outline',
             'image_outline_color',
+            'image_outline_thinner',
+            'image_outline_thicker',
             MENU_SEPARATOR,
             'change_opacity',
             'grayscale',

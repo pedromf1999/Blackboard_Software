@@ -41,7 +41,8 @@ def test_an_image_starts_with_no_contour(view):
     item = image(view)
     assert item.has_outline() is False
     assert view.image_toolbar.outline.isChecked() is False
-    assert view.image_toolbar.thicker.isEnabled() is False
+    # The size buttons size the picture, contour or not
+    assert view.image_toolbar.thicker.isEnabled() is True
 
 
 def test_the_contour_goes_on_and_off(view):
@@ -80,21 +81,21 @@ def test_the_contour_starts_proportional_to_the_picture(view):
     assert big.default_outline_width() > small.default_outline_width() * 5
 
 
-def test_the_size_buttons_change_the_contour(view):
+def test_the_menu_changes_the_contour(view):
     item = image(view)
     view.on_action_image_outline()
     before = item.outline_width
-    view.on_action_size_increase()
+    view.on_action_image_outline_thicker()
     assert item.outline_width > before
-    view.on_action_size_decrease()
+    view.on_action_image_outline_thinner()
     assert item.outline_width == before
 
 
 def test_an_image_without_a_contour_is_left_alone(view):
-    """The size buttons change a contour; they do not put one on."""
+    """Thicker Outline changes a contour; it does not put one on."""
 
     item = image(view)
-    view.on_action_size_increase()
+    view.on_action_image_outline_thicker()
     assert item.has_outline() is False
 
 
@@ -102,7 +103,7 @@ def test_the_contour_stops_before_it_eats_the_picture(view):
     item = image(view, 200, 100)
     view.on_action_image_outline()
     for _ in range(50):
-        view.on_action_size_increase()
+        view.on_action_image_outline_thicker()
     assert item.outline_width == item.max_outline_width()
 
 
@@ -112,9 +113,9 @@ def test_holding_at_the_limit_records_nothing_to_undo(view):
     item = image(view)
     view.on_action_image_outline()
     for _ in range(50):
-        view.on_action_size_increase()
+        view.on_action_image_outline_thicker()
     depth = view.undo_stack.index()
-    view.on_action_size_increase()
+    view.on_action_image_outline_thicker()
     assert view.undo_stack.index() == depth
 
     view.undo_stack.undo()
@@ -196,7 +197,7 @@ def test_cropping_small_thins_a_contour_that_no_longer_fits(view):
     item = image(view, 400, 300)
     view.on_action_image_outline()
     for _ in range(20):
-        view.on_action_size_increase()
+        view.on_action_image_outline_thicker()
     thick = item.outline_width
 
     item.crop = QtCore.QRectF(150, 120, 40, 30)
@@ -208,7 +209,7 @@ def test_undoing_a_crop_gives_the_frame_back_too(view):
     item = image(view, 400, 300)
     view.on_action_image_outline()
     for _ in range(20):
-        view.on_action_size_increase()
+        view.on_action_image_outline_thicker()
     thick = item.outline_width
 
     view.undo_stack.push(

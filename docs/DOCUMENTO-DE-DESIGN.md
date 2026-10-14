@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.9** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -41,6 +41,11 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 ### 3.1 Imagens
 - Entram por arrastar, colar ou Ctrl+I; chegam com metade da janela de
   tamanho.
+- **Aumentar e diminuir** (13.9): os dois botões de tamanho na barra da
+  imagem, ou Ctrl+= / Ctrl+-, fazem a imagem 10% maior ou menor de cada vez,
+  à volta do centro (várias imagens crescem juntas, mantendo as distâncias).
+  Enquanto se escreve a legenda, fazem o tamanho da legenda. A espessura do
+  contorno passou para Images → Thinner / Thicker Outline.
 - **Recortar** (Shift+C), **contorno** com cor e espessura, **cinzento** (G),
   opacidade, virar (H / V), redimensionar pelos cantos (mantém a proporção) e
   esticar pelas arestas.
@@ -325,7 +330,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | T / Ctrl+T | Escrever uma nota |
 | Ctrl+Shift+T | Lista de tarefas |
 | Alt+T | Tabela |
-| Ctrl+B, Ctrl+= / Ctrl+- | Negrito, texto maior / menor |
+| Ctrl+B, Ctrl+= / Ctrl+- | Negrito, texto (ou imagem) maior / menor |
 | Ctrl+Z / Ctrl+Shift+Z | Desfazer / refazer |
 | Ctrl+C / Ctrl+X / Ctrl+V / Del | Copiar, cortar, colar, apagar |
 | Ctrl+A / Ctrl+Shift+A | Escolher tudo / nada |

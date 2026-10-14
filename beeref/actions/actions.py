@@ -559,6 +559,20 @@ actions = ActionList([
         callback='on_action_image_outline_color',
         group='active_when_image_selection',
     ),
+    # The size buttons size the image itself, so the contour's width is
+    # changed from here
+    Action(
+        id='image_outline_thinner',
+        text='Thinner Outline',
+        callback='on_action_image_outline_thinner',
+        group='active_when_image_selection',
+    ),
+    Action(
+        id='image_outline_thicker',
+        text='Thicker Outline',
+        callback='on_action_image_outline_thicker',
+        group='active_when_image_selection',
+    ),
     Action(
         id='flip_horizontally',
         text='Flip &Horizontally',
