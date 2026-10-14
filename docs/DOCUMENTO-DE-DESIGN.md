@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.7** (outubro de 2026). Este documento descreve o que o
+Estado na versão **13.8** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -48,6 +48,14 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   linha. Os links na descrição ficam sublinhados e abrem com Ctrl+clique.
   Abre-se com T ou duplo clique.
 - Um esboço feito por cima de uma imagem fica preso a ela.
+- **Pré-visualização de links** (13.8): colar um endereço web sozinho
+  (Ctrl+V) traz a imagem que o site oferece para partilhas (og:image,
+  twitter:image ou image_src: a foto do produto, a capa do vídeo), com o
+  endereço na descrição, que abre com Ctrl+clique. Demora 1 a 2 s; a janela
+  continua a funcionar entretanto. Um site sem imagem, ou que recusa
+  programas que não são browsers (Amazon, Behance), recebe o endereço como
+  nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
+  vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
 - **Memória:** as imagens ficam guardadas comprimidas, como estão no ficheiro,
   com uma cópia pequena (256 px) para desenhar enquanto não há melhor. São
   abertas ao tamanho a que são vistas, em segundo plano, e largadas 30 s
@@ -445,6 +453,9 @@ não executar nenhum — está por resolver.
   arrasto começou, e o erro fechava o Blackboard (13.6). Esses cliques
   marcam `press_answered`, que `SelectableMixin` respeita até se largar o
   rato; cada clique novo limpa-o, porque o largar pode ir para o browser.
+- **Descarregar com a rede do Qt, não a do Python** (13.8): o Python
+  empacotado para Mac muitas vezes não tem a lista de certificados e recusa
+  todos os sites https; o Qt usa a do próprio sistema, no Windows e no Mac.
 - **Os dicionários são lidos fora da janela mas postos em uso dentro dela**
   (`take_up_loaded`), para nenhuma pergunta apanhar meio dicionário velho e
   meio novo ao mudar de língua. Os antigos não são entregues ao coletor de

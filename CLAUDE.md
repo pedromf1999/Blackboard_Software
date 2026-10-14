@@ -155,6 +155,11 @@ known types is what silently deleted groups and drawings twice before.
   underlined only while a note is being written in, and only common
   slips from LibreOffice's lists are corrected, never a real word of
   either language.
+- `beeref/link_preview.py` — a web address pasted on its own becomes the
+  picture its page offers for sharing (og:image and the like), with the
+  address as its caption. Fetched with Qt's network, not Python's: Qt
+  uses the computer's own certificates, which a packed Python on a Mac
+  often lacks.
 - `beeref/imagecache.py` — pictures are kept compressed, as the file keeps
   them, and opened only at the size they are drawn, in the background; what
   is opened is let go once out of sight. Never hand a full picture to Qt's
@@ -183,7 +188,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **2665 passing, 0 failing**. Nine tests inherited from
+Current baseline: **2697 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

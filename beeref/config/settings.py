@@ -187,6 +187,12 @@ class BeeSettings(QtCore.QSettings):
             'cast': str,
             'post_save_callback': spelling_languages_changed,
         },
+        # A web address pasted on its own becomes the picture its page
+        # offers, captioned with the address; see link_preview.py
+        'Items/link_previews': {
+            'default': True,
+            'cast': as_bool,
+        },
         'Items/arrange_default': {
             'default': 'optimal',
             'validate': lambda x: x in (

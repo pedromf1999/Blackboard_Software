@@ -337,6 +337,15 @@ class CorrectSlipsWidget(SingleCheckboxGroup):
     KEY = 'Text/correct_slips'
 
 
+class LinkPreviewsWidget(SingleCheckboxGroup):
+    TITLE = 'Link previews:'
+    HELPTEXT = (
+        'A web address pasted on its own comes in as the picture its page '
+        'offers, with the address as the caption. Ctrl+click it to open.')
+    LABEL = 'Show a preview of pasted links'
+    KEY = 'Items/link_previews'
+
+
 class SettingsDialog(QtWidgets.QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -363,6 +372,7 @@ class SettingsDialog(QtWidgets.QDialog):
         items_layout.addWidget(ArrangeGapWidget(), 1, 0)
         items_layout.addWidget(ArrangeDefaultWidget(), 1, 1)
         items_layout.addWidget(PinnedTextSizeWidget(), 2, 0)
+        items_layout.addWidget(LinkPreviewsWidget(), 2, 1)
         tabs.addTab(items, '&Images && Items')
 
         # View

@@ -20,7 +20,7 @@ import os
 import os.path
 import time
 
-from PyQt6 import QtCore, QtGui, QtWidgets, sip
+from PyQt6 import QtCore, QtGui, QtNetwork, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from beeref.assets import BeeAssets
@@ -31,6 +31,7 @@ from beeref.config import (
 from beeref import constants
 from beeref import tables
 from beeref import fileio
+from beeref import link_preview
 from beeref.fileio.errors import IMG_LOADING_ERROR_MSG
 from beeref.fileio.export import exporter_registry, ImagesToDirectoryExporter
 from beeref import widgets
@@ -155,6 +156,10 @@ class BeeGraphicsView(MainControlsMixin,
         self.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
+        # Links pasted whose preview is still being fetched, and what
+        # fetches them, made when first needed
+        self.link_previews = []
+        self.network = None
         self.undo_stack = QtGui.QUndoStack(self)
         self.undo_stack.setUndoLimit(100)
         self.undo_stack.canRedoChanged.connect(self.on_can_redo_changed)
@@ -1184,6 +1189,11 @@ class BeeGraphicsView(MainControlsMixin,
         dock = getattr(self, 'layers_dock', None)
         if dock is not None:
             dock.tree.forget_items()
+        # A link pasted on the board being closed is not wanted on the
+        # next one
+        for preview in self.link_previews:
+            preview.cancel()
+        self.link_previews = []
         self.scene.clear()
         # Nothing of the old board's pictures is wanted any more
         imagecache.opened_pictures().clear()
@@ -2986,15 +2996,55 @@ class BeeGraphicsView(MainControlsMixin,
             return
 
         text = clipboard.text()
+        link = link_preview.link_in(text)
+        if link and self.settings.valueOrDefault('Items/link_previews'):
+            self.paste_link(link, text, pos)
+            return
         if text:
-            item = BeeTextItem(text)
-            item.setScale(1 / self.get_scale())
-            self.insert_at([item], pos, 'Paste text')
+            self.paste_text(text, pos)
             return
 
         msg = 'No image data or text in clipboard or image too big'
         logger.info(msg)
         widgets.BeeNotification(self, msg)
+
+    def paste_text(self, text, pos):
+        item = BeeTextItem(text)
+        item.setScale(1 / self.get_scale())
+        self.insert_at([item], pos, 'Paste text')
+
+    def paste_link(self, url, text, pos):
+        """Put the picture a web page offers on the board, with its
+        address as the caption, once it has been fetched.
+
+        Fetching takes a moment, and the window goes on working in the
+        meantime. A page with no picture, or a site that cannot be
+        reached, gets the address pasted as a note, as it always was.
+        """
+
+        if self.network is None:
+            self.network = QtNetwork.QNetworkAccessManager(self)
+        preview = link_preview.LinkPreview(url, self.network, self)
+        self.link_previews.append(preview)
+        preview.finished.connect(
+            partial(self.on_link_preview, preview, url, text, pos))
+        widgets.BeeNotification(self, 'Fetching a preview of the link...')
+        preview.start()
+
+    def on_link_preview(self, preview, url, text, pos, image, reason):
+        if preview in self.link_previews:
+            self.link_previews.remove(preview)
+        preview.deleteLater()
+        if image.isNull():
+            widgets.BeeNotification(
+                self, 'This link has no preview: pasted as text')
+            self.paste_text(text, pos)
+            return
+        item = BeePixmapItem(without_pointless_alpha(image))
+        item.setScale(item.fit_scale_to(self.new_image_size()))
+        item.caption = url
+        self.insert_at([item], pos, 'Paste link')
+        logger.info(f'Pasted a preview of {url}')
 
     def paste_table(self, rows, pos):
         """Put a table copied from another application on the board.
