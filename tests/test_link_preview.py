@@ -213,33 +213,118 @@ def test_paste_words_with_a_link_as_text(view):
         'see https://example.com/chair')
 
 
-def test_preview_arrives_as_a_captioned_picture(view, qtbot, tmpdir):
+def linked_page(tmpdir):
     image_url = picture(tmpdir)
-    url = page(tmpdir, f'<meta property="og:image" content="{image_url}">')
+    return page(tmpdir, f'<meta property="og:image" content="{image_url}">')
+
+
+def pictures(view):
+    return [item for item in view.scene.items()
+            if isinstance(item, BeePixmapItem)]
+
+
+def notes(view):
+    return [item for item in view.scene.items()
+            if isinstance(item, BeeTextItem)]
+
+
+def test_the_link_is_on_the_board_at_once(view, tmpdir):
+    url = linked_page(tmpdir)
     view.paste_link(url, url, QtCore.QPointF(10, 10))
-    qtbot.waitUntil(lambda: bool(view.scene.items()), timeout=10000)
-    items = view.scene.items()
-    assert len(items) == 1
-    assert isinstance(items[0], BeePixmapItem)
-    assert items[0].caption == url
+    assert [note.toPlainText() for note in notes(view)] == [url]
+    assert pictures(view) == []
+
+
+def test_preview_takes_the_place_of_the_note(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    qtbot.waitUntil(lambda: bool(pictures(view)), timeout=10000)
+    assert notes(view) == []
+    assert pictures(view)[0].caption == url
     assert view.link_previews == []
-    assert view.undo_stack.undoText() == 'Paste link'
+    assert view.undo_stack.undoText() == 'Show link preview'
+
+
+def test_undo_gives_the_note_back_then_takes_it_off(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    qtbot.waitUntil(lambda: bool(pictures(view)), timeout=10000)
     view.undo_stack.undo()
+    assert pictures(view) == []
+    assert [note.toPlainText() for note in notes(view)] == [url]
+    view.undo_stack.undo()
+    assert view.scene.items() == []
+    view.undo_stack.redo()
+    view.undo_stack.redo()
+    assert len(pictures(view)) == 1
+    assert notes(view) == []
+
+
+def test_preview_goes_where_the_note_is_now(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    note = notes(view)[0]
+    note.moveBy(300, 200)
+    where = view.scene.itemsBoundingRect(items=[note]).center()
+    qtbot.waitUntil(lambda: bool(pictures(view)), timeout=10000)
+    # The picture itself, without the caption under it
+    middle = view.scene.itemsBoundingRect(items=pictures(view)).center()
+    assert middle.x() == pytest.approx(where.x(), abs=1)
+    assert middle.y() == pytest.approx(where.y(), abs=1)
+
+
+def test_a_note_written_in_is_left(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    note = notes(view)[0]
+    note.setPlainText(url + ' the chair we liked')
+    qtbot.waitUntil(lambda: view.link_previews == [], timeout=10000)
+    assert pictures(view) == []
+    assert notes(view) == [note]
+
+
+def test_a_note_being_written_in_is_left(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    note = notes(view)[0]
+    note.enter_edit_mode()
+    qtbot.waitUntil(lambda: view.link_previews == [], timeout=10000)
+    assert pictures(view) == []
+    # Left writing, its cursor would go on blinking after the window
+    # of this test has gone, looking for it
+    note.exit_edit_mode(commit=False)
+
+
+def test_a_note_undone_meanwhile_stays_gone(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    view.undo_stack.undo()
+    qtbot.waitUntil(lambda: view.link_previews == [], timeout=10000)
     assert view.scene.items() == []
 
 
-def test_no_preview_pastes_the_text(view, qtbot, tmpdir):
+def test_what_else_is_selected_stays_selected(view, qtbot, tmpdir):
+    url = linked_page(tmpdir)
+    view.paste_link(url, url, QtCore.QPointF(10, 10))
+    other = BeeTextItem('other')
+    view.scene.addItem(other)
+    view.scene.deselect_all_items()
+    other.setSelected(True)
+    qtbot.waitUntil(lambda: bool(pictures(view)), timeout=10000)
+    assert other.isSelected()
+    assert not pictures(view)[0].isSelected()
+
+
+def test_no_preview_leaves_the_note(view, qtbot, tmpdir):
     url = page(tmpdir, '<title>Nothing</title>')
     view.paste_link(url, 'www.example.pt', QtCore.QPointF(10, 10))
-    qtbot.waitUntil(lambda: bool(view.scene.items()), timeout=10000)
-    items = view.scene.items()
-    assert isinstance(items[0], BeeTextItem)
-    assert items[0].toPlainText() == 'www.example.pt'
+    qtbot.waitUntil(lambda: view.link_previews == [], timeout=10000)
+    assert [note.toPlainText() for note in notes(view)] == ['www.example.pt']
+    assert view.undo_stack.count() == 1
 
 
 def test_closing_the_board_forgets_previews_on_the_way(view, qtbot, tmpdir):
-    image_url = picture(tmpdir)
-    url = page(tmpdir, f'<meta property="og:image" content="{image_url}">')
+    url = linked_page(tmpdir)
     view.paste_link(url, url, QtCore.QPointF(10, 10))
     view.clear_scene()
     qtbot.wait(500)

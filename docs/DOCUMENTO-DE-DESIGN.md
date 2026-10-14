@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.0** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.1** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -56,10 +56,13 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Pré-visualização de links** (13.8): colar um endereço web sozinho
   (Ctrl+V) traz a imagem que o site oferece para partilhas (og:image,
   twitter:image ou image_src: a foto do produto, a capa do vídeo), com o
-  endereço na descrição, que abre com Ctrl+clique. Demora 1 a 2 s; a janela
-  continua a funcionar entretanto. Um site sem imagem, ou que recusa
-  programas que não são browsers (Amazon, Behance), recebe o endereço como
-  nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
+  endereço na descrição, que abre com Ctrl+clique. O link aparece logo como
+  nota (14.1); 1 a 2 s depois a imagem toma o lugar dela, centrada onde a
+  nota estiver nesse momento, num passo de desfazer próprio (Ctrl+Z volta à
+  nota, outro Ctrl+Z tira-a). Se entretanto a nota foi apagada, desfeita ou
+  escrita, a imagem não a substitui. O que estiver selecionado continua
+  selecionado. Um site sem imagem, ou que recusa programas que não são
+  browsers (Amazon, Behance), deixa a nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
   vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
   - **Ícone do site** (14.0) no canto superior esquerdo, num quadrado
     branco de cantos redondos com uma borda ténue (para se ver também sobre

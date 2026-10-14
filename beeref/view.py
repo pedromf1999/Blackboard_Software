@@ -3036,41 +3036,69 @@ class BeeGraphicsView(MainControlsMixin,
         item = BeeTextItem(text)
         item.setScale(1 / self.get_scale())
         self.insert_at([item], pos, 'Paste text')
+        return item
 
     def paste_link(self, url, text, pos):
-        """Put the picture a web page offers on the board, with its
-        address as the caption, once it has been fetched.
+        """Put a web address on the board at once, as a note, and the
+        picture its page offers in the note's place once it is in.
 
-        Fetching takes a moment, and the window goes on working in the
-        meantime. A page with no picture, or a site that cannot be
-        reached, gets the address pasted as a note, as it always was.
+        Fetching takes a second or two, and a paste that showed nothing
+        for that long looked as if it had not worked. A page with no
+        picture, or a site that cannot be reached, leaves the note.
         """
 
+        note = self.paste_text(text, pos)
         if self.network is None:
             self.network = QtNetwork.QNetworkAccessManager(self)
         preview = link_preview.LinkPreview(url, self.network, self)
         self.link_previews.append(preview)
         preview.finished.connect(
-            partial(self.on_link_preview, preview, url, text, pos))
-        widgets.BeeNotification(self, 'Fetching a preview of the link...')
+            partial(self.on_link_preview, preview, url, text, note))
         preview.start()
 
-    def on_link_preview(self, preview, url, text, pos, image, icon,
+    def on_link_preview(self, preview, url, text, note, image, icon,
                         reason):
         if preview in self.link_previews:
             self.link_previews.remove(preview)
         preview.deleteLater()
         if image.isNull():
-            widgets.BeeNotification(
-                self, 'This link has no preview: pasted as text')
-            self.paste_text(text, pos)
+            widgets.BeeNotification(self, 'This link has no preview')
+            return
+        if (note.scene() is not self.scene or note.edit_mode
+                or note.toPlainText() != text):
+            # Taken off the board, or being written in, or written in
+            # since: the note is what is wanted now, not the picture
+            logger.info(f'Preview of {url} not wanted any more')
             return
         item = BeePixmapItem(without_pointless_alpha(image))
         item.setScale(item.fit_scale_to(self.new_image_size()))
         item.caption = url
         item.link_icon = icon
-        self.insert_at([item], pos, 'Paste link')
+        self.replace_with(note, item, 'Show link preview')
         logger.info(f'Pasted a preview of {url}')
+
+    def replace_with(self, old, new, name):
+        """Put a new item where an old one is, in one step of undo.
+
+        Where it is now, which need not be where it was put down, and
+        in the group it is in. What else is selected stays selected: the
+        board has gone on being worked on since.
+        """
+
+        # Measured as a paste measures what it puts down: the item
+        # itself, without a caption or selection handles
+        where = self.scene.itemsBoundingRect(items=[old]).center()
+        selected = [item for item in self.scene.selectedItems(user_only=True)
+                    if item is not old]
+        was_selected = old.isSelected()
+        self.undo_stack.beginMacro(name)
+        self.undo_stack.push(commands.DeleteItems(self.scene, [old]))
+        self.undo_stack.push(commands.InsertItems(self.scene, [new], where))
+        self.scene.put_in_group_at([new], where)
+        self.undo_stack.endMacro()
+        new.setSelected(was_selected)
+        for item in selected:
+            item.setSelected(True)
 
     def paste_table(self, rows, pos):
         """Put a table copied from another application on the board.
