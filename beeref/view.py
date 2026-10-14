@@ -3055,7 +3055,8 @@ class BeeGraphicsView(MainControlsMixin,
         widgets.BeeNotification(self, 'Fetching a preview of the link...')
         preview.start()
 
-    def on_link_preview(self, preview, url, text, pos, image, reason):
+    def on_link_preview(self, preview, url, text, pos, image, icon,
+                        reason):
         if preview in self.link_previews:
             self.link_previews.remove(preview)
         preview.deleteLater()
@@ -3067,6 +3068,7 @@ class BeeGraphicsView(MainControlsMixin,
         item = BeePixmapItem(without_pointless_alpha(image))
         item.setScale(item.fit_scale_to(self.new_image_size()))
         item.caption = url
+        item.link_icon = icon
         self.insert_at([item], pos, 'Paste link')
         logger.info(f'Pasted a preview of {url}')
 

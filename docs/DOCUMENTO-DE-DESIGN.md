@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **13.9** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.0** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -61,6 +61,18 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   programas que não são browsers (Amazon, Behance), recebe o endereço como
   nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
   vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
+  - **Ícone do site** (14.0) no canto superior esquerdo, num quadrado
+    branco de cantos redondos com uma borda ténue (para se ver também sobre
+    imagens brancas), com 12% do lado mais curto da imagem. É o ícone do
+    separador do browser, no tamanho mais nítido que o site oferecer: um
+    ícone de separador com 64 px ou mais, ou desenhado (SVG, lido a
+    256 px); senão o ícone para telemóveis (apple-touch-icon, o mesmo
+    logótipo maior); senão o maior do separador; senão `/favicon.ico`. Se
+    um falhar, tenta o seguinte. Vem ao mesmo tempo que a imagem e não a
+    atrasa mais de 6 s; sem ícone, a imagem vem na mesma.
+  - Fica guardado no quadro (`link_icon`, PNG até 128 px nos dados da
+    imagem). Versões anteriores abrem o quadro e simplesmente não o
+    mostram. Não fica espelhado nem deformado ao virar ou esticar a imagem.
 - **Memória:** as imagens ficam guardadas comprimidas, como estão no ficheiro,
   com uma cópia pequena (256 px) para desenhar enquanto não há melhor. São
   abertas ao tamanho a que são vistas, em segundo plano, e largadas 30 s

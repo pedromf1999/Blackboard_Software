@@ -32,15 +32,35 @@ def fetch(qtbot, url):
     preview = LinkPreview(url, manager)
     result = {}
     preview.finished.connect(
-        lambda image, reason: result.update(image=image, reason=reason))
+        lambda image, icon, reason: result.update(
+            image=image, reason=reason))
     preview.start()
     qtbot.waitUntil(lambda: bool(result), timeout=10000)
     return result['image'], result['reason']
 
 
+class Clipboard:
+    """Stands in for the computer's clipboard, which another program
+    may be holding while the tests run."""
+
+    def __init__(self, text):
+        self.data = QtCore.QMimeData()
+        self.data.setText(text)
+
+    def mimeData(self):
+        return self.data
+
+    def image(self):
+        return QtGui.QImage()
+
+    def text(self):
+        return self.data.text()
+
+
 def paste(view, text):
-    QtWidgets.QApplication.clipboard().setText(text)
-    view.on_action_paste()
+    with patch.object(QtWidgets.QApplication, 'clipboard',
+                      return_value=Clipboard(text)):
+        view.on_action_paste()
 
 
 # What counts as a link

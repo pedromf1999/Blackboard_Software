@@ -165,6 +165,17 @@ def text_at_screen_size(painter, rect, size):
     return smaller, size * scale
 
 
+def image_to_base64_png(image):
+    """A small picture as text, to be kept among an item's settings."""
+
+    data = QtCore.QByteArray()
+    buffer = QtCore.QBuffer(data)
+    buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+    image.save(buffer, 'PNG')
+    buffer.close()
+    return bytes(data.toBase64()).decode('ascii')
+
+
 def web_addresses(text):
     """The web addresses in some words, found as a note finds them.
 
@@ -2072,6 +2083,10 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.outline_color = QtGui.QColor(*self.DEFAULT_OUTLINE_COLOR)
         # An empty caption means no band at all
         self._caption = ''
+        # The icon of the site a link's picture came from, shown in its
+        # corner; null for any other picture
+        self._link_icon = QtGui.QImage()
+        self._link_icon_pixmap = None
         self.caption_color = QtGui.QColor(*self.DEFAULT_CAPTION_COLOR)
         self.caption_editing = False
         self.caption_editor = None
@@ -2098,6 +2113,9 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             item.outline_color = QtGui.QColor(*color)
         item.caption = data.get('caption', '')
         item.band_scale = data.get('band_scale', 1)
+        if data.get('link_icon'):
+            item.link_icon = QtGui.QImage.fromData(
+                QtCore.QByteArray.fromBase64(data['link_icon'].encode()))
         color = data.get('caption_color')
         if color:
             item.caption_color = QtGui.QColor(*color)
@@ -2607,6 +2625,10 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
                          self.crop.width(),
                          self.crop.height()]}
         data.update(self.band_scale_save_data())
+        if not self.link_icon.isNull():
+            # Small, so kept with the rest rather than as a picture of
+            # its own; a version that knows nothing of it passes it by
+            data['link_icon'] = image_to_base64_png(self.link_icon)
         return data
 
     def get_filename_for_export(self, imgformat, save_id_default=None):
@@ -2854,6 +2876,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         item.caption = self.caption
         item.caption_color = QtGui.QColor(self.caption_color)
         item.band_scale = self.band_scale
+        item.link_icon = self.link_icon
         for child in self.childItems():
             if hasattr(child, 'save_id'):
                 copy = child.create_copy()
@@ -3134,6 +3157,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             source = QtCore.QRectF(crop.x() * fx, crop.y() * fy,
                                    crop.width() * fx, crop.height() * fy)
             painter.drawPixmap(crop, picture, source)
+            self.paint_link_icon(painter)
             # The caption first: a contour is centred on the edge it
             # follows, and the band drawn over it swallowed the inner
             # half, leaving the frame half as thick along the caption
@@ -3141,6 +3165,79 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             self.paint_caption(painter)
             self.paint_outline(painter)
             self.paint_selectable(painter, option, widget)
+
+    # The site's icon in the top left corner of a link's picture: a share
+    # of the picture's shorter side, set in from the corner, on a white
+    # tile so that a dark icon still shows on a dark picture
+    LINK_ICON_FRACTION = 0.12
+    LINK_ICON_INSET_FRACTION = 0.035
+    LINK_ICON_PADDING_FRACTION = 0.14
+    # The largest the icon is kept at: it is shown small
+    LINK_ICON_KEPT = 128
+
+    @property
+    def link_icon(self):
+        return self._link_icon
+
+    @link_icon.setter
+    def link_icon(self, image):
+        image = QtGui.QImage(image) if image is not None else QtGui.QImage()
+        if not image.isNull() and max(image.width(),
+                                      image.height()) > self.LINK_ICON_KEPT:
+            image = image.scaled(
+                self.LINK_ICON_KEPT, self.LINK_ICON_KEPT,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+        self._link_icon = image
+        self._link_icon_pixmap = None
+        self.update()
+
+    def link_icon_rect(self, stretch=(1, 1), flip=1):
+        """Where the white tile goes, in a space with the stretch and the
+        flip taken off, so that the icon keeps its shape and is never
+        mirrored. None when the picture has no icon."""
+
+        if self._link_icon.isNull():
+            return None
+        across, down = stretch
+        crop = QtCore.QRectF(
+            QtCore.QPointF(self.crop.left() * across * flip,
+                           self.crop.top() * down),
+            QtCore.QPointF(self.crop.right() * across * flip,
+                           self.crop.bottom() * down)).normalized()
+        side = min(crop.width(), crop.height())
+        size = side * self.LINK_ICON_FRACTION
+        inset = side * self.LINK_ICON_INSET_FRACTION
+        return QtCore.QRectF(crop.left() + inset, crop.top() + inset,
+                             size, size)
+
+    def paint_link_icon(self, painter):
+        across, down = self.stretch
+        flip = self.flip()
+        tile = self.link_icon_rect((across, down), flip)
+        if tile is None or across <= 0 or down <= 0:
+            return
+        if self._link_icon_pixmap is None:
+            self._link_icon_pixmap = QtGui.QPixmap.fromImage(self._link_icon)
+        painter.save()
+        painter.scale(flip / across, 1 / down)
+        painter.setRenderHint(
+            QtGui.QPainter.RenderHint.SmoothPixmapTransform)
+        # A faint edge, so that the tile still shows on a white picture
+        edge = QtGui.QPen(QtGui.QColor(0, 0, 0, 45), tile.width() * 0.03)
+        painter.setPen(edge)
+        painter.setBrush(QtGui.QColor(255, 255, 255))
+        radius = tile.width() * 0.22
+        painter.drawRoundedRect(tile, radius, radius)
+        padding = tile.width() * self.LINK_ICON_PADDING_FRACTION
+        room = tile.adjusted(padding, padding, -padding, -padding)
+        icon = self._link_icon_pixmap
+        # Its own proportions, in the middle of the tile
+        fit = min(room.width() / icon.width(), room.height() / icon.height())
+        drawn = QtCore.QRectF(0, 0, icon.width() * fit, icon.height() * fit)
+        drawn.moveCenter(room.center())
+        painter.drawPixmap(drawn, icon, QtCore.QRectF(icon.rect()))
+        painter.restore()
 
     def paint_outline(self, painter):
         """Draw the contour, sitting astride the edge of the picture.
