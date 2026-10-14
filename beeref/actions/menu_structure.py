@@ -191,6 +191,7 @@ menu_structure = [
             MENU_SEPARATOR,
             'pin_note',
             'fold_pinned_notes',
+            'link_as_preview',
             MENU_SEPARATOR,
             'text_tool',
             'text_tasks',

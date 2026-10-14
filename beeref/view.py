@@ -3048,6 +3048,11 @@ class BeeGraphicsView(MainControlsMixin,
         """
 
         note = self.paste_text(text, pos)
+        self.fetch_preview(url, text, note)
+
+    def fetch_preview(self, url, text, note):
+        """Fetch the picture for a link, to take the place of its note."""
+
         if self.network is None:
             self.network = QtNetwork.QNetworkAccessManager(self)
         preview = link_preview.LinkPreview(url, self.network, self)
@@ -3083,6 +3088,33 @@ class BeeGraphicsView(MainControlsMixin,
 
         return [item for item in self.scene.selected_images()
                 if link_preview.link_in(item.caption)]
+
+    def selected_link_notes(self):
+        """The selected notes that are a web address and nothing else.
+
+        Not one with a title, or pinned to the window: its picture would
+        have nowhere to keep either.
+        """
+
+        return [item for item in self.scene.selected_text_items()
+                if not item.is_pinned and not item.shows_header()
+                and link_preview.link_in(item.toPlainText())]
+
+    def on_action_link_as_preview(self):
+        """Show each selected link as the picture its page offers, with
+        the site's icon, as a pasted link is shown."""
+
+        notes = self.selected_link_notes()
+        if not notes:
+            return
+        if self.scene.edit_item in notes:
+            # Its words are settled first: a note still being written in
+            # is one the picture would not take the place of
+            self.scene.edit_item.exit_edit_mode()
+        for note in notes:
+            text = note.toPlainText()
+            self.fetch_preview(link_preview.link_in(text), text, note)
+        widgets.BeeNotification(self, 'Fetching a preview of the link...')
 
     def on_action_link_as_text(self):
         """Put each selected link's picture away, leaving the link as a
@@ -3755,6 +3787,7 @@ class BeeGraphicsView(MainControlsMixin,
         items = self.scene.selected_text_items()
         if toolbar is not None and items:
             toolbar.update_title(items[0])
+            toolbar.show_link_button(bool(self.selected_link_notes()))
         self.pin_toolbar_to(toolbar, items)
 
     def update_draw_item_toolbar(self):

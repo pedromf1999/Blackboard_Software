@@ -79,8 +79,20 @@ class TextToolBar(PinnedToolBar):
             'pin', 'Pin to the window, where it stays in sight (Ctrl+P)',
             view.on_action_pin_note)
         self.pin.setCheckable(True)
+        # Only on a note that is a link: shown as the picture its page
+        # offers, the way a pasted link is. The same button on the
+        # picture's bar takes it back to the note.
+        self.as_preview = self.add_button(
+            'link', "Show the link's preview",
+            view.on_action_link_as_preview)
+        self.as_preview.setVisible(False)
 
         self.adjustSize()
+
+    def show_link_button(self, shown):
+        if self.as_preview.isVisibleTo(self) != shown:
+            self.as_preview.setVisible(shown)
+            self.adjustSize()
 
     def on_color(self):
         """Colour the title if one is being written, else the box."""

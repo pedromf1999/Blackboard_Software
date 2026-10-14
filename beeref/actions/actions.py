@@ -559,6 +559,13 @@ actions = ActionList([
         callback='on_action_image_outline_color',
         group='active_when_image_selection',
     ),
+    # And back: a note that is a link, shown as its picture
+    Action(
+        id='link_as_preview',
+        text='Show Link &Preview',
+        callback='on_action_link_as_preview',
+        group='active_when_text_selection',
+    ),
     # A link's picture put away, leaving the link as a note
     Action(
         id='link_as_text',

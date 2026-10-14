@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.3** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -70,6 +70,11 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     Text. A imagem dá lugar à nota com o link, no mesmo sítio; Ctrl+Z
     devolve a imagem. Com várias selecionadas, todas as de links mudam
     juntas, num só passo.
+  - **E de volta à imagem** (14.3): uma nota que é só um link (sem título,
+    não afixada) mostra o mesmo ícone de corrente na barra dela, "Show the
+    link's preview", também em Text → Show Link Preview. Vai buscar a
+    imagem e o ícone do site e troca a nota por eles, como ao colar. Uma
+    nota a ser escrita é fechada primeiro.
   - **Ícone do site** (14.0) no canto superior esquerdo, num quadrado
     branco de cantos redondos com uma borda ténue (para se ver também sobre
     imagens brancas), com 12% do lado mais curto da imagem. É o ícone do
