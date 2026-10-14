@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.3** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -50,7 +50,8 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   opacidade, virar (H / V), redimensionar pelos cantos (mantém a proporção) e
   esticar pelas arestas.
 - **Descrição** (caption): faixa por baixo da imagem, com o texto a quebrar
-  linha. Os links na descrição ficam sublinhados e abrem com Ctrl+clique.
+  linha. As quebras de linha são decididas ao tamanho da própria descrição
+  e mantêm-se a qualquer zoom, como nos títulos (14.4). Os links na descrição ficam sublinhados e abrem com Ctrl+clique.
   Abre-se com T ou duplo clique.
 - Um esboço feito por cima de uma imagem fica preso a ela.
 - **Pré-visualização de links** (13.8): colar um endereço web sozinho
@@ -471,6 +472,12 @@ não executar nenhum — está por resolver.
 - O caminho do repositório tem espaços: se o PyInstaller falhar, é a primeira
   suspeita.
 - Um ambiente `.venv` copiado de outro PC não funciona; refaz-se.
+- **Texto desenhado ao tamanho do ecrã não pode decidir onde quebra a
+  linha** (14.4): as letras não crescem exatamente em proporção com o zoom
+  (o ecrã acerta-as aos píxeis), e uma descrição passava de 4 para 5 ou 6
+  linhas ao afastar, saindo da faixa. As quebras vêm de
+  `BeePixmapItem.caption_breaks`, ao tamanho da descrição, e o desenho usa
+  essas mesmas quebras (`QTextLine.setNumColumns`).
 - **Os dicionários são uns dois milhões de pequenos objetos** do Python. O
   coletor de lixo do Python percorre de vez em quando tudo o que existe, e
   com eles lá dentro parava a janela um quarto de segundo de cada vez. São

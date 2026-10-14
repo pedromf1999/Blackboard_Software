@@ -2083,6 +2083,9 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.outline_color = QtGui.QColor(*self.DEFAULT_OUTLINE_COLOR)
         # An empty caption means no band at all
         self._caption = ''
+        # Where its lines break, kept with what they were worked out
+        # for; see caption_breaks
+        self._caption_breaks = None
         # The icon of the site a link's picture came from, shown in its
         # corner; null for any other picture
         self._link_icon = QtGui.QImage()
@@ -2465,6 +2468,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         # A new line pasted in stays one, as drawText has it, without
         # changing where anything is in the words
         text = self.caption.replace('\n', chr(0x2028))
+        breaks = self.caption_breaks(text)
         layout = QtGui.QTextLayout(text, font)
         option = QtGui.QTextOption()
         option.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
@@ -2483,11 +2487,13 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         leading = QtGui.QFontMetricsF(font).leading()
         height = -leading
         layout.beginLayout()
-        while True:
+        for start, length in breaks:
             line = layout.createLine()
             if not line.isValid():
                 break
-            line.setLineWidth(room.width())
+            # The words this line had at the caption's own size; see
+            # caption_breaks
+            line.setNumColumns(length)
             # On whole pixels, as drawText puts them
             height = math.ceil(height + leading)
             line.setPosition(QtCore.QPointF(0, height))
@@ -2502,6 +2508,46 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
                 room.x() + (room.width() - line.horizontalAdvance()) / 2,
                 top))
         return layout, places
+
+    def caption_breaks(self, text):
+        """Where each line of the caption starts, and how many letters
+        it holds: (start, length) for each.
+
+        Decided once, at the caption's own size in the picture's width,
+        not at the size it is seen at. Letters at different sizes are
+        not quite in proportion -- the screen snaps them to its pixels
+        -- so wrapping at the size on screen moved words from line to
+        line as the board was zoomed, and the same caption came out in
+        four, five or six lines. The band is measured at this size too.
+        """
+
+        size = self.caption_size()
+        width = self.caption_text_width()
+        if size > SAFE_FONT_SIZE:
+            # What the font engine can manage, the room scaled with it
+            width *= SAFE_FONT_SIZE / size
+            size = SAFE_FONT_SIZE
+        key = (text, size, width)
+        if self._caption_breaks is not None and (
+                self._caption_breaks[0] == key):
+            return self._caption_breaks[1]
+        font = self.caption_font()
+        font.setPointSizeF(size)
+        layout = QtGui.QTextLayout(text, font)
+        option = QtGui.QTextOption()
+        option.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        layout.setTextOption(option)
+        breaks = []
+        layout.beginLayout()
+        while True:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(width)
+            breaks.append((line.textStart(), line.textLength()))
+        layout.endLayout()
+        self._caption_breaks = (key, breaks)
+        return breaks
 
     def caption_url_at(self, pos):
         """The web address in the caption under this point, if any."""
