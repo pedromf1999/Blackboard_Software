@@ -221,6 +221,47 @@ def simplify_color_dialog(dialog, legend=None):
         screen_button.setIconSize(QtCore.QSize(20, 20))
         screen_button.setText('')
         screen_button.setToolTip('Pick a colour from anywhere on the screen')
+        screen_button.setObjectName('eyedropper')
         screen_button.setFixedSize(34, 34)
 
     dialog.adjustSize()
+
+
+def add_no_color_button(dialog, tooltip, on_click):
+    """A button for no colour at all, beside the eyedropper.
+
+    A white swatch struck through in red, the way design programs show
+    "none". Where there is no eyedropper to stand beside, it goes with
+    OK and Cancel.
+    """
+
+    button = QtWidgets.QPushButton(dialog)
+    button.setObjectName('no_color')
+    button.setIcon(BeeAssets().color_icon('no_color'))
+    button.setIconSize(QtCore.QSize(20, 20))
+    button.setToolTip(tooltip)
+    button.setFixedSize(34, 34)
+    button.setAutoDefault(False)
+    button.clicked.connect(on_click)
+    eyedropper = dialog.findChild(QtWidgets.QPushButton, 'eyedropper')
+    holder = (layout_holding(dialog.layout(), eyedropper)
+              if eyedropper is not None else None)
+    if holder is not None:
+        layout, index = holder
+        if isinstance(layout, QtWidgets.QHBoxLayout):
+            layout.insertWidget(index + 1, button)
+        else:
+            # The eyedropper sits in a column of its own: the two go
+            # side by side in a row put where it was
+            layout.removeWidget(eyedropper)
+            row = QtWidgets.QHBoxLayout()
+            row.setSpacing(6)
+            row.addWidget(eyedropper)
+            row.addWidget(button)
+            row.addStretch(1)
+            layout.insertLayout(index, row)
+    else:
+        buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
+        buttons.addButton(
+            button, QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
+    return button

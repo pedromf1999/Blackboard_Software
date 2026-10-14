@@ -1490,9 +1490,9 @@ class BeeGraphicsView(MainControlsMixin,
         change.
 
         Returns the chosen colour, or None if the dialog was cancelled.
-        With ``none_label``, the dialog also has a button by that name
-        for no colour at all, which is previewed and returned as an
-        invalid colour.
+        With ``none_label``, the dialog also has a button for no colour
+        at all, which says that when pointed at, and which is previewed
+        and returned as an invalid colour.
 
         The preview writes straight to the items and deliberately does
         not touch the undo stack, so the caller has to put the original
@@ -1515,11 +1515,8 @@ class BeeGraphicsView(MainControlsMixin,
                 preview(QtGui.QColor())
                 dialog.accept()
 
-            buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-            none_button = buttons.addButton(
-                none_label, QtWidgets.QDialogButtonBox.ButtonRole.ActionRole)
-            none_button.setAutoDefault(False)
-            none_button.clicked.connect(choose_none)
+            widgets.color_dialog.add_no_color_button(
+                dialog, none_label, choose_none)
         # After simplifying, so the dialog is placed at the size it
         # ends up being rather than the size Qt built it at
         self.move_dialog_beside_selection(dialog)
@@ -2340,7 +2337,7 @@ class BeeGraphicsView(MainControlsMixin,
 
         color = self.pick_color_live(
             'Choose Highlight Colour', QtGui.QColor(), preview,
-            none_label='No Highlight')
+            none_label='No highlight')
         # Whatever the last preview left behind is the chosen result;
         # the originals go back so the undo command records the text as
         # it was before any of this

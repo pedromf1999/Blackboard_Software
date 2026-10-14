@@ -1,4 +1,4 @@
-"""Taking a highlight off: the No Highlight button in its colour dialog."""
+"""Taking a highlight off: the no-colour button in its colour dialog."""
 
 from unittest.mock import patch
 
@@ -6,6 +6,7 @@ from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
 from beeref.items import BeeTextItem
+from beeref.widgets.color_dialog import layout_holding
 
 
 YELLOW = QtGui.QColor(255, 255, 0)
@@ -30,12 +31,14 @@ def highlighted_note(view, text='one two three'):
     return item
 
 
-def press_no_highlight(dialog):
-    """Stand in for the dialog: press its No Highlight button."""
+def no_color_button(dialog):
+    return dialog.findChild(QtWidgets.QPushButton, 'no_color')
 
-    buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-    [button for button in buttons.buttons()
-     if button.text() == 'No Highlight'][0].click()
+
+def press_no_highlight(dialog):
+    """Stand in for the dialog: press its no-colour button."""
+
+    no_color_button(dialog).click()
     return dialog.result()
 
 
@@ -86,18 +89,26 @@ def test_apply_highlight_with_no_colour_removes_it(view):
 
 # The dialog
 
-def test_dialog_offers_no_highlight(view):
-    seen = []
+def test_dialog_offers_no_highlight_beside_the_eyedropper(view):
+    seen = {}
 
     def look(dialog):
-        buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-        seen.extend(button.text() for button in buttons.buttons())
+        button = no_color_button(dialog)
+        eyedropper = dialog.findChild(QtWidgets.QPushButton, 'eyedropper')
+        seen['tooltip'] = button.toolTip()
+        seen['text'] = button.text()
+        seen['icon'] = not button.icon().isNull()
+        row = layout_holding(dialog.layout(), button)[0]
+        seen['beside'] = (
+            isinstance(row, QtWidgets.QHBoxLayout)
+            and row is layout_holding(dialog.layout(), eyedropper)[0])
         return 0
 
     highlighted_note(view)
     with patch.object(QtWidgets.QColorDialog, 'exec', look):
         view.on_action_text_highlight_color()
-    assert 'No Highlight' in seen
+    assert seen == {'tooltip': 'No highlight', 'text': '', 'icon': True,
+                    'beside': True}
 
 
 def test_no_highlight_takes_it_off(view):
@@ -123,7 +134,7 @@ def test_pick_color_returns_no_colour_for_the_button(view):
     with patch.object(QtWidgets.QColorDialog, 'exec', press_no_highlight):
         color = view.pick_color_live(
             'Choose', QtGui.QColor('red'), previewed.append,
-            none_label='No Highlight')
+            none_label='No highlight')
     assert color is not None
     assert not color.isValid()
     assert not previewed[-1].isValid()
@@ -133,11 +144,14 @@ def test_other_colour_dialogs_have_no_such_button(view):
     seen = []
 
     def look(dialog):
-        buttons = dialog.findChild(QtWidgets.QDialogButtonBox)
-        seen.extend(button.text() for button in buttons.buttons())
+        seen.append(no_color_button(dialog))
         return 0
 
     with patch.object(QtWidgets.QColorDialog, 'exec', look):
         view.pick_color_live('Choose', QtGui.QColor('red'), lambda c: None)
-    assert seen
-    assert 'No Highlight' not in seen
+    assert seen == [None]
+
+
+def test_no_colour_icon_is_drawn():
+    from beeref.assets import BeeAssets
+    assert not BeeAssets().color_icon('no_color').isNull()
