@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.1** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.2** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -64,6 +64,12 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   selecionado. Um site sem imagem, ou que recusa programas que não são
   browsers (Amazon, Behance), deixa a nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
   vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
+  - **Voltar a texto** (14.2): com a imagem de um link selecionada (uma
+    imagem cuja descrição é só um endereço), aparece na barra dela um ícone
+    de corrente, "Show as a text link", também em Images → Show Link as
+    Text. A imagem dá lugar à nota com o link, no mesmo sítio; Ctrl+Z
+    devolve a imagem. Com várias selecionadas, todas as de links mudam
+    juntas, num só passo.
   - **Ícone do site** (14.0) no canto superior esquerdo, num quadrado
     branco de cantos redondos com uma borda ténue (para se ver também sobre
     imagens brancas), com 12% do lado mais curto da imagem. É o ícone do

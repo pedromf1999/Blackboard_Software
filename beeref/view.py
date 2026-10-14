@@ -3074,29 +3074,56 @@ class BeeGraphicsView(MainControlsMixin,
         item.setScale(item.fit_scale_to(self.new_image_size()))
         item.caption = url
         item.link_icon = icon
-        self.replace_with(note, item, 'Show link preview')
+        self.replace_with([(note, item)], 'Show link preview')
         logger.info(f'Pasted a preview of {url}')
 
-    def replace_with(self, old, new, name):
-        """Put a new item where an old one is, in one step of undo.
+    def selected_link_previews(self):
+        """The selected pictures that came from pasting a link: their
+        caption is a web address and nothing else."""
+
+        return [item for item in self.scene.selected_images()
+                if link_preview.link_in(item.caption)]
+
+    def on_action_link_as_text(self):
+        """Put each selected link's picture away, leaving the link as a
+        note, the way it was before its preview came in."""
+
+        pictures = self.selected_link_previews()
+        if not pictures:
+            return
+        pairs = []
+        for picture in pictures:
+            note = BeeTextItem(picture.caption)
+            note.setScale(1 / self.get_scale())
+            pairs.append((picture, note))
+        self.replace_with(pairs, 'Show link as text')
+
+    def replace_with(self, pairs, name):
+        """Put each new item where an old one is, in one step of undo.
 
         Where it is now, which need not be where it was put down, and
-        in the group it is in. What else is selected stays selected: the
-        board has gone on being worked on since.
+        in the group it is in. A new item is selected if the old one
+        was, and what else is selected stays selected: the board may
+        have gone on being worked on since.
         """
 
-        # Measured as a paste measures what it puts down: the item
-        # itself, without a caption or selection handles
-        where = self.scene.itemsBoundingRect(items=[old]).center()
+        olds = [old for old, new in pairs]
         selected = [item for item in self.scene.selectedItems(user_only=True)
-                    if item is not old]
-        was_selected = old.isSelected()
+                    if item not in olds]
+        was_selected = [old.isSelected() for old in olds]
         self.undo_stack.beginMacro(name)
-        self.undo_stack.push(commands.DeleteItems(self.scene, [old]))
-        self.undo_stack.push(commands.InsertItems(self.scene, [new], where))
-        self.scene.put_in_group_at([new], where)
+        for old, new in pairs:
+            # Measured as a paste measures what it puts down: the item
+            # itself, without a caption or selection handles
+            where = self.scene.itemsBoundingRect(items=[old]).center()
+            self.undo_stack.push(commands.DeleteItems(self.scene, [old]))
+            self.undo_stack.push(
+                commands.InsertItems(self.scene, [new], where))
+            self.scene.put_in_group_at([new], where)
         self.undo_stack.endMacro()
-        new.setSelected(was_selected)
+        self.scene.deselect_all_items()
+        for (old, new), selected_before in zip(pairs, was_selected):
+            new.setSelected(selected_before)
         for item in selected:
             item.setSelected(True)
 

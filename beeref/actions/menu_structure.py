@@ -132,6 +132,7 @@ menu_structure = [
             'image_outline_color',
             'image_outline_thinner',
             'image_outline_thicker',
+            'link_as_text',
             MENU_SEPARATOR,
             'change_opacity',
             'grayscale',

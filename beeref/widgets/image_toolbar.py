@@ -17,6 +17,7 @@
 
 import logging
 
+from beeref.link_preview import link_in
 from beeref.widgets.pinned_toolbar import PinnedToolBar
 
 
@@ -58,6 +59,10 @@ class ImageToolBar(PinnedToolBar):
         self.thicker = self.add_button(
             'bigger', 'Bigger image (Ctrl++)',
             view.on_action_size_increase, repeat=True)
+        # Only on the picture of a pasted link: it goes back to being
+        # the link as a note
+        self.as_text = self.add_button(
+            'link', 'Show as a text link', view.on_action_link_as_text)
 
         self.adjustSize()
 
@@ -75,6 +80,8 @@ class ImageToolBar(PinnedToolBar):
         # Cropping is one picture at a time; it has its own mode, with
         # handles that belong to a single image
         self.crop.setEnabled(len(items) == 1)
+        self.as_text.setVisible(
+            any(link_in(item.caption) for item in items))
         self.caption.setEnabled(len(items) == 1)
         self.writing_caption = any(item.caption_editing for item in items)
         outlined = [item for item in items if item.has_outline()]

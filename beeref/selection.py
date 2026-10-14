@@ -291,13 +291,14 @@ class SelectableMixin(BaseItemMixin):
             # around it: only its own scale to make up for
             return value / self.scale()
 
-        if self.scene():
+        if self.scene() and self.scene().views():
             scale = self.scene().views()[0].get_scale()
             self._view_scale = scale
 
         # It can happen that the item is already removed from
-        # the scene but its boundingRect is still needed. Keep the
-        # last known scaling factor for that case
+        # the scene, or the scene from its window, but its
+        # boundingRect is still needed. Keep the last known scaling
+        # factor for that case
         return value / getattr(self, '_view_scale', 1) / self.scale()
 
     @property

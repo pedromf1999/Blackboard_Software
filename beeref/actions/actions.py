@@ -559,6 +559,13 @@ actions = ActionList([
         callback='on_action_image_outline_color',
         group='active_when_image_selection',
     ),
+    # A link's picture put away, leaving the link as a note
+    Action(
+        id='link_as_text',
+        text='Show Link as &Text',
+        callback='on_action_link_as_text',
+        group='active_when_image_selection',
+    ),
     # The size buttons size the image itself, so the contour's width is
     # changed from here
     Action(
