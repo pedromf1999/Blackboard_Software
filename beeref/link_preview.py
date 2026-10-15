@@ -31,6 +31,7 @@ check against and refuses every https site.
 import base64
 import binascii
 from html.parser import HTMLParser
+import json
 import logging
 import re
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -197,17 +198,36 @@ def link_in(text):
 
 
 class PageReader(HTMLParser):
-    """Reads a page's head for the picture it offers, and its icons."""
+    """Reads a page for the picture it offers, its icons, and the
+    pictures in it."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.found = {}
         # (kind, href, sizes, type) for each icon the page names
         self.icons = []
+        # The attributes of each picture in the page, in order
+        self.images = []
+        # The products the page describes for search engines, as text
+        self.structured = []
+        self._in_structured = False
+
+    def handle_data(self, data):
+        if self._in_structured:
+            self.structured[-1] += data
+
+    def handle_endtag(self, tag):
+        if tag == 'script':
+            self._in_structured = False
 
     def handle_starttag(self, tag, attrs):
         attrs = {key.lower(): value for key, value in attrs if value}
-        if tag == 'meta':
+        if tag == 'img':
+            self.images.append(attrs)
+        elif tag == 'script' and 'ld+json' in (attrs.get('type') or ''):
+            self._in_structured = True
+            self.structured.append('')
+        elif tag == 'meta':
             name = (attrs.get('property') or attrs.get('name') or '').lower()
             if name in IMAGE_PROPERTIES and attrs.get('content'):
                 self.found.setdefault(name, attrs['content'].strip())
@@ -224,7 +244,8 @@ class PageReader(HTMLParser):
 
 
 def read_page(html, page_url):
-    """What a page offers: its picture's address, and its icon's."""
+    """What a page offers: where its picture may be, best first, and
+    where its icon may be."""
 
     reader = PageReader()
     try:
@@ -233,18 +254,215 @@ def read_page(html, page_url):
         # A page bad enough to stop the reader may still have named its
         # picture before it did
         logger.debug(f'Could not read all of {page_url}')
-    image = None
+    named = None
     for name in IMAGE_PROPERTIES + ('image_src',):
         if name in reader.found:
-            image = urljoin(page_url, reader.found[name])
+            named = urljoin(page_url, reader.found[name])
             break
-    return image, icon_urls(reader.icons, page_url)
+    pictures = []
+    if named and not is_logo(named):
+        pictures.append(named)
+    # Many shops name no picture for links to them, or name their logo:
+    # the product's own picture is looked for in the page, the logo
+    # kept for when there is none
+    structured = structured_image(reader.structured, page_url)
+    if structured:
+        pictures.append(structured)
+    pictures.extend(content_images(reader.images, page_url)[:3])
+    if named and is_logo(named):
+        pictures.append(named)
+    tried = []
+    for picture in pictures:
+        for each in (picture, readable_format(picture)):
+            if each and each not in tried:
+                tried.append(each)
+    return tried, icon_urls(reader.icons, page_url)
+
+
+def readable_format(url):
+    """The same picture asked for in a format Qt reads, if the address
+    leaves the format to the server.
+
+    Services that size pictures for shops send AVIF when asked for
+    "auto", whatever the request says it can read, and Qt reads no
+    AVIF. None when the address does not ask for "auto".
+    """
+
+    for auto, png in (('format=auto', 'format=png'), ('f_auto', 'f_png'),
+                      ('fm=auto', 'fm=png')):
+        if auto in url:
+            return url.replace(auto, png)
+    return None
+
+
+def is_logo(url):
+    name = urlparse(url).path.rsplit('/', 1)[-1].lower()
+    return 'logo' in name
+
+
+def structured_image(texts, page_url):
+    """The picture of the product a page describes for search engines,
+    in schema.org's terms; or None."""
+
+    def pictures(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, list):
+            for each in value:
+                yield from pictures(each)
+        elif isinstance(value, dict):
+            for key in ('url', 'contentUrl'):
+                if isinstance(value.get(key), str):
+                    yield value[key]
+
+    def products(value):
+        if isinstance(value, list):
+            for each in value:
+                yield from products(each)
+        elif isinstance(value, dict):
+            kind = value.get('@type')
+            kinds = kind if isinstance(kind, list) else [kind]
+            if 'Product' in kinds:
+                yield value
+            for key in ('@graph', 'mainEntity', 'itemListElement'):
+                if key in value:
+                    yield from products(value[key])
+
+    for text in texts:
+        try:
+            data = json.loads(text)
+        except ValueError:
+            continue
+        for product in products(data):
+            for picture in pictures(product.get('image')):
+                if picture and not picture.startswith('data:'):
+                    return urljoin(page_url, picture)
+    return None
+
+
+# Words that mark a picture in a page as something other than the thing
+# the page is about. Matched against whole words of its address, its
+# description and its class; "logo" anywhere, as in "mcmlogo". Not the
+# names of parts a supplier sells: a seal, a thumb screw, a push button
+# and a track roller are all things a page may be about.
+NOT_THE_THING = {
+    'icon', 'icons', 'sprite', 'flag', 'flags', 'payment', 'paypal', 'visa',
+    'mastercard', 'certificate', 'certificado', 'badge', 'selo',
+    'avatar', 'placeholder', 'spinner', 'loading', 'loader', 'banner',
+    'teaser', 'footer', 'navigation', 'navicon', 'nav', 'menu', 'social',
+    'facebook', 'twitter', 'linkedin', 'instagram', 'pinterest', 'whatsapp',
+    'pixel', 'tracking', 'blank', 'spacer', 'arrow',
+    'cookie', 'emoji', 'rating', 'stars', 'qr', 'thumbnail',
+    'picto', 'recycling'}
+# Words that mark it as the thing itself, in the ways shops do
+THE_THING = {
+    'product', 'produto', 'producto', 'produit', 'produkt', 'artikel',
+    'article', 'item', 'zoom', 'main', 'hero', 'gallery', 'galeria',
+    'featured', 'primary', 'large'}
+# The least a picture must be, across and down, when it says how big
+SMALLEST = 100
+# Wider than this for its height, and it is a banner across the page
+WIDEST = 2.5
+
+
+def words(*texts):
+    found = set()
+    for text in texts:
+        found.update(word for word in re.split(r'[^a-z0-9]+', text.lower())
+                     if word)
+    return found
+
+
+def picture_address(attrs):
+    """The largest version of a picture the page has, by its address.
+
+    Shops put the small one in "src" and the large one aside for when it
+    is clicked or scrolled to.
+    """
+
+    for key in ('data-large_image', 'data-zoom-image', 'data-full',
+                'data-src', 'data-lazy-src', 'data-original'):
+        value = attrs.get(key, '')
+        if value.startswith(('http', '/')):
+            return value
+    sources = []
+    for part in (attrs.get('srcset') or attrs.get('data-srcset') or
+                 '').split(','):
+        bits = part.split()
+        if len(bits) == 2 and bits[1].endswith('w') and bits[1][:-1].isdigit():
+            sources.append((int(bits[1][:-1]), bits[0]))
+    if sources:
+        return max(sources)[1]
+    return attrs.get('src', '')
+
+
+def content_image(images, page_url):
+    """The picture in a page most likely to be the thing it is about,
+    or None; see content_images."""
+
+    found = content_images(images, page_url)
+    return found[0] if found else None
+
+
+def content_images(images, page_url):
+    """The pictures in a page likely to be the thing it is about, most
+    likely first.
+
+    One a shop marks as its product's -- WordPress's "wp-post-image", a
+    "Zoom" picture, "product" in its name, "itemprop" image, one loaded
+    first -- before any other; failing those, the largest that is not a
+    banner. Logos, icons, flags, means of payment, certificates and the
+    like are left out, as are drawings, animations and anything that
+    says it is under a hundred pixels. None rather than the wrong one.
+    """
+
+    found = []
+    for order, attrs in enumerate(images):
+        address = picture_address(attrs)
+        path = urlparse(address).path.lower()
+        if (not address or address.startswith('data:')
+                or path.endswith(('.svg', '.gif'))):
+            continue
+        described = ' '.join((path, attrs.get('alt', ''),
+                              attrs.get('class', ''), attrs.get('id', ''),
+                              attrs.get('title', '')))
+        named = words(described)
+        if 'logo' in described.lower() or named & NOT_THE_THING:
+            continue
+        try:
+            width = int(float(attrs.get('width', 0)))
+            height = int(float(attrs.get('height', 0)))
+        except ValueError:
+            width = height = 0
+        if (width and width < SMALLEST) or (height and height < SMALLEST):
+            continue
+        if width and height and max(width / height,
+                                    height / width) > WIDEST:
+            continue
+        marked = (bool(named & THE_THING)
+                  or 'wp-post-image' in attrs.get('class', '')
+                  or attrs.get('itemprop') == 'image'
+                  or attrs.get('fetchpriority') == 'high')
+        if not marked and min(width, height) < 2 * SMALLEST:
+            # Neither marked as the thing, nor said to be big enough to
+            # be taken for it
+            continue
+        # Marked first, then the largest, then the first in the page
+        found.append(((marked, width * height, -order),
+                      urljoin(page_url, address)))
+    found.sort(reverse=True)
+    unique = []
+    for score, address in found:
+        if address not in unique:
+            unique.append(address)
+    return unique
 
 
 def preview_image_url(html, page_url):
     """The address of the picture a page offers, or None."""
 
-    return read_page(html, page_url)[0]
+    pictures = read_page(html, page_url)[0]
+    return pictures[0] if pictures else None
 
 
 def icon_side(sizes, kind):
@@ -446,14 +664,15 @@ class LinkPreview(QtCore.QObject):
             self.image = QtGui.QImage.fromData(data)
             icons = [urljoin(page_url, '/favicon.ico')]
         else:
-            image_url, icons = read_page(
+            pictures, icons = read_page(
                 page_text(data, content_type), page_url)
-            if image_url is None:
+            if not pictures:
                 self.finish(QtGui.QImage(), 'The page offers no picture')
                 return
-            logger.debug(f'Preview picture of {self.url}: {image_url}')
-            self.request(image_url, self.on_image, MAX_IMAGE_BYTES,
-                         TIMEOUT_MS)
+            logger.debug(f'Preview picture of {self.url}: {pictures[0]}')
+            # Each tried in turn until one can be read
+            self.image_addresses = pictures
+            self.next_image()
         if not self.icon_asked:
             self.icon_asked = True
             self.icon_addresses = icons
@@ -477,8 +696,10 @@ class LinkPreview(QtCore.QObject):
                  else QtGui.QImage.fromData(bytes(reply.readAll())))
         if image.isNull():
             if self.image_addresses or self.page_after:
-                # A YouTube video without the largest still has the
-                # next, and failing all of them its page
+                # The next place the picture may be: a YouTube video
+                # without the largest still has the next, a shop's
+                # picture Qt cannot read has another; and failing all
+                # of a video's, its page
                 self.next_image()
             elif self.failed(reply):
                 self.finish(image, reply.errorString())

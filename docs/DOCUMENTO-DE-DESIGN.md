@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.6** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.7** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -73,6 +73,21 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     as faixas pretas), e o ícone de gstatic.com. Mais rápido (0,1 s). Se não
     houver capa, tenta a página. Canais (@nome) e diretos já terminados
     ficam como nota. Não se mexe em cookies.
+  - **Lojas e fornecedores** (14.7): muitos não declaram imagem para
+    partilhas, ou declaram o logótipo. Por ordem: a imagem declarada (se não
+    for logótipo); a do produto nos dados para motores de busca
+    (schema.org Product); a imagem principal na página, reconhecida como as
+    lojas a marcam (wp-post-image do WordPress, "Zoom" das lojas SAP como
+    Kipp e Norelem, "product"/"produto" no nome, itemprop=image, carregada
+    primeiro), na versão maior que houver; uma imagem grande que não seja
+    banner; por fim o logótipo declarado. Ficam de fora logótipos, ícones,
+    bandeiras, pagamentos, certificados, selos, marcadores vazios, SVG, GIF
+    e imagens com menos de 100 px. Se uma não se ler (AVIF, que o Qt não
+    lê), tenta a seguinte, e a mesma pedida em PNG quando o endereço pede
+    "format=auto". Testado: AHP, Meusburger, Kipp, Norelem, Decotrust,
+    Puzzle Advance, Fabory, DME com o produto; McMaster com o logótipo;
+    Festo recusa programas (não se contorna); Misumi e GrabCAD só montam a
+    página com JavaScript e ficam nota.
   - **Pinterest** funciona como qualquer site (a imagem do pin, 736 px, e o
     ícone). **Google Imagens** (14.6): um link "imgres" traz a imagem
     verdadeira diretamente, com a página de onde vem na descrição; um
