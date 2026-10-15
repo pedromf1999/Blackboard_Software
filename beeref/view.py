@@ -168,6 +168,9 @@ class BeeGraphicsView(MainControlsMixin,
 
         self.filename = None
         self.previous_transform = None
+        # Where the board was, and what was selected, before a search
+        # first moved it: what Go Back in the find bar returns to
+        self.before_search = None
         self.active_mode = None
         # Wheel zooming is spread over a few frames: a notch of the
         # wheel is a change of about twelve percent, and arriving there
@@ -1189,6 +1192,9 @@ class BeeGraphicsView(MainControlsMixin,
         dock = getattr(self, 'layers_dock', None)
         if dock is not None:
             dock.tree.forget_items()
+        # Nowhere on the next board to go back to
+        if getattr(self, 'find_bar', None) is not None:
+            self.forget_before_search()
         # A link pasted on the board being closed is not wanted on the
         # next one
         for preview in self.link_previews:
@@ -1874,6 +1880,9 @@ class BeeGraphicsView(MainControlsMixin,
                 (self.text_search_index + step) % len(matches))
         item = matches[self.text_search_index]
         logger.debug(f'Text search match {self.text_search_index}: {item}')
+        if not getattr(item, 'is_pinned', False):
+            # Before the board is moved and the match selected
+            self.remember_before_search()
         self.scene.deselect_all_items()
         if getattr(item, 'is_pinned', False):
             # In sight already, at its own size: opened out if it, or
@@ -1894,6 +1903,46 @@ class BeeGraphicsView(MainControlsMixin,
                 self,
                 f'Match {self.text_search_index + 1} of {len(matches)}'
                 f' for "{self.text_search_query}" -- F3 to cycle through')
+
+    def remember_before_search(self):
+        """Keep where the board is, for Go Back, unless a search already
+        kept where it was before its first match."""
+
+        if self.before_search is not None:
+            return
+        self.before_search = {
+            'transform': QtGui.QTransform(self.transform()),
+            'center': self.mapToScene(self.get_view_center()),
+            'selected': self.scene.selectedItems(user_only=True),
+        }
+        self.find_bar.update_back()
+
+    def forget_before_search(self):
+        self.before_search = None
+        self.find_bar.update_back()
+
+    def go_back_from_search(self):
+        """Put the board back where it was before searching, with what
+        was selected then selected again."""
+
+        state = self.before_search
+        if state is None:
+            return
+        logger.debug('Back to where the board was before searching')
+        self.before_search = None
+        self.setTransform(state['transform'])
+        # The room round the board is measured in what the window shows,
+        # and measured at the zoom of the match it was too little for
+        # the old view to be centred where it was
+        self.recalc_scene_rect()
+        self.centerOn(state['center'])
+        self.update_pinned_toolbars()
+        self.scene.deselect_all_items()
+        for item in state['selected']:
+            # Unless it has been deleted since
+            if item.scene() is self.scene:
+                item.setSelected(True)
+        self.find_bar.update_back()
 
     def zoom_to_match(self, item):
         """Go to the word itself, not merely to the note holding it.

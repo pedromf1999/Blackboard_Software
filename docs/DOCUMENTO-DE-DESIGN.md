@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.9** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -285,6 +285,12 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   descrições das imagens.
 - Cada resultado é escolhido e o zoom vai até a palavra ficar legível. Numa
   nota afixada, abre-a sem mexer no quadro.
+- **Go Back** (14.9): na barra de pesquisa, volta à vista (ampliação e
+  centro) e à seleção de antes do primeiro salto da pesquisa, mesmo depois
+  de passar por vários resultados. Fica ativo só quando há para onde
+  voltar. Abrir a barra de novo começa uma pesquisa nova; fechá-la esquece
+  o caminho de volta. Uma nota apagada entretanto não volta a ser
+  selecionada.
 
 ## 8. Copiar e colar
 - Copiar texto para outros programas leva o título e as listas com as caixas

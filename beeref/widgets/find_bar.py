@@ -64,6 +64,12 @@ class FindBar(QtWidgets.QWidget):
             self.on_previous)
         self.next_button = self.add_button(
             'Find Next', 'Go to the next match (Enter or F3)', self.on_next)
+        # Searching takes the board far from what was being worked on;
+        # this brings it back
+        self.back_button = self.add_button(
+            'Go Back', 'Back to where you were before searching',
+            self.view.go_back_from_search)
+        self.back_button.setEnabled(False)
 
         self.count = QtWidgets.QLabel(self)
         # Room for the longest thing it says, so the bar keeps its size
@@ -84,6 +90,7 @@ class FindBar(QtWidgets.QWidget):
         layout.addWidget(self.input)
         layout.addWidget(self.previous_button)
         layout.addWidget(self.next_button)
+        layout.addWidget(self.back_button)
         layout.addWidget(self.count)
         layout.addWidget(self.close_button)
         self.setLayout(layout)
@@ -102,8 +109,14 @@ class FindBar(QtWidgets.QWidget):
         return button
 
     def open(self, text=''):
-        """Show the bar holding the last word, ready to be typed over."""
+        """Show the bar holding the last word, ready to be typed over.
 
+        Opened afresh, it starts a new search, with nowhere yet to go
+        back to; asked for again while open, it keeps that.
+        """
+
+        if self.isHidden():
+            self.view.forget_before_search()
         self.input.setText(text)
         self.reposition()
         self.show()
@@ -114,6 +127,8 @@ class FindBar(QtWidgets.QWidget):
     def close_bar(self):
         logger.debug('Closing the find bar')
         self.hide()
+        # Go Back went with the bar: the board is where it is meant to be
+        self.view.forget_before_search()
         # Back to the board, so its own keys work again straight away
         self.view.setFocus()
 
@@ -128,6 +143,9 @@ class FindBar(QtWidgets.QWidget):
 
     def on_previous(self):
         self.view.find_from_bar(self.input.text(), step=-1)
+
+    def update_back(self):
+        self.back_button.setEnabled(self.view.before_search is not None)
 
     def show_count(self, index, total):
         if total:
