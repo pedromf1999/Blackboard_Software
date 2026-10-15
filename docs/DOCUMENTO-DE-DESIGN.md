@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.4** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.5** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -65,6 +65,14 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   selecionado. Um site sem imagem, ou que recusa programas que não são
   browsers (Amazon, Behance), deixa a nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
   vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
+  - **YouTube** (14.5): na Europa, o YouTube mostra muitas vezes uma página
+    de consentimento de cookies em vez do vídeo, e essa página não tem
+    imagem. Para vídeos (link normal, youtu.be, Shorts, diretos, YouTube
+    Music, telemóvel, incorporado), o código do vídeo é tirado do link e a
+    capa vem diretamente de i.ytimg.com (alta resolução, senão a normal, sem
+    as faixas pretas), e o ícone de gstatic.com. Mais rápido (0,1 s). Se não
+    houver capa, tenta a página. Canais (@nome) e diretos já terminados
+    ficam como nota. Não se mexe em cookies.
   - **Voltar a texto** (14.2): com a imagem de um link selecionada (uma
     imagem cuja descrição é só um endereço), aparece na barra dela um ícone
     de corrente, "Show as a text link", também em Images → Show Link as

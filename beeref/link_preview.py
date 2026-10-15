@@ -31,7 +31,7 @@ check against and refuses every https site.
 from html.parser import HTMLParser
 import logging
 import re
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from PyQt6 import QtCore, QtGui, QtNetwork
 
@@ -65,6 +65,75 @@ SHARP_ICON = 64
 USER_AGENT = (b'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
               b'AppleWebKit/537.36 (KHTML, like Gecko) '
               b'Chrome/126.0 Safari/537.36')
+
+
+# A YouTube video's own code, eleven letters, digits, - and _
+YOUTUBE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
+# A video's still, largest first: not every video has the largest
+YOUTUBE_STILLS = ('https://i.ytimg.com/vi/{}/maxresdefault.jpg',
+                  'https://i.ytimg.com/vi/{}/hqdefault.jpg')
+# YouTube's icon, where Google keeps it, and where browsers look
+YOUTUBE_ICONS = (
+    'https://www.gstatic.com/youtube/img/branding/favicon/'
+    'favicon_144x144.png',
+    'https://www.youtube.com/favicon.ico')
+
+
+def youtube_video(url):
+    """The code of the YouTube video a link is to, or None.
+
+    However the link was written: a watch page, youtu.be, a Short, a
+    live stream, an embedded player, YouTube Music, the phone site.
+    """
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    host = (parsed.hostname or '').lower()
+    for prefix in ('www.', 'm.', 'music.'):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+    parts = [part for part in parsed.path.split('/') if part]
+    video = None
+    if host == 'youtu.be' and parts:
+        video = parts[0]
+    elif host in ('youtube.com', 'youtube-nocookie.com'):
+        if parts == ['watch']:
+            video = parse_qs(parsed.query).get('v', [None])[0]
+        elif len(parts) >= 2 and parts[0] in ('shorts', 'live', 'embed',
+                                              'v'):
+            video = parts[1]
+    if video and YOUTUBE_ID_RE.match(video):
+        return video
+    return None
+
+
+def without_black_bars(image):
+    """The picture without the black bands above and below it.
+
+    YouTube's smaller still is four by three, with a wide video in the
+    middle of it and black above and below; on a board those bands are
+    only in the way.
+    """
+
+    def dark(y):
+        for x in range(0, image.width(), max(1, image.width() // 32)):
+            color = image.pixelColor(x, y)
+            if max(color.red(), color.green(), color.blue()) > 24:
+                return False
+        return True
+
+    height = image.height()
+    top = 0
+    while top < height // 3 and dark(top):
+        top += 1
+    bottom = 0
+    while bottom < height // 3 and dark(height - 1 - bottom):
+        bottom += 1
+    if top < 2 or bottom < 2:
+        return image
+    return image.copy(0, top, image.width(), height - top - bottom)
 
 
 def link_in(text):
@@ -237,11 +306,48 @@ class LinkPreview(QtCore.QObject):
         # Each None until it is in
         self.image = None
         self.icon = None
-        # Where the icon may be, still to be tried
+        # Where the picture and the icon may be, still to be tried
+        self.image_addresses = []
         self.icon_addresses = []
+        # Whether the page is still to be read once the places the
+        # picture was looked for first have all been tried
+        self.page_after = False
+        # Whether the icon is already being looked for
+        self.icon_asked = False
 
     def start(self):
+        video = youtube_video(self.url)
+        if video is not None:
+            # YouTube shows people in Europe a page asking about cookies
+            # instead of the video, and that page offers no picture. A
+            # video's still and YouTube's icon are where they always
+            # are, so they are fetched from there, without the page.
+            logger.debug(f'YouTube video {video}: {self.url}')
+            self.image_addresses = [
+                still.format(video) for still in YOUTUBE_STILLS]
+            self.icon_addresses = list(YOUTUBE_ICONS)
+            # A stream that is no longer live has no still there; its
+            # page may still have one
+            self.page_after = True
+            self.next_image()
+            self.icon_asked = True
+            self.next_icon()
+            return
         self.request(self.url, self.on_page, MAX_PAGE_BYTES, TIMEOUT_MS)
+
+    def next_image(self):
+        """Ask for the next place the picture may be; or give up."""
+
+        if not self.image_addresses:
+            if self.page_after:
+                self.page_after = False
+                self.request(self.url, self.on_page, MAX_PAGE_BYTES,
+                             TIMEOUT_MS)
+                return
+            self.finish(QtGui.QImage(), 'The picture could not be read')
+            return
+        self.request(self.image_addresses.pop(0), self.on_image,
+                     MAX_IMAGE_BYTES, TIMEOUT_MS)
 
     def request(self, url, then, limit, timeout):
         request = QtNetwork.QNetworkRequest(QtCore.QUrl(url))
@@ -279,9 +385,9 @@ class LinkPreview(QtCore.QObject):
         if content_type.lower().startswith('image/'):
             # The link was to a picture itself
             self.image = QtGui.QImage.fromData(data)
-            self.icon_addresses = [urljoin(page_url, '/favicon.ico')]
+            icons = [urljoin(page_url, '/favicon.ico')]
         else:
-            image_url, self.icon_addresses = read_page(
+            image_url, icons = read_page(
                 page_text(data, content_type), page_url)
             if image_url is None:
                 self.finish(QtGui.QImage(), 'The page offers no picture')
@@ -289,7 +395,10 @@ class LinkPreview(QtCore.QObject):
             logger.debug(f'Preview picture of {self.url}: {image_url}')
             self.request(image_url, self.on_image, MAX_IMAGE_BYTES,
                          TIMEOUT_MS)
-        self.next_icon()
+        if not self.icon_asked:
+            self.icon_asked = True
+            self.icon_addresses = icons
+            self.next_icon()
         self.finish_when_both_are_in()
 
     def next_icon(self):
@@ -305,10 +414,21 @@ class LinkPreview(QtCore.QObject):
         self.icon = QtGui.QImage()
 
     def on_image(self, reply):
-        if self.failed(reply):
-            self.finish(QtGui.QImage(), reply.errorString())
+        image = (QtGui.QImage() if self.failed(reply)
+                 else QtGui.QImage.fromData(bytes(reply.readAll())))
+        if image.isNull():
+            if self.image_addresses or self.page_after:
+                # A YouTube video without the largest still has the
+                # next, and failing all of them its page
+                self.next_image()
+            elif self.failed(reply):
+                self.finish(image, reply.errorString())
+            else:
+                self.finish(image, 'The picture could not be read')
             return
-        self.image = QtGui.QImage.fromData(bytes(reply.readAll()))
+        if youtube_video(self.url) is not None:
+            image = without_black_bars(image)
+        self.image = image
         self.finish_when_both_are_in()
 
     def on_icon(self, reply):
