@@ -275,6 +275,10 @@ class SelectableMixin(BaseItemMixin):
         """
 
         super().prepareGeometryChange()
+        # Whatever was kept of how big the item is goes; see
+        # BeePixmapItem.boundingRect
+        self._bounds = None
+        self.board_extent_changed()
         mode = self.cacheMode()
         if mode != QtWidgets.QGraphicsItem.CacheMode.NoCache:
             self.setCacheMode(QtWidgets.QGraphicsItem.CacheMode.NoCache)
@@ -1032,10 +1036,26 @@ class SelectableMixin(BaseItemMixin):
         QGraphicsItem.GraphicsItemChange.ItemScaleHasChanged,
         QGraphicsItem.GraphicsItemChange.ItemRotationHasChanged)
 
+    def board_extent_changed(self):
+        """Tell the board how far it reaches has to be measured again.
+
+        Not for a pinned note: it moves with the window, all the time,
+        and is no part of how far the board reaches.
+        """
+
+        scene = self.scene()
+        forget = getattr(scene, 'forget_extent', None)
+        if forget is not None and not getattr(self, 'is_pinned', False):
+            forget()
+
     def itemChange(self, change, value):
         if change in self.GEOMETRY_CHANGES and self.scene():
+            self.board_extent_changed()
             # A line fastened to this item has to come along
             self.scene().follow_moved_item(self)
+        if change == QGraphicsItem.GraphicsItemChange.ItemParentHasChanged:
+            # In or out of a group: what stands on the board itself
+            self.board_extent_changed()
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             # Selecting used to raise the item above everything else,
             # which meant clicking a picture put it over the note

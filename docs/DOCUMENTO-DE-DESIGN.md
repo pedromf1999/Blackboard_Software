@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.9** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.0** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -324,6 +324,29 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   que aumenta ou diminui; o quadro fica nítido 160 ms depois de parar, ou ao
   primeiro clique ou tecla (`BeeGraphicsView.start_quick_zoom`).
 - Exportações e miniaturas desenham tudo de raiz (`scene.drawn_afresh()`).
+- **Respostas guardadas até mudarem** (15.0): o Qt pede a cada imagem o seu
+  tamanho centenas de vezes por frame; a altura da descrição e o tamanho da
+  imagem ficam guardados até `prepareGeometryChange` (e a espessura do
+  contorno, que às vezes é posta diretamente). O tamanho do quadro inteiro
+  (`scene.itemsBoundingRect`) fica guardado até um elemento se mexer, mudar
+  de tamanho, entrar ou sair (as notas afixadas não contam); "ajustar à
+  janela" mede sempre de novo.
+- **Grelha num só pedido** (`drawRects`) em vez de um por linha.
+- **A imagem do zoom rápido** é desenhada pelo caminho normal da janela
+  (`viewport.render`), que aproveita o que cada elemento tem guardado, em vez
+  de `QGraphicsView.render`, que redesenha tudo: o início de cada zoom
+  deixou de levar ~100 ms.
+- **Letras pequenas demais para ler** (abaixo de 2,5 pontos no ecrã, ~3 px)
+  são desenhadas como uma barra ténue por linha (notas, descrições,
+  títulos); abaixo de 0,5 nada. Nunca numa nota a ser escrita. Com o quadro
+  inteiro à vista, todas as notas do BVR001 ficam abaixo de 1 px, e
+  desenhá-las letra a letra era metade do tempo que o quadro levava a ficar
+  nítido depois de um zoom.
+- Medição (`scratchpad/perf/bench.py`, cópia do BVR001 com 419 imagens,
+  115 notas e 68 grupos, janela 1700×1000): quadro inteiro à vista, mover
+  9 → 3,5–4 ms por frame (pior 108 → 14 ms), zoom 24 → 6–7 ms (pior
+  150 → 55–70 ms). Com só 2 núcleos os números são iguais: o limite é o
+  desenho numa só linha de execução, não o processador.
 - Números no BVR001 (12.2): scroll 13–17 ms, zoom a aproximar 9–13 ms, a
   afastar ~35 ms; memória 400–560 MB.
 

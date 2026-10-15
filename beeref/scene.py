@@ -82,12 +82,16 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self.drag_snap = QtCore.QPointF(0, 0)
         self.snap_guides = []
         self.settings = BeeSettings()
+        # How far the board reaches, kept until something on it moves,
+        # changes size, arrives or goes; see itemsBoundingRect
+        self._extent = None
         self.clear()
         self._clear_ongoing = False
 
     def clear(self):
         self._clear_ongoing = True
         super().clear()
+        self._extent = None
         # The board's legend: one colour and one word per line. Belongs
         # to the board rather than to any item on it, so it lives here.
         self.legend = []
@@ -106,10 +110,17 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
     def addItem(self, item):
         logger.debug(f'Adding item {item}')
         super().addItem(item)
+        self._extent = None
 
     def removeItem(self, item):
         logger.debug(f'Removing item {item}')
         super().removeItem(item)
+        self._extent = None
+
+    def forget_extent(self):
+        """Something on the board has moved or changed size."""
+
+        self._extent = None
 
     def cancel_active_modes(self):
         """Cancels ongoing crop modes, rubberband modes etc, if there are
@@ -1291,6 +1302,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             base = filter_user_items(self.selectedItems())
         elif items:
             base = items
+        elif self._extent is not None:
+            # Asked on every step of a zoom and after every change on the
+            # board, the pinned notes moving with the window among them:
+            # going through all of it each time took a second of every
+            # ten spent moving and zooming the real board
+            return QtCore.QRectF(self._extent)
         else:
             # Only what stands on the board itself: a group's box is
             # fitted round everything in it, so what is inside adds
@@ -1317,9 +1334,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             y.append(corners.top())
             y.append(corners.bottom())
 
-        return QtCore.QRectF(
+        rect = QtCore.QRectF(
             QtCore.QPointF(min(x), min(y)),
             QtCore.QPointF(max(x), max(y)))
+        if not selection_only and not items:
+            self._extent = QtCore.QRectF(rect)
+        return rect
 
     def get_selection_center(self):
         rect = self.itemsBoundingRect(selection_only=True)

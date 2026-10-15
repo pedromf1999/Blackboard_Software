@@ -215,6 +215,47 @@ SAFE_FONT_SIZE = 2000
 # nothing anyway. Measured: below 0.4 point it refuses, above it does not.
 UNREADABLE_SIZE = 0.5
 
+# Letters smaller than this on screen, in points -- some three pixels --
+# are drawn as a faint bar for each line instead. Nothing smaller can be
+# read: group titles a little larger still can, so they stay words. Drawing
+# words letter by letter costs the same at a pixel as at a page: with a
+# large board seen whole -- every note's words under a pixel, most
+# captions under two -- it was most of the tenth of a second the board
+# took to come up sharp after every zoom. A bar the length of the line
+# looks from that distance as the words do.
+READABLE_SIZE = 2.5
+# How strong the bars are, against the letters they stand for
+TEXT_BAR_ALPHA = 0.4
+
+
+def size_on_screen(painter, size):
+    """How big letters this size come out where the painter draws."""
+
+    transform = painter.combinedTransform()
+    return size * math.hypot(transform.m11(), transform.m12())
+
+
+def paint_text_bars(painter, bars, color):
+    """Lines of words too small to read, as a faint bar each."""
+
+    if not bars:
+        return
+    color = QtGui.QColor(color)
+    color.setAlphaF(color.alphaF() * TEXT_BAR_ALPHA)
+    painter.save()
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(color)
+    painter.drawRects(bars)
+    painter.restore()
+
+
+def bar_for(rect):
+    """The bar a line of words this tall stands as: its middle part."""
+
+    return QtCore.QRectF(rect.x(), rect.y() + rect.height() * 0.3,
+                         rect.width(), rect.height() * 0.4)
+
+
 BAND_SCALE_MIN = 0.25
 BAND_SCALE_MAX = 10
 
@@ -1204,6 +1245,13 @@ class TitleBandMixin:
             # words as nothing; see UNREADABLE_SIZE
             painter.restore()
             return
+        if size < READABLE_SIZE:
+            # Too small to read: a bar where the words are; see
+            # READABLE_SIZE
+            paint_text_bars(painter, self.title_bars(room, size),
+                            readable_grey(self.visible_header_color()))
+            painter.restore()
+            return
         font = self.title_font_of_size(size)
         painter.setFont(font)
         painter.setPen(QtGui.QPen(readable_grey(self.visible_header_color())))
@@ -1219,6 +1267,32 @@ class TitleBandMixin:
                 metrics.elidedText(self._title, Qt.TextElideMode.ElideRight,
                                    room.width()))
         painter.restore()
+
+    def title_bars(self, room, size):
+        """A bar for each line of the title, placed as the words are."""
+
+        # Measured where the font engine is at ease, and brought to size
+        metrics = QtGui.QFontMetricsF(self.title_font_of_size(100))
+        factor = size / 100
+        width = metrics.horizontalAdvance(self._title) * factor
+        height = metrics.height() * factor
+        if room.width() <= 0 or width <= 0:
+            return []
+        lines = []
+        if self.TITLE_WRAPS:
+            while width > room.width():
+                lines.append(room.width())
+                width -= room.width()
+        lines.append(min(width, room.width()))
+        top = room.y() + (room.height() - height * len(lines)) / 2
+        bars = []
+        for number, length in enumerate(lines):
+            left = room.x()
+            if self.title_align != self.TITLE_LEFT:
+                left += (room.width() - length) / 2
+            bars.append(bar_for(QtCore.QRectF(
+                left, top + number * height, length, height)))
+        return bars
 
     def title_opens_at(self, scene_pos):
         """Whether a double-click at this point on the board opens the
@@ -2086,6 +2160,13 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         # Where its lines break, kept with what they were worked out
         # for; see caption_breaks
         self._caption_breaks = None
+        # The height of one line and of the words, kept with what they
+        # were measured for; see caption_text_height
+        self._caption_line = None
+        self._caption_height = None
+        # How big the picture is to Qt, kept till it changes; see
+        # boundingRect
+        self._bounds = None
         # The icon of the site a link's picture came from, shown in its
         # corner; null for any other picture
         self._link_icon = QtGui.QImage()
@@ -2223,6 +2304,17 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         stepping outward when a contour is put on.
         """
 
+        # Qt asks a picture how big it is hundreds of times for every
+        # frame drawn. Unless it is selected -- when its handles grow
+        # and shrink with the zoom -- the answer only changes when Qt
+        # is told it will, by prepareGeometryChange, so it is kept till
+        # then; and with the contour it was worked out for, which is
+        # also set straight, when a board is read or a picture copied.
+        plain = not self.has_selection_outline()
+        if plain:
+            kept = self._bounds
+            if kept is not None and kept[0] == self.outline_width:
+                return QtCore.QRectF(kept[1])
         # The caption hangs below the picture rather than over it, so
         # there has to be room under it to paint in -- and the contour
         # goes round both, so its own margin is added after that
@@ -2232,6 +2324,8 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             margin = self.outline_width / 2
             rect = rect.marginsAdded(
                 QtCore.QMarginsF(margin, margin, margin, margin))
+        if plain:
+            self._bounds = (self.outline_width, QtCore.QRectF(rect))
         return rect
 
     @property
@@ -2315,10 +2409,19 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         return self._caption
 
     def caption_line_height(self):
+        # Asked for thousands of times a second -- Qt asks a picture how
+        # big it is that often, and the band is part of that -- so kept
+        # for the size it was measured at; see caption_text_height
+        size = self.caption_size()
+        kept = self._caption_line
+        if kept is not None and kept[0] == size:
+            return kept[1]
         line = QtGui.QFontMetricsF(self.caption_font()).height()
         # A band still has to have a height, whatever the font engine
         # made of a very large one
-        return line if line > 0 else self.caption_size() * 1.8
+        line = line if line > 0 else size * 1.8
+        self._caption_line = (size, line)
+        return line
 
     def caption_text_width(self):
         """The room the words have across the picture."""
@@ -2341,12 +2444,23 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         text = self.caption_draft()
         if not text:
             return line
+        # Measuring wrapped words is slow, and Qt asks how big a picture
+        # is thousands of times a second: on the real board, measuring
+        # the same captions over again took two and a half seconds of
+        # every ten spent moving and zooming. The words, their size and
+        # the room they have are all the answer depends on.
+        key = (text, self.caption_size(), self.crop.width())
+        kept = self._caption_height
+        if kept is not None and kept[0] == key:
+            return kept[1]
         metrics = QtGui.QFontMetricsF(self.caption_font())
         rect = metrics.boundingRect(
             QtCore.QRectF(0, 0, self.caption_text_width(), 0),
             int(Qt.AlignmentFlag.AlignHCenter | self.CAPTION_WRAP),
             text)
-        return max(rect.height(), line)
+        height = max(rect.height(), line)
+        self._caption_height = (key, height)
+        return height
 
     def caption_height(self):
         if not self.shows_caption():
@@ -2444,6 +2558,13 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             painter.restore()
             painter.restore()
             return
+        if size < READABLE_SIZE:
+            # Too small to read: a bar for each line; see READABLE_SIZE
+            paint_text_bars(painter, self.caption_bars(room, size),
+                            readable_grey(self.visible_caption_color()))
+            painter.restore()
+            painter.restore()
+            return
         painter.setPen(QtGui.QPen(
             readable_grey(self.visible_caption_color())))
         layout, places = self.caption_lines(room, size)
@@ -2451,6 +2572,31 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             layout.lineAt(number).draw(painter, place)
         painter.restore()
         painter.restore()
+
+    def caption_bars(self, room, size):
+        """A bar for each line of the caption, centred as the words are,
+        for ``room`` and letters ``size`` big."""
+
+        text = self.caption.replace('\n', chr(0x2028))
+        breaks = self.caption_breaks(text)
+        # Measured at the caption's own size, where the lines were
+        # broken, and brought to this one
+        measured = min(self.caption_size(), SAFE_FONT_SIZE)
+        font = self.caption_font()
+        font.setPointSizeF(measured)
+        metrics = QtGui.QFontMetricsF(font)
+        factor = size / measured
+        height = metrics.height() * factor
+        top = room.y() + (room.height() - height * len(breaks)) / 2
+        bars = []
+        for number, (start, length) in enumerate(breaks):
+            words = text[start:start + length].rstrip()
+            width = min(room.width(),
+                        metrics.horizontalAdvance(words) * factor)
+            bars.append(bar_for(QtCore.QRectF(
+                room.x() + (room.width() - width) / 2,
+                top + number * height, width, height)))
+        return bars
 
     def caption_lines(self, room, size):
         """The caption laid out in ``room``, with letters ``size`` big.
@@ -3563,6 +3709,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # What the note's lines hold, counted once for each change of
         # them; see census
         self._census = None
+        self._document = self.document()
         self.document().contentsChanged.connect(self.forget_census)
         self.document().documentLayout().update.connect(self.draw_afresh)
         # Fastened to the window rather than to the board; see set_pin.
@@ -3800,7 +3947,10 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         Nothing asks it there; keep it that way.
         """
 
-        document = self.document()
+        # Qt hands over a new wrapper for the document every time it is
+        # asked for one, which at this rate was a cost of its own; the
+        # note never changes its document, so it is kept
+        document = self._document
         revision = document.revision()
         census = self._census
         if census is not None and census['revision'] == revision:
@@ -4036,6 +4186,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         be lost next to big letters and swallow small ones.
         """
 
+        # Qt grows the note itself as words are typed, without passing
+        # by prepareGeometryChange here, so the board is told from here
+        self.board_extent_changed()
         height = self.text_line_height()
         document = self.document()
         document.setDocumentMargin(height * self.TEXT_MARGIN_FRACTION)
@@ -4086,6 +4239,17 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         painter.drawPath(self.text_box_path())
         self.paint_header(painter)
         option.state = QtWidgets.QStyle.StateFlag.State_Enabled
+        if (not self.edit_mode and size_on_screen(
+                painter, self.usual_point_size()) < READABLE_SIZE):
+            # Too small to read: a bar for each line; see READABLE_SIZE.
+            # Never while it is being written in.
+            if size_on_screen(painter, self.usual_point_size()) >= (
+                    UNREADABLE_SIZE):
+                paint_text_bars(painter, self.text_bars(),
+                                self.defaultTextColor())
+            self.paint_done_bar(painter)
+            self.paint_selectable(painter, option, widget)
+            return
         markers = self.list_markers()
         if markers:
             # Qt puts a dot in front of every list item and cannot be
@@ -4103,6 +4267,31 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self.paint_url_underlines(painter)
         self.paint_misspelt(painter)
         self.paint_selectable(painter, option, widget)
+
+    def text_bars(self):
+        """A bar where each line of the words is, as long as the line.
+
+        What stands for the words where they are too small to read; see
+        READABLE_SIZE. Finished tasks folded away have no line.
+        """
+
+        bars = []
+        block = self.document().begin()
+        while block.isValid():
+            if block.isVisible():
+                layout = block.layout()
+                origin = layout.position()
+                for number in range(layout.lineCount()):
+                    line = layout.lineAt(number)
+                    width = line.naturalTextWidth()
+                    if width <= 0:
+                        continue
+                    left = origin.x() + line.cursorToX(line.textStart())[0]
+                    bars.append(bar_for(QtCore.QRectF(
+                        left, origin.y() + line.y(), width,
+                        line.height())))
+            block = block.next()
+        return bars
 
     # How close to a boundary counts as grabbing it, and how small a
     # row or column may be dragged, both in item coordinates.
@@ -5364,7 +5553,9 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         return bool(self.task_blocks())
 
     def done_count(self):
-        return len(self.task_blocks(done=True))
+        # Counted from the census itself, without the copy task_blocks
+        # hands out: asked whenever the note is measured
+        return len(self.census()['done'])
 
     def set_tasks_collapsed(self, collapsed):
         """Fold the finished tasks away, or show them."""

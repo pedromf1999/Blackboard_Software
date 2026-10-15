@@ -908,13 +908,16 @@ class BeeGraphicsView(MainControlsMixin,
         # rasteriser is the slower of the two by half again -- which on
         # a board being zoomed is worth more than it sounds, since a
         # single turn of the wheel is eased out over a dozen frames.
-        brush = QtGui.QBrush(pen.color())
+        # All of them in one go: one at a time, the forty or so of them
+        # came to over a millisecond of every frame, most of it spent
+        # passing each one over to Qt
         height = view.height()
         width = view.width()
-        for x in columns:
-            painter.fillRect(QtCore.QRect(x, 0, 1, height), brush)
-        for y in rows:
-            painter.fillRect(QtCore.QRect(0, y, width, 1), brush)
+        lines = ([QtCore.QRect(x, 0, 1, height) for x in columns]
+                 + [QtCore.QRect(0, y, width, 1) for y in rows])
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QBrush(pen.color()))
+        painter.drawRects(lines)
         painter.restore()
 
     def draw_grid_dots(self, painter, pen, across, down):
@@ -1293,6 +1296,9 @@ class BeeGraphicsView(MainControlsMixin,
             self.clear_scene()
 
     def on_action_fit_scene(self):
+        # Measured afresh, whatever has been kept: this is the one place
+        # where a board reaching a little further than kept would show
+        self.scene.forget_extent()
         self.fit_rect(self.scene.itemsBoundingRect())
 
     def on_action_fit_selection(self):
@@ -3452,13 +3458,17 @@ class BeeGraphicsView(MainControlsMixin,
             max(1, round(viewport.height() * ratio)))
         picture.setDevicePixelRatio(ratio)
         picture.fill(self.backgroundBrush().color())
-        painter = QtGui.QPainter(picture)
-        painter.setRenderHints(self.renderHints())
-        # Without the pinned notes, which stay as they are
+        # Drawn the way the window itself is, which uses what every item
+        # keeps of itself drawn: QGraphicsView.render draws each of them
+        # afresh, and on the real board that was a tenth of a second
+        # every time a zoom began. Without what floats over the board --
+        # bars, overlays -- which would be stretched with it, and without
+        # the pinned notes, which stay as they are.
+        self.quick_zoom = None
         with self.scene.pinned_notes_hidden():
-            self.render(painter, QtCore.QRectF(viewport.rect()),
-                        viewport.rect())
-        painter.end()
+            viewport.render(
+                picture, QtCore.QPoint(), QtGui.QRegion(),
+                QtWidgets.QWidget.RenderFlag.DrawWindowBackground)
         self.quick_zoom = (picture, QtGui.QTransform(self.viewportTransform()))
 
     def end_quick_zoom(self):

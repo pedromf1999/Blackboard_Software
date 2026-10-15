@@ -92,8 +92,10 @@ def test_an_empty_board_has_no_bounding_box(view):
 
 
 def test_the_grid_is_put_down_as_filled_rectangles(view, settings):
-    """A pixel wide, on whole pixels. The line rasteriser cost half
-    again as much for a result that cannot be told apart."""
+    """A pixel wide, on whole pixels, all in one go. The line
+    rasteriser cost half again as much for a result that cannot be told
+    apart, and handing them over one at a time cost more than drawing
+    them."""
 
     view.show_grid = True
     settings.setValue('View/grid_style', 'lines')
@@ -101,8 +103,9 @@ def test_the_grid_is_put_down_as_filled_rectangles(view, settings):
     with patch('PyQt6.QtWidgets.QGraphicsView.drawBackground'):
         view.drawBackground(painter, QtCore.QRectF(0, 0, 500, 500))
 
-    assert painter.fillRect.called
+    assert painter.drawRects.called
     painter.drawLines.assert_not_called()
+    painter.fillRect.assert_not_called()
 
 
 def test_every_grid_line_is_one_whole_pixel(view, settings):
@@ -113,10 +116,35 @@ def test_every_grid_line_is_one_whole_pixel(view, settings):
     with patch('PyQt6.QtWidgets.QGraphicsView.drawBackground'):
         view.drawBackground(painter, QtCore.QRectF(0, 0, 500, 500))
 
-    for call in painter.fillRect.call_args_list:
-        rect = call[0][0]
+    rects = [rect for call in painter.drawRects.call_args_list
+             for rect in call[0][0]]
+    assert rects
+    for rect in rects:
         assert isinstance(rect, QtCore.QRect)
         assert 1 in (rect.width(), rect.height())
+
+
+def test_grid_lines_come_out_one_pixel_wide(view, settings):
+    """On a real picture: the line's own column of pixels, and nothing
+    either side of it."""
+
+    view.resize(400, 300)
+    view.show_grid = True
+    settings.setValue('View/grid_style', 'lines')
+    settings.setValue('View/grid_color', '#ff0000')
+    image = QtGui.QImage(400, 300, QtGui.QImage.Format.Format_RGB32)
+    image.fill(QtGui.QColor('black'))
+    painter = QtGui.QPainter(image)
+    with patch('PyQt6.QtWidgets.QGraphicsView.drawBackground'):
+        view.drawBackground(painter, view.mapToScene(
+            view.viewport().rect()).boundingRect())
+    painter.end()
+    row = [image.pixelColor(x, 150).red() > 128 for x in range(400)]
+    assert any(row)
+    for x in range(1, 399):
+        if row[x]:
+            # A line one pixel wide, unless it is a crossing line's row
+            assert not (row[x - 1] and row[x + 1]) or all(row)
 
 
 def test_the_grid_is_drawn_on_the_screen_not_the_board(view, settings):
