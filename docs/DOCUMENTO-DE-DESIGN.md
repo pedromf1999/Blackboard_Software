@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.7** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.8** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -86,8 +86,15 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     lê), tenta a seguinte, e a mesma pedida em PNG quando o endereço pede
     "format=auto". Testado: AHP, Meusburger, Kipp, Norelem, Decotrust,
     Puzzle Advance, Fabory, DME com o produto; McMaster com o logótipo;
-    Festo recusa programas (não se contorna); Misumi e GrabCAD só montam a
-    página com JavaScript e ficam nota.
+    Festo e Mouser recusam programas (proteção anti-robôs, não se contorna).
+  - **Páginas montadas por JavaScript** (14.8): os dados de que são feitas
+    vêm na página (`__NEXT_DATA__` e outros blocos JSON); procura-se lá uma
+    imagem cujo campo diga produto e imagem (Misumi: productImageList),
+    deixando de fora desenhos de medidas, ícones e logótipos. Os servidores
+    da Misumi levam ~10 s por pedido, por isso a imagem chega ~20 s depois
+    da nota. **GrabCAD**: para `grabcad.com/library/<modelo>` pergunta-se ao
+    endereço público `community/api/v1/models/<modelo>` pela
+    `preview_image`, e pede-se a versão "large" (960 px).
   - **Pinterest** funciona como qualquer site (a imagem do pin, 736 px, e o
     ícone). **Google Imagens** (14.6): um link "imgres" traz a imagem
     verdadeira diretamente, com a página de onde vem na descrição; um

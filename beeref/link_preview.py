@@ -112,6 +112,24 @@ def youtube_video(url):
     return None
 
 
+GRABCAD_MODEL_RE = re.compile(r'^/library/([\w-]+)/?$')
+GRABCAD_API = 'https://grabcad.com/community/api/v1/models/{}'
+
+
+def grabcad_model(url):
+    """The name of the GrabCAD model a link is to, or None."""
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if (parsed.hostname or '').lower() not in ('grabcad.com',
+                                               'www.grabcad.com'):
+        return None
+    match = GRABCAD_MODEL_RE.match(parsed.path)
+    return match.group(1) if match else None
+
+
 def without_black_bars(image):
     """The picture without the black bands above and below it.
 
@@ -210,23 +228,29 @@ class PageReader(HTMLParser):
         self.images = []
         # The products the page describes for search engines, as text
         self.structured = []
-        self._in_structured = False
+        # The data a page built by script is built from, as text
+        self.page_data = []
+        self._reading = None
 
     def handle_data(self, data):
-        if self._in_structured:
-            self.structured[-1] += data
+        if self._reading is not None:
+            self._reading[-1] += data
 
     def handle_endtag(self, tag):
         if tag == 'script':
-            self._in_structured = False
+            self._reading = None
 
     def handle_starttag(self, tag, attrs):
         attrs = {key.lower(): value for key, value in attrs if value}
         if tag == 'img':
             self.images.append(attrs)
         elif tag == 'script' and 'ld+json' in (attrs.get('type') or ''):
-            self._in_structured = True
+            self._reading = self.structured
             self.structured.append('')
+        elif tag == 'script' and (attrs.get('type') == 'application/json'
+                                  or attrs.get('id') == '__NEXT_DATA__'):
+            self._reading = self.page_data
+            self.page_data.append('')
         elif tag == 'meta':
             name = (attrs.get('property') or attrs.get('name') or '').lower()
             if name in IMAGE_PROPERTIES and attrs.get('content'):
@@ -268,6 +292,9 @@ def read_page(html, page_url):
     structured = structured_image(reader.structured, page_url)
     if structured:
         pictures.append(structured)
+    embedded = embedded_image(reader.page_data, page_url)
+    if embedded:
+        pictures.append(embedded)
     pictures.extend(content_images(reader.images, page_url)[:3])
     if named and is_logo(named):
         pictures.append(named)
@@ -338,6 +365,54 @@ def structured_image(texts, page_url):
                 if picture and not picture.startswith('data:'):
                     return urljoin(page_url, picture)
     return None
+
+
+IMAGE_FILE_RE = re.compile(r'\.(jpe?g|png|webp)(\?|$)', re.IGNORECASE)
+
+
+def embedded_image(texts, page_url):
+    """The product's picture in the data a page is built from, by script
+    in the browser; or None.
+
+    Such a page holds no picture until a browser has run its scripts,
+    but the data they build it from is in it: Misumi's names the product
+    photograph "productImageList". A picture whose place in that data
+    says both product and image is taken, before one that says only
+    image; one that says it is a drawing of a size, an icon or the like
+    is not.
+    """
+
+    best = None
+
+    def walk(value, path):
+        nonlocal best
+        if isinstance(value, dict):
+            for key, each in value.items():
+                walk(each, path + [str(key).lower()])
+        elif isinstance(value, list):
+            for each in value:
+                walk(each, path)
+        elif isinstance(value, str) and IMAGE_FILE_RE.search(value):
+            if not value.startswith(('http', '//', '/')):
+                return
+            named = words(' '.join(path))
+            joined = ''.join(path)
+            if (named & NOT_THE_THING or 'logo' in joined
+                    or any(word in joined for word in (
+                        'spec', 'illustration', 'config', 'avatar'))):
+                return
+            score = (('product' in joined)
+                     + any(word in joined for word in (
+                         'image', 'photo', 'picture', 'img')) * 2)
+            if score >= 2 and (best is None or score > best[0]):
+                best = (score, value)
+
+    for text in texts:
+        try:
+            walk(json.loads(text), [])
+        except ValueError:
+            continue
+    return urljoin(page_url, best[1]) if best else None
 
 
 # Words that mark a picture in a page as something other than the thing
@@ -581,6 +656,13 @@ class LinkPreview(QtCore.QObject):
         self.caption = url
 
     def start(self):
+        model = grabcad_model(self.url)
+        if model is not None:
+            # A model's page is built by script and holds no picture;
+            # GrabCAD says where it is when asked
+            self.request(GRABCAD_API.format(model), self.on_grabcad,
+                         MAX_PAGE_BYTES, TIMEOUT_MS)
+            return
         found = google_image(self.url)
         if found is not None:
             picture, page = found
@@ -611,6 +693,26 @@ class LinkPreview(QtCore.QObject):
             self.next_icon()
             return
         self.request(self.url, self.on_page, MAX_PAGE_BYTES, TIMEOUT_MS)
+
+    def on_grabcad(self, reply):
+        picture = None
+        if not self.failed(reply):
+            try:
+                picture = json.loads(bytes(reply.readAll())).get(
+                    'preview_image')
+            except (ValueError, AttributeError):
+                picture = None
+        if not isinstance(picture, str) or 'missing' in picture:
+            # Read the page instead, for what it is worth
+            self.request(self.url, self.on_page, MAX_PAGE_BYTES, TIMEOUT_MS)
+            return
+        # The picture shown on a card, and the same one larger
+        self.image_addresses = [picture.replace('/card.', '/large.'),
+                                picture]
+        self.icon_addresses = ['https://grabcad.com/favicon.ico']
+        self.next_image()
+        self.icon_asked = True
+        self.next_icon()
 
     def next_image(self):
         """Ask for the next place the picture may be; or give up."""
