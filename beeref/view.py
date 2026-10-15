@@ -3020,6 +3020,14 @@ class BeeGraphicsView(MainControlsMixin,
             return
 
         text = clipboard.text()
+        written = link_preview.image_in(text)
+        if not written.isNull():
+            # A picture copied as its address, the address being the
+            # picture itself; as a note it was a page of letters
+            item = BeePixmapItem(without_pointless_alpha(written))
+            item.setScale(item.fit_scale_to(self.new_image_size()))
+            self.insert_at([item], pos, 'Paste image')
+            return
         link = link_preview.link_in(text)
         if link and self.settings.valueOrDefault('Items/link_previews'):
             self.paste_link(link, text, pos)
@@ -3077,7 +3085,7 @@ class BeeGraphicsView(MainControlsMixin,
             return
         item = BeePixmapItem(without_pointless_alpha(image))
         item.setScale(item.fit_scale_to(self.new_image_size()))
-        item.caption = url
+        item.caption = preview.caption
         item.link_icon = icon
         self.replace_with([(note, item)], 'Show link preview')
         logger.info(f'Pasted a preview of {url}')

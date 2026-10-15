@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **14.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **14.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -73,6 +73,14 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     as faixas pretas), e o ícone de gstatic.com. Mais rápido (0,1 s). Se não
     houver capa, tenta a página. Canais (@nome) e diretos já terminados
     ficam como nota. Não se mexe em cookies.
+  - **Pinterest** funciona como qualquer site (a imagem do pin, 736 px, e o
+    ícone). **Google Imagens** (14.6): um link "imgres" traz a imagem
+    verdadeira diretamente, com a página de onde vem na descrição; um
+    endereço `data:image/...` (o que o browser copia como "endereço" de uma
+    miniatura do Google) é colado como imagem e não como nota. O link da
+    página de resultados do Google não dá: só existe depois de o browser
+    correr o JavaScript, e na Europa pede consentimento. Copiar a imagem,
+    ou o endereço dela, funciona.
   - **Voltar a texto** (14.2): com a imagem de um link selecionada (uma
     imagem cuja descrição é só um endereço), aparece na barra dela um ícone
     de corrente, "Show as a text link", também em Images → Show Link as

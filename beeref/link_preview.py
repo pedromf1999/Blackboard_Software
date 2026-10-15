@@ -28,6 +28,8 @@ alike, where Python, packed into an application, often has no list to
 check against and refuses every https site.
 """
 
+import base64
+import binascii
 from html.parser import HTMLParser
 import logging
 import re
@@ -134,6 +136,49 @@ def without_black_bars(image):
     if top < 2 or bottom < 2:
         return image
     return image.copy(0, top, image.width(), height - top - bottom)
+
+
+def google_image(url):
+    """The picture and the page it is on, for a Google Images link to
+    one; or None.
+
+    Such a link ("imgres") names both in what follows its "?": the
+    picture can be fetched straight away, and the page is the one worth
+    keeping in the caption, rather than Google's long address.
+    """
+
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    host = (parsed.hostname or '').lower()
+    if not (host == 'google.com' or host.startswith('google.')
+            or '.google.' in host) or parsed.path != '/imgres':
+        return None
+    query = parse_qs(parsed.query)
+    picture = query.get('imgurl', [None])[0]
+    page = query.get('imgrefurl', [None])[0]
+    if not picture or urlparse(picture).scheme not in ('http', 'https'):
+        return None
+    return picture, page
+
+
+# A picture written out as text, the way a browser copies the address of
+# one it holds itself, as Google Images does for its small pictures
+DATA_IMAGE_RE = re.compile(r'^data:image/[\w.+-]+;base64,([A-Za-z0-9+/=\s]+)$')
+
+
+def image_in(text):
+    """The picture text is written as, if it is a data: address."""
+
+    match = DATA_IMAGE_RE.match((text or '').strip())
+    if match is None:
+        return QtGui.QImage()
+    try:
+        data = base64.b64decode(''.join(match.group(1).split()))
+    except (binascii.Error, ValueError):
+        return QtGui.QImage()
+    return QtGui.QImage.fromData(data)
 
 
 def link_in(text):
@@ -314,8 +359,22 @@ class LinkPreview(QtCore.QObject):
         self.page_after = False
         # Whether the icon is already being looked for
         self.icon_asked = False
+        # The address the picture is shown with, in its caption
+        self.caption = url
 
     def start(self):
+        found = google_image(self.url)
+        if found is not None:
+            picture, page = found
+            logger.debug(f'Google Images picture {picture}: {self.url}')
+            if page:
+                self.caption = page
+            self.image_addresses = [picture]
+            self.icon_addresses = [urljoin(page or picture, '/favicon.ico')]
+            self.next_image()
+            self.icon_asked = True
+            self.next_icon()
+            return
         video = youtube_video(self.url)
         if video is not None:
             # YouTube shows people in Europe a page asking about cookies
