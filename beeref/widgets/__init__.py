@@ -16,6 +16,7 @@
 from importlib.resources import files as rsc_files
 import logging
 import sys
+import time
 
 from PyQt6 import QtCore, QtWidgets, QtGui
 from PyQt6.QtCore import Qt
@@ -95,8 +96,19 @@ class BeeProgressDialog(QtWidgets.QProgressDialog):
                           round(parent.height() * share)))
         self.move(middle.x() - self.width() // 2, middle.y())
 
+    # The least time between two showings of how far reading has got, in
+    # seconds. Shown for every item, it came to a second of the five it
+    # took to open the real board: each showing is drawn there and then.
+    PROGRESS_INTERVAL = 0.04
+
     def on_progress(self, value):
-        logger.debug(f'Progress dialog: {value}')
+        now = time.monotonic()
+        shown_at = getattr(self, 'shown_at', 0)
+        if (value < self.maximum() - 1
+                and now - shown_at < self.PROGRESS_INTERVAL):
+            return
+        self.shown_at = now
+        logger.trace(f'Progress dialog: {value}')
         self.setValue(value)
 
     def on_begin_processing(self, value):

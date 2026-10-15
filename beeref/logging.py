@@ -37,11 +37,41 @@ logging.setLoggerClass(BeeLogger)
 
 
 class BeeRotatingFileHandler(logging.handlers.RotatingFileHandler):
-    """RotatingFileHandler that creates log directory if necessary."""
+    """RotatingFileHandler that creates log directory if necessary.
+
+    And that keeps count of how much it has written, rather than asking
+    the disk. Python's own looks the file up twice for every line, to
+    see whether it is time to start a new one, and formats each line
+    twice: opening the real board writes some eight thousand lines, and
+    that came to three of the five and a half seconds it took.
+    """
 
     def __init__(self, filename, **kwargs):
         os.makedirs(os.path.dirname(filename), exist_ok=True)
         super().__init__(filename, **kwargs)
+        # How long the file is, once it has been opened
+        self.written = None
+
+    def emit(self, record):
+        try:
+            message = self.format(record) + self.terminator
+            if self.stream is None:
+                self.stream = self._open()
+            if self.written is None:
+                self.written = self.stream.tell()
+            if (self.maxBytes > 0
+                    and self.written + len(message) >= self.maxBytes):
+                self.doRollover()
+                if self.stream is None:
+                    self.stream = self._open()
+                self.written = 0
+            self.stream.write(message)
+            self.flush()
+            self.written += len(message)
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
 
 
 qtlogger = logging.getLogger('Qt')

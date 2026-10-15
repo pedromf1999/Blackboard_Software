@@ -380,6 +380,17 @@ def without_pointless_alpha(image):
 class BeeItemMixin(SelectableMixin):
     """Base for all items added by the user."""
 
+    @cached_property
+    def settings(self):
+        """The settings, made the first time they are asked for.
+
+        Most items never ask, and making a link to the settings for
+        every one of them as a board was read took most of half a second
+        on the real board.
+        """
+
+        return BeeSettings()
+
     # A name given by the user, shown in the layers panel. Items fall
     # back to a description of their contents when this isn't set.
     name = None
@@ -539,7 +550,7 @@ class BeeDrawItem(BeeItemMixin, QtWidgets.QGraphicsItem):
         self.ends = {}
         self.pending_ends = ends or {}
         self.set_points(points or [])
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
 
     def __str__(self):
         return f'{self.NAMES[self.kind]} ({len(self.points)} points)'
@@ -1414,7 +1425,6 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         super().__init__()
         self.save_id = None
         self.is_image = False
-        self.settings = BeeSettings()
         self.init_selectable()
         self.is_editable = False
         self.box_color = QtGui.QColor(*(box_color or self.DEFAULT_BOX_COLOR))
@@ -1434,7 +1444,7 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         now = datetime.datetime.now().isoformat(timespec='seconds')
         self.created = created or now
         self.modified = modified or self.created
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
 
     def touch(self):
         """Record that the group has just been changed."""
@@ -1488,7 +1498,7 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
 
     @box_color.setter
     def box_color(self, value):
-        logger.debug(f'Setting box colour for {self} to {value.name()}')
+        logger.trace(f'Setting box colour for {self} to {value.name()}')
         self._box_color = value
         self.update()
 
@@ -2175,11 +2185,10 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         self.caption_editing = False
         self.caption_editor = None
         self.set_source_image(image)
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
         self.is_image = True
         self.crop_mode = False
         self.init_selectable()
-        self.settings = BeeSettings()
         self.grayscale = False
 
     @classmethod
@@ -2220,7 +2229,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
 
     @crop.setter
     def crop(self, value):
-        logger.debug(f'Setting crop for {self} to {value}')
+        logger.trace(f'Setting crop for {self} to {value}')
         self.prepareGeometryChange()
         self._crop = value
         # A contour frames the picture, so it is measured against the
@@ -2238,7 +2247,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
 
     @grayscale.setter
     def grayscale(self, value):
-        logger.debug('Setting grayscale for {self} to {value}')
+        logger.trace(f'Setting grayscale for {self} to {value}')
         self._grayscale = value
         # Using the grayscale image format to convert to grayscale loses
         # an image's transparency, which comes out an ugly black. So the
@@ -2981,21 +2990,19 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         size = QtCore.QSize() if image.isNull() else image.size()
         self.picture_changed(had_picture, size)
 
-    def set_encoded(self, data, fmt=None):
+    def set_encoded(self, data, fmt=None, small=None):
         """Show a picture from its compressed bytes, as a file keeps them.
 
-        Only the small copy is opened now. A picture that cannot be read
-        is shown as no picture at all, which the file reader turns into
-        an error item. Safe off the main thread, where files are read.
+        Only the small copy is opened now -- or handed over ready, as
+        imagecache.small_copy made it, when it was opened beforehand. A
+        picture that cannot be read is shown as no picture at all, which
+        the file reader turns into an error item. Safe off the main
+        thread, where files are read.
         """
 
         had_picture = not self._size.isEmpty()
         data = bytes(data)
-        size = imagecache.image_size(data)
-        thumbnail = QtGui.QImage()
-        if size.isValid() and not size.isEmpty():
-            thumbnail = imagecache.open_image(
-                data, imagecache.thumbnail_size(size))
+        size, thumbnail = small or imagecache.small_copy(data)
         if thumbnail.isNull():
             self._encoded = None
             self._encoded_format = None
@@ -3034,10 +3041,10 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             imagecache.forget(self.image_key)
         self.reset_crop()
 
-    def pixmap_from_bytes(self, data):
+    def pixmap_from_bytes(self, data, small=None):
         """Set the picture from a bytestring, as a file keeps it."""
 
-        self.set_encoded(data)
+        self.set_encoded(data, small=small)
 
     def create_copy(self):
         """The same picture, looking the same: everything a file keeps.
@@ -3716,7 +3723,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # Set before anything can give the note a place in the stack.
         self.pin = None
         self.placing = False
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
         self.is_image = False
         self.init_selectable()
         # Before anything can ask how big the note is: an empty title
@@ -3730,7 +3737,6 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         self._title_size = title_size
         self.is_editable = True
         self.edit_mode = False
-        self.settings = BeeSettings()
         # Wrap at whole words only. Qt's default also breaks inside a
         # word when one does not fit, which is never what is wanted in a
         # note: a word too long for the box hangs over the edge instead.
@@ -3848,7 +3854,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
 
     @box_color.setter
     def box_color(self, value):
-        logger.debug(f'Setting box colour for {self} to {value.name()}')
+        logger.trace(f'Setting box colour for {self} to {value.name()}')
         self._box_color = value
         self.setDefaultTextColor(readable_grey(self.visible_box_color()))
         self.update()
@@ -6988,7 +6994,7 @@ class BeeErrorItem(BeeItemMixin, QtWidgets.QGraphicsTextItem):
     def __init__(self, text=None, **kwargs):
         super().__init__(text or "Text")
         self.original_save_id = None
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
         self.is_image = False
         self.init_selectable()
         self.is_editable = False

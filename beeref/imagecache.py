@@ -121,6 +121,20 @@ def open_image(source, size=None):
     return image
 
 
+def small_copy(data):
+    """How big a compressed picture is, and its small copy, opened.
+
+    Safe off the main thread, and in several threads at once: Qt lets go
+    of Python while it opens a picture, so a board's pictures are opened
+    side by side as it is read.
+    """
+
+    size = image_size(data)
+    if not size.isValid() or size.isEmpty():
+        return size, QtGui.QImage()
+    return size, open_image(data, thumbnail_size(size))
+
+
 def thumbnail_size(size):
     """The size of the small copy of a picture this size."""
 

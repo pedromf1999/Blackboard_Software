@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.0** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.1** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -347,6 +347,17 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   9 → 3,5–4 ms por frame (pior 108 → 14 ms), zoom 24 → 6–7 ms (pior
   150 → 55–70 ms). Com só 2 núcleos os números são iguais: o limite é o
   desenho numa só linha de execução, não o processador.
+- **Abrir um quadro grande** (15.1): 5,9 → 1,4 s no BVR001. O registo
+  (log) escreve sem perguntar ao disco o tamanho do ficheiro a cada linha
+  (`BeeRotatingFileHandler.emit` conta o que escreveu); as cópias pequenas
+  das imagens abrem-se em paralelo enquanto o ficheiro é lido
+  (`imagecache.small_copy`, até 4 de cada vez e sempre um núcleo a menos
+  que o computador tem, deixado à janela); as pausas para a janela receber
+  o que já foi lido são de 2 ms com o `time.sleep` do Python, porque as de
+  10 ms do Qt duravam 16; a barra de progresso é redesenhada no máximo 25
+  vezes por segundo; as linhas de registo de cada elemento passaram ao nível
+  `trace`, que não é escrito; e cada elemento só pede as definições quando
+  precisa delas. A memória depois de abrir fica igual.
 - Números no BVR001 (12.2): scroll 13–17 ms, zoom a aproximar 9–13 ms, a
   afastar ~35 ms; memória 400–560 MB.
 

@@ -24,6 +24,8 @@ https://www.sqlite.org/sqlar.html
 """
 
 import base64
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 import logging
@@ -32,10 +34,11 @@ import pathlib
 import shutil
 import sqlite3
 import tempfile
+import time
 
 from PyQt6 import QtCore, QtGui
 
-from beeref import constants
+from beeref import constants, imagecache
 from beeref.items import (
     BeePixmapItem, BeeErrorItem, without_pointless_alpha)
 from .errors import BeeFileIOError, IMG_LOADING_ERROR_MSG
@@ -380,6 +383,16 @@ class SQLiteIO:
     # often is the only lever that works -- sleeping for less time does
     # nothing at all, since the granularity is the same either way.
     ITEMS_PER_PAUSE = 10
+    # And Python's own sleep, which since 3.11 keeps to what is asked on
+    # Windows too, rather than Qt's: a pause of a couple of milliseconds
+    # is enough for the window to take what has been read, where Qt's
+    # pause of ten came to sixteen, a second in all on the real board.
+    PAUSE_SECONDS = 0.002
+    # How many pictures' small copies are opened side by side as a board
+    # is read: four took the real board's from 1.3 seconds to 0.35. At
+    # most, and always one core short of the computer's, which is left
+    # to the window.
+    OPENERS = 4
 
     def count_rows(self):
         """How many items the file holds, without reading any of them."""
@@ -418,54 +431,78 @@ class SQLiteIO:
         if self.worker:
             self.worker.begin_processing.emit(self.count_rows())
 
-        for i, row in enumerate(self.iter_rows()):
-            data = {
-                'save_id': row[0],
-                'type': row[1],
-                'x': row[2],
-                'y': row[3],
-                'z': row[4],
-                'scale': row[5],
-                'rotation': row[6],
-                'flip': row[7],
-                'data': json.loads(row[8]),
-            }
-
-            if data['type'] == 'pixmap':
-                if row[9] is None:
-                    # An image item with no matching row in the archive.
-                    # Only reachable now that items are fetched by absence
-                    # of image data rather than by type; show it as an
-                    # error instead of handing None to the image loader.
-                    data['data']['text'] = (
-                        'Image data is missing from this file.\n'
-                        + IMG_LOADING_ERROR_MSG)
-                    data['type'] = BeeErrorItem.TYPE
-                else:
-                    # Kept compressed, as stored here: only a small copy
-                    # is opened now, and the rest as it is looked at
-                    item = BeePixmapItem(QtGui.QImage())
-                    item.pixmap_from_bytes(row[9])
-                    if item.is_null():
-                        item = data['data']['text'] = (
-                            f'Image could not be loaded: {item.filename}\n'
-                            + IMG_LOADING_ERROR_MSG)
-                        data['type'] = BeeErrorItem.TYPE
-                    data['item'] = item
-
-            self.scene.add_item_later(data)
-
-            if self.worker:
-                logger.trace(f'Emit progress: {i}')
-                self.worker.progress.emit(i)
-                if self.worker.canceled:
-                    self.worker.finished.emit('', [])
+        openers = max(1, min(self.OPENERS,
+                             QtCore.QThread.idealThreadCount() - 1))
+        with ThreadPoolExecutor(openers) as pool:
+            # The rows a little ahead of the one being added, each with
+            # its picture's small copy on the way
+            ahead = deque()
+            for i, row in enumerate(self.iter_rows()):
+                small = None
+                if row[1] == 'pixmap' and row[9] is not None:
+                    small = pool.submit(imagecache.small_copy, row[9])
+                ahead.append((i, row, small))
+                if len(ahead) > 2 * openers:
+                    if not self.add_row(*ahead.popleft()):
+                        return
+            while ahead:
+                if not self.add_row(*ahead.popleft()):
                     return
-                # Give main thread time to process items:
-                if (i + 1) % self.ITEMS_PER_PAUSE == 0:
-                    self.worker.msleep(10)
         if self.worker:
             self.worker.finished.emit(self.filename, [])
+
+    def add_row(self, i, row, small):
+        """Make the item a row describes, and hand it to the board.
+
+        Says whether to go on: not once reading has been cancelled.
+        """
+
+        data = {
+            'save_id': row[0],
+            'type': row[1],
+            'x': row[2],
+            'y': row[3],
+            'z': row[4],
+            'scale': row[5],
+            'rotation': row[6],
+            'flip': row[7],
+            'data': json.loads(row[8]),
+        }
+
+        if data['type'] == 'pixmap':
+            if row[9] is None:
+                # An image item with no matching row in the archive.
+                # Only reachable now that items are fetched by absence
+                # of image data rather than by type; show it as an
+                # error instead of handing None to the image loader.
+                data['data']['text'] = (
+                    'Image data is missing from this file.\n'
+                    + IMG_LOADING_ERROR_MSG)
+                data['type'] = BeeErrorItem.TYPE
+            else:
+                # Kept compressed, as stored here: only a small copy
+                # is opened now, and the rest as it is looked at
+                item = BeePixmapItem(QtGui.QImage())
+                item.pixmap_from_bytes(row[9], small=small.result())
+                if item.is_null():
+                    item = data['data']['text'] = (
+                        f'Image could not be loaded: {item.filename}\n'
+                        + IMG_LOADING_ERROR_MSG)
+                    data['type'] = BeeErrorItem.TYPE
+                data['item'] = item
+
+        self.scene.add_item_later(data)
+
+        if self.worker:
+            logger.trace(f'Emit progress: {i}')
+            self.worker.progress.emit(i)
+            if self.worker.canceled:
+                self.worker.finished.emit('', [])
+                return False
+            # Give main thread time to process items:
+            if (i + 1) % self.ITEMS_PER_PAUSE == 0:
+                time.sleep(self.PAUSE_SECONDS)
+        return True
 
     @handle_sqlite_errors
     def write(self):

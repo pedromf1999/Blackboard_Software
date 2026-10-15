@@ -108,12 +108,12 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         self._clear_ongoing = False
 
     def addItem(self, item):
-        logger.debug(f'Adding item {item}')
+        logger.trace(f'Adding item {item}')
         super().addItem(item)
         self._extent = None
 
     def removeItem(self, item):
-        logger.debug(f'Removing item {item}')
+        logger.trace(f'Removing item {item}')
         super().removeItem(item)
         self._extent = None
 

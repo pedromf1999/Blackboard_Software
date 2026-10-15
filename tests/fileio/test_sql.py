@@ -807,9 +807,9 @@ def test_sqliteio_count_rows_counts_every_item(tmpfile, view):
 def test_sqliteio_read_pauses_for_the_main_thread_in_batches(tmpfile, view):
     """A pause per item was most of the time spent loading.
 
-    Windows rounds any sleep up to the timer granularity, so a pause
-    costs about fifteen milliseconds however short it asks to be. The
-    only thing that helps is pausing less often.
+    Qt's pause is rounded up by Windows to its timer, some fifteen
+    milliseconds however short it asks to be; Python's own keeps to
+    what it is asked, since 3.11. So a short one, and not every item.
     """
 
     count = SQLiteIO.ITEMS_PER_PAUSE * 3
@@ -820,10 +820,13 @@ def test_sqliteio_read_pauses_for_the_main_thread_in_batches(tmpfile, view):
 
     worker = MagicMock(canceled=False)
     io = SQLiteIO(tmpfile, view.scene, readonly=True, worker=worker)
-    io.read()
+    with patch('beeref.fileio.sql.time.sleep') as sleep:
+        io.read()
 
     assert worker.progress.emit.call_count == count
-    assert worker.msleep.call_count == 3
+    assert sleep.call_count == 3
+    sleep.assert_called_with(SQLiteIO.PAUSE_SECONDS)
+    worker.msleep.assert_not_called()
 
 
 def test_sqliteio_read_canceled(tmpfile, view):

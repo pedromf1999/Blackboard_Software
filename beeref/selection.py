@@ -66,12 +66,12 @@ class BaseItemMixin:
         if value <= 0:
             return
 
-        logger.debug(f'Setting scale for {self} to {value}')
+        logger.trace(f'Setting scale for {self} to {value}')
         self.prepareGeometryChange()
         super().setScale(value)
 
     def setZValue(self, value):
-        logger.debug(f'Setting z-value for {self} to {value}')
+        logger.trace(f'Setting z-value for {self} to {value}')
         super().setZValue(value)
         if self.scene():
             self.scene().max_z = max(self.scene().max_z, value)
@@ -82,7 +82,7 @@ class BaseItemMixin:
 
     @with_anchor
     def setRotation(self, value):
-        logger.debug(f'Setting rotation for {self} to {value}')
+        logger.trace(f'Setting rotation for {self} to {value}')
         super().setRotation(value % 360)
 
     def flip(self):
@@ -107,7 +107,7 @@ class BaseItemMixin:
     def set_stretch(self, x, y):
         """Stretch the item, keeping whichever way it is flipped."""
 
-        logger.debug(f'Setting stretch for {self} to {x}, {y}')
+        logger.trace(f'Setting stretch for {self} to {x}, {y}')
         self.prepareGeometryChange()
         self.setTransform(QtGui.QTransform.fromScale(self.flip() * x, y))
 
@@ -1072,7 +1072,7 @@ class MultiSelectItem(SelectableMixin,
 
     def __init__(self):
         super().__init__()
-        logger.debug(f'Initialized {self}')
+        logger.trace(f'Initialized {self}')
         self.init_selectable()
 
     def __str__(self):
