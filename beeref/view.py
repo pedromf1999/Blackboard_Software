@@ -2131,6 +2131,17 @@ class BeeGraphicsView(MainControlsMixin,
         """
 
         items = self.scene.selected_images()
+        pinned = [item for item in items if item.is_pinned]
+        if pinned:
+            # Shown wider or narrower in the window. Arranging the window,
+            # not the board: not a step to undo.
+            for item in pinned:
+                item.pin['width'] = round(min(
+                    max(item.pinned_width() * factor,
+                        item.PINNED_MIN_WIDTH), item.PINNED_MAX_WIDTH))
+            self.place_pinned_notes()
+            self.update_pinned_toolbars()
+        items = [item for item in items if not item.is_pinned]
         if not items:
             return
         middle = QtCore.QRectF()
@@ -3359,12 +3370,13 @@ class BeeGraphicsView(MainControlsMixin,
     def selected_link_notes(self):
         """The selected notes that are a web address and nothing else.
 
-        Not one with a title, or pinned to the window: its picture would
-        have nowhere to keep either.
+        Not one with a title: its picture would have nowhere to keep it.
+        One pinned to the window is, and its picture takes its place in
+        the tab.
         """
 
         return [item for item in self.scene.selected_text_items()
-                if not item.is_pinned and not item.shows_header()
+                if not item.shows_header()
                 and link_preview.link_in(item.toPlainText())]
 
     def on_action_link_as_preview(self):
@@ -3415,11 +3427,22 @@ class BeeGraphicsView(MainControlsMixin,
             # Measured as a paste measures what it puts down: the item
             # itself, without a caption or selection handles
             where = self.scene.itemsBoundingRect(items=[old]).center()
+            pin = dict(old.pin) if getattr(old, 'pin', None) else None
             self.undo_stack.push(commands.DeleteItems(self.scene, [old]))
             self.undo_stack.push(
                 commands.InsertItems(self.scene, [new], where))
-            self.scene.put_in_group_at([new], where)
+            if pin is not None:
+                # Pinned, it takes the old one's place in the tab, at the
+                # size pinned things of its kind are shown. Its own: a
+                # picture's width means nothing to a note
+                pin.pop('width', None)
+                new.set_pin(pin)
+                new.setScale(self.pinned_scale(new))
+            else:
+                self.scene.put_in_group_at([new], where)
         self.undo_stack.endMacro()
+        if any(getattr(new, 'is_pinned', False) for old, new in pairs):
+            self.place_pinned_notes()
         self.scene.deselect_all_items()
         for (old, new), selected_before in zip(pairs, was_selected):
             new.setSelected(selected_before)
@@ -4048,14 +4071,37 @@ class BeeGraphicsView(MainControlsMixin,
         if not items:
             toolbar.hide()
             return
-        rect = items[0].sceneBoundingRect()
-        for item in items[1:]:
-            rect = rect.united(item.sceneBoundingRect())
-        toolbar.pin_to(self.mapFromScene(rect).boundingRect(), avoid=avoid)
+        tab = self.pins_tab_rect()
+        if (avoid is None and not tab.isEmpty()
+                and all(getattr(item, 'is_pinned', False) for item in items)):
+            # Beside the tab, level with what it acts on: above it, the
+            # bar covered whatever stood above that in the tab
+            self.beside_pins_tab(toolbar, items[0].screen_rect(self), tab)
+        else:
+            rect = items[0].sceneBoundingRect()
+            for item in items[1:]:
+                rect = rect.united(item.sceneBoundingRect())
+            toolbar.pin_to(self.mapFromScene(rect).boundingRect(),
+                           avoid=avoid)
         if toolbar.isHidden():
             toolbar.show()
             # Over the labels of pinned notes; see bring_into_sight
             toolbar.raise_()
+
+    def beside_pins_tab(self, toolbar, rect, tab):
+        """Put a bar outside the tab of pinned notes, level with ``rect``:
+        on the side of the tab with the more room, kept in the window."""
+
+        toolbar.adjustSize()
+        area = self.viewport().rect()
+        gap = toolbar.GAP
+        if tab.center().x() > area.width() / 2:
+            x = tab.left() - toolbar.width() - gap
+        else:
+            x = tab.right() + gap
+        x = max(0, min(round(x), area.width() - toolbar.width()))
+        y = max(0, min(round(rect.top()), area.height() - toolbar.height()))
+        toolbar.move(x, y)
 
     def update_text_toolbar(self):
         """Show the text buttons over the selected text, or not at all."""
@@ -4150,9 +4196,16 @@ class BeeGraphicsView(MainControlsMixin,
         """How much a pinned note is scaled for its words to show at the
         size every pinned note's do, set in the settings. Its title then
         shows at the same size as every other pinned title; see
-        BeeTextItem.title_size.
+        BeeTextItem.title_size. A pinned picture is scaled to the width
+        it is shown at.
         """
 
+        if getattr(note, 'TYPE', None) == BeePixmapItem.TYPE:
+            across = note.crop.width()
+            if across <= 0:
+                return 1
+            return min(max(note.pinned_width() / across,
+                           self.PIN_MIN_SCALE / 100), self.PIN_MAX_SCALE)
         usual = note.usual_point_size()
         standard = self.settings.valueOrDefault('Items/pinned_text_size')
         if usual <= 0 or standard <= 0:
@@ -4167,9 +4220,11 @@ class BeeGraphicsView(MainControlsMixin,
         self.update_pinned_toolbars()
 
     def notes_to_pin(self):
-        """The notes the pin buttons act on: those chosen, or written in."""
+        """What the pin buttons act on: the notes and pictures chosen,
+        or the note written in."""
 
         notes = list(self.scene.selected_text_items())
+        notes += list(self.scene.selected_images())
         writing = self.scene.edit_item
         if (writing is not None and getattr(writing, 'TYPE', None) == 'text'
                 and writing not in notes):
@@ -4194,10 +4249,12 @@ class BeeGraphicsView(MainControlsMixin,
     def pin_notes(self, notes):
         self.undo_stack.push(commands.PinNotes(self, notes, True))
         self.update_text_toolbar()
+        self.update_pinned_toolbars()
 
     def unpin_notes(self, notes):
         self.undo_stack.push(commands.PinNotes(self, notes, False))
         self.update_text_toolbar()
+        self.update_pinned_toolbars()
 
     def pin_note(self, item):
         """Fasten a note to the window: into the tab of pinned notes.
@@ -4567,7 +4624,7 @@ class BeeGraphicsView(MainControlsMixin,
             note.placing = True
             try:
                 self.put_on_screen(
-                    note, note.whole_rect().topLeft(), slot.topLeft())
+                    note, note.pin_rect().topLeft(), slot.topLeft())
             finally:
                 note.placing = False
 
@@ -4637,13 +4694,8 @@ class BeeGraphicsView(MainControlsMixin,
         holds them."""
 
         on_screen = note.deviceTransform(self.viewportTransform())
-        titled = note.shows_header()
-        if titled:
-            area = on_screen.mapRect(note.header_rect())
-            color = note.visible_header_color()
-        else:
-            area = on_screen.mapRect(note.whole_rect())
-            color = note.visible_box_color()
+        local, color, titled = note.pin_controls_place()
+        area = on_screen.mapRect(local)
         inset = self.PIN_CONTROLS_INSET
         # Two buttons side by side, and the frame round them
         fits = min(area.height() - 2 * inset - 2,
@@ -4798,7 +4850,7 @@ class BeeGraphicsView(MainControlsMixin,
 
         if folded:
             for note in self.scene.pinned_notes():
-                if note.edit_mode:
+                if getattr(note, 'edit_mode', False):
                     note.exit_edit_mode()
                 note.setSelected(False)
         self.scene.pins_tab['minimized'] = bool(folded)

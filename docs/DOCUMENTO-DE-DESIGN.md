@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.7** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.8** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -289,6 +289,26 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   um pouco maior.
 - A arrumação, a posição do separador e se está recolhido ficam gravados no
   quadro.
+- **Imagens afixadas** (15.8): qualquer imagem -- sobretudo a de um link,
+  como a primeira página de um PDF -- afixa-se como uma nota: Ctrl+P, ou o
+  pino na barra da imagem. Fica no mesmo separador, ao lado das notas, com
+  **240 px de largura** no ecrã seja qual for o zoom; os botões de tamanho
+  (Ctrl+= / Ctrl+-) alargam-na ou estreitam-na (80 a 1200 px, sem passo de
+  desfazer: é arrumar a janela). Sem pegas nem recorte enquanto afixada.
+  Recolhida, a etiqueta diz a descrição (o endereço) ou o nome do
+  ficheiro. Ctrl+clique abre o link como sempre.
+- **Trocar entre link em texto e link com imagem mantém-no afixado**, no
+  mesmo lugar do separador: a nota de um link afixada passa a imagem
+  afixada, e a imagem afixada volta a nota afixada (cada uma ao tamanho do
+  seu tipo). Desfazer devolve o que estava.
+- A barra de botões de uma nota ou imagem afixada fica **ao lado do
+  separador**, à altura do elemento: por cima dele tapava o que estivesse
+  acima no separador.
+- O afixar vive em `PinnableMixin` (`items.py`), partilhado por notas e
+  imagens; cada uma diz o que é dela (`pin_rect`, `pin_label_text`,
+  `pin_label_color`, `pin_controls_place`). Ficheiros: uma imagem afixada
+  guarda `pin` como as notas (mais `width`); uma versão antes da 15.8
+  mostra-a no quadro, no sítio onde foi vista.
 
 ### Leitor do Spotify (15.2, local desde 15.3)
 - **Ctrl+Shift+M**, o botão da nota musical no fim da barra de ferramentas

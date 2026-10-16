@@ -618,7 +618,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             return
         if self.has_single_image_selection():
             item = self.selectedItems(user_only=True)[0]
-            if item.is_image:
+            # Not a picture pinned to the window, which keeps no handles
+            if item.is_image and not getattr(item, 'is_pinned', False):
                 item.enter_crop_mode()
 
     def sample_color_at(self, position):

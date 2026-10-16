@@ -63,6 +63,12 @@ class ImageToolBar(PinnedToolBar):
         # the link as a note
         self.as_text = self.add_button(
             'link', 'Show as a text link', view.on_action_link_as_text)
+        # As on a note: fastened to the window, it stays in sight
+        # wherever the board goes
+        self.pin = self.add_button(
+            'pin', 'Pin to the window, where it stays in sight (Ctrl+P)',
+            view.on_action_pin_note)
+        self.pin.setCheckable(True)
 
         self.adjustSize()
 
@@ -78,8 +84,14 @@ class ImageToolBar(PinnedToolBar):
         """Show what these buttons can do to the images selected."""
 
         # Cropping is one picture at a time; it has its own mode, with
-        # handles that belong to a single image
-        self.crop.setEnabled(len(items) == 1)
+        # handles that belong to a single image -- and not one pinned to
+        # the window, which has none
+        pinned = bool(items) and all(item.is_pinned for item in items)
+        self.crop.setEnabled(len(items) == 1 and not pinned)
+        self.pin.setChecked(pinned)
+        self.pin.setToolTip(
+            'Unpin: back onto the board (Ctrl+P)' if pinned
+            else 'Pin to the window, where it stays in sight (Ctrl+P)')
         self.as_text.setVisible(
             any(link_in(item.caption) for item in items))
         self.caption.setEnabled(len(items) == 1)

@@ -2103,8 +2103,194 @@ class TitleEditor(QtWidgets.QGraphicsTextItem):
         self.item.exit_title_edit_mode()
 
 
+class PinnableMixin:
+    """What fastens an item to the window: a note, or a picture."""
+
+    # Pinned notes and pictures: fastened to the window rather than to
+    # the board, so that a to-do list, or the picture of a link, stays in
+    # sight wherever the board is moved and however far it is zoomed.
+    # It is still an item on the board -- boxes, numbers, formatting,
+    # captions, undo all work as on any other -- that ignores the zoom
+    # and is put back in its place in the tab of pinned notes whenever
+    # the board moves under it; see BeeGraphicsView.place_pinned_notes.
+    # What it keeps, saved with the board:
+    #   order      its place in the order the tab is laid out in
+    #   after      the place of the note it stands to the right of, or
+    #              None at the left of the tab
+    #   board_scale
+    #              the size it had on the board, to go back to unpinned
+    #   minimized  whether it is folded away to a small label
+    #   corner, offset
+    #              where it was last shown, for the versions before the
+    #              tab, which placed each pinned note on its own
+    #   width      a picture only: how wide it is shown, in pixels, once
+    #              made bigger or smaller with the size buttons
+
+    # Above everything on the board
+    PINNED_Z = 2.0 ** 40
+
+    # Set before anything can give the item a place in the stack
+    pin = None
+
+    @property
+    def is_pinned(self):
+        return self.pin is not None
+
+    @property
+    def is_minimized(self):
+        return self.pin is not None and bool(self.pin.get('minimized'))
+
+    def pin_save_data(self):
+        """What a file keeps of the pin; nothing for an item on the board.
+
+        Read by nothing before 10.8: a version that does not know it
+        shows the item on the board, where it was last seen. Its place
+        in the tab of pinned notes, the item it stands beside, and
+        whether it is folded away; and, for the versions before the tab,
+        which placed each note on its own, where it was last shown. The
+        versions that know only the place show the notes one under
+        another, in that order. Pictures are pinned since 15.8: a
+        version before that shows a pinned picture on the board.
+        """
+
+        if self.pin is None:
+            return {}
+        after = self.pin.get('after')
+        data = {
+            'order': int(self.pin.get('order') or 0),
+            'after': after if isinstance(after, int) else None,
+            # The size it had on the board, to go back to
+            'board_scale': self.pin.get('board_scale'),
+            'minimized': bool(self.pin.get('minimized')),
+            'corner': list(self.pin.get('corner', [0, 0])),
+            'offset': list(self.pin.get('offset', [16, 16]))}
+        if self.pin.get('width'):
+            data['width'] = self.pin['width']
+        return {'pin': data}
+
+    def set_pin(self, pin):
+        """Fasten the note to the window, or back to the board with None.
+
+        Only what it is: where it goes is up to the view, which knows
+        the window.
+        """
+
+        self.prepareGeometryChange()
+        self.pin = dict(pin) if pin else None
+        flags = QtWidgets.QGraphicsItem.GraphicsItemFlag
+        self.setFlag(flags.ItemIgnoresTransformations, self.pin is not None)
+        if self.pin is not None:
+            self.setZValue(self.PINNED_Z)
+            self.join_pinned_notes()
+        self.show_or_fold_away()
+
+    def join_pinned_notes(self):
+        scene = self.scene()
+        if scene is not None and hasattr(scene, 'note_pinned'):
+            scene.note_pinned(self)
+
+    def set_minimized(self, minimized):
+        """Fold a pinned note away to its label, or open it out again."""
+
+        if self.pin is None:
+            return
+        self.pin['minimized'] = bool(minimized)
+        self.show_or_fold_away()
+
+    def show_or_fold_away(self):
+        folded = self.is_minimized
+        if folded:
+            if getattr(self, 'edit_mode', False):
+                self.exit_edit_mode()
+            self.setSelected(False)
+        self.setVisible(not folded)
+
+    def setZValue(self, value):
+        if self.pin is not None:
+            # Always on top, and left out of the board's reckoning of how
+            # high things go: otherwise the next item brought to the
+            # front would be put above it. One being dragged goes over
+            # the other pinned notes as well, on its way to its new place.
+            QtWidgets.QGraphicsItem.setZValue(
+                self, self.PINNED_Z + (1 if self.being_dragged() else 0))
+            return
+        super().setZValue(value)
+
+    def being_dragged(self):
+        scene = self.scene()
+        return any(item is self
+                   for item, _ in getattr(scene, 'dragged_z', None) or [])
+
+    def screen_rect(self, view):
+        """Where the item is in the window, in the window's pixels.
+
+        All of it: a note's box and the title band standing on top of
+        it, a picture and the caption hanging under it; see pin_rect.
+        """
+
+        return self.deviceTransform(view.viewportTransform()).mapRect(
+            self.pin_rect())
+
+    def board_transform(self):
+        """How a pinned note's own points land on the board, as seen now.
+
+        None for a note on the board. A pinned note ignores the zoom, so
+        Qt's own mapping to the board leaves the zoom out: fine for Qt,
+        which only asks with the view in hand, but wrong for everything
+        here that asks where on the board something is -- where a click
+        landed in it, where its bar goes, what a search should look at.
+        """
+
+        if self.pin is None or self.scene() is None:
+            return None
+        views = self.scene().views()
+        if not views:
+            return None
+        viewport = views[0].viewportTransform()
+        to_board, invertible = viewport.inverted()
+        if not invertible:
+            return None
+        return self.deviceTransform(viewport) * to_board
+
+    @staticmethod
+    def map_with(transform, *args):
+        """Map a point, rectangle, polygon or path, as Qt's own do."""
+
+        if len(args) == 2:
+            return transform.map(QtCore.QPointF(*args))
+        [what] = args
+        if isinstance(what, (QtCore.QRectF, QtCore.QRect)):
+            return transform.map(QtGui.QPolygonF(QtCore.QRectF(what)))
+        return transform.map(what)
+
+    def mapToScene(self, *args):
+        transform = self.board_transform()
+        if transform is None:
+            return super().mapToScene(*args)
+        return self.map_with(transform, *args)
+
+    def mapFromScene(self, *args):
+        transform = self.board_transform()
+        if transform is None:
+            return super().mapFromScene(*args)
+        inverse, _ = transform.inverted()
+        return self.map_with(inverse, *args)
+
+    def sceneBoundingRect(self):
+        transform = self.board_transform()
+        if transform is None:
+            return super().sceneBoundingRect()
+        return transform.mapRect(self.boundingRect())
+
+    def itemChange(self, change, value):
+        changes = QtWidgets.QGraphicsItem.GraphicsItemChange
+        if change == changes.ItemSceneHasChanged and self.pin is not None:
+            self.join_pinned_notes()
+        return super().itemChange(change, value)
+
+
 @register_item
-class BeePixmapItem(BandTextMixin, BeeItemMixin,
+class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
                     QtWidgets.QGraphicsPixmapItem):
     """Class for images added by the user."""
 
@@ -2206,6 +2392,8 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             item.outline_color = QtGui.QColor(*color)
         item.caption = data.get('caption', '')
         item.band_scale = data.get('band_scale', 1)
+        if isinstance(data.get('pin'), dict):
+            item.set_pin(data['pin'])
         if data.get('link_icon'):
             item.link_icon = QtGui.QImage.fromData(
                 QtCore.QByteArray.fromBase64(data['link_icon'].encode()))
@@ -2303,6 +2491,54 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
 
         size = self.image_size()
         return QtCore.QRectF(0, 0, size.width(), size.height())
+
+    # Pinned to the window: see PinnableMixin
+
+    # How wide a picture pinned to the window is shown, in pixels, until
+    # it is made bigger or smaller with the size buttons; and the
+    # narrowest and widest those take it
+    PINNED_WIDTH = 240
+    PINNED_MIN_WIDTH = 80
+    PINNED_MAX_WIDTH = 1200
+
+    def pin_rect(self):
+        """What of the picture is laid out in the tab: what is left of
+        it after the crop, and the caption hanging under it."""
+
+        rect = QtCore.QRectF(self.crop)
+        if self.shows_caption():
+            rect = rect.united(self.caption_rect())
+        return rect
+
+    def pinned_width(self):
+        try:
+            width = float(self.pin.get('width') or 0) if self.pin else 0
+        except (TypeError, ValueError):
+            width = 0
+        return width if width > 0 else self.PINNED_WIDTH
+
+    def pin_label_text(self):
+        """What its label says it is, folded away: its caption -- the
+        address, for a link's picture -- or its file's name."""
+
+        if self.caption.strip():
+            return self.caption.strip().splitlines()[0]
+        return self.get_default_name()
+
+    def pin_label_color(self):
+        return QtGui.QColor(self.caption_color if self.shows_caption()
+                            else QtGui.QColor(*COLORS['Active:Base']))
+
+    def pin_controls_place(self):
+        """Its buttons go in the picture's top right corner, on a tile
+        of the caption's colour so that they show on any picture."""
+
+        return QtCore.QRectF(self.crop), self.pin_label_color(), False
+
+    def has_selection_handles(self):
+        # Pinned, it keeps the width it is shown at and its angle: the
+        # size buttons make it bigger or smaller
+        return super().has_selection_handles() and self.pin is None
 
     def boundingRect(self):
         """Room for the contour on top of whatever else needs room.
@@ -2830,6 +3066,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
             # Small, so kept with the rest rather than as a picture of
             # its own; a version that knows nothing of it passes it by
             data['link_icon'] = image_to_base64_png(self.link_icon)
+        data.update(self.pin_save_data())
         return data
 
     def get_filename_for_export(self, imgformat, save_id_default=None):
@@ -3058,8 +3295,16 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
         # The same picture, compressed or open, rather than a second one
         item.share_picture(self)
         item.setPos(self.pos())
-        item.setZValue(self.zValue())
-        item.setScale(self.scale())
+        if self.pin is None:
+            item.setZValue(self.zValue())
+            item.setScale(self.scale())
+        else:
+            # A copy of a pinned picture goes on the board, the size it
+            # is seen at; and not above the pinned ones, where the
+            # pinned picture's own place in the stack would put it
+            views = self.scene().views() if self.scene() else []
+            item.setScale(self.scale() / views[0].get_scale() if views
+                          else self.scale())
         item.setRotation(self.rotation())
         item.setOpacity(self.opacity())
         item.grayscale = self.grayscale
@@ -3639,7 +3884,7 @@ class BeePixmapItem(BandTextMixin, BeeItemMixin,
 
 
 @register_item
-class BeeTextItem(TitleBandMixin, BeeItemMixin,
+class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                   QtWidgets.QGraphicsTextItem):
     """Class for text added by the user."""
 
@@ -3890,23 +4135,7 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             # Only stored once the box has been given a width to wrap
             # at, so untouched text items save exactly as before
             data['text_width'] = self.textWidth()
-        if self.pin is not None:
-            # Read by nothing before 10.8: a version that does not know
-            # it shows the note on the board, where it was last seen.
-            # Its place in the tab of pinned notes, the note it stands
-            # beside, and whether it is folded away; and, for the versions
-            # before the tab, which placed each note on its own, where it
-            # was last shown. The versions that know only the place show
-            # the notes one under another, in that order.
-            after = self.pin.get('after')
-            data['pin'] = {
-                'order': int(self.pin.get('order') or 0),
-                'after': after if isinstance(after, int) else None,
-                # The size it had on the board, to go back to
-                'board_scale': self.pin.get('board_scale'),
-                'minimized': bool(self.pin.get('minimized')),
-                'corner': list(self.pin.get('corner', [0, 0])),
-                'offset': list(self.pin.get('offset', [16, 16]))}
+        data.update(self.pin_save_data())
         return data
 
     def contains(self, point):
@@ -5243,96 +5472,6 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
         # are made bigger with the text buttons, as on any note
         return self.pin is None
 
-    # Pinned notes: fastened to the window rather than to the board, so
-    # that a to-do list stays in sight wherever the board is moved and
-    # however far it is zoomed. The note is still a note on the board --
-    # boxes, numbers, formatting, undo all work as on any other -- that
-    # ignores the zoom and is put back in its place in the tab of pinned
-    # notes whenever the board moves under it; see BeeGraphicsView.
-    # place_pinned_notes. What it keeps, saved with the board:
-    #   order      its place in the order the tab is laid out in
-    #   after      the place of the note it stands to the right of, or
-    #              None at the left of the tab
-    #   board_scale
-    #              the size it had on the board, to go back to unpinned
-    #   minimized  whether it is folded away to a small label
-    #   corner, offset
-    #              where it was last shown, for the versions before the
-    #              tab, which placed each pinned note on its own
-
-    # Above everything on the board
-    PINNED_Z = 2.0 ** 40
-
-    @property
-    def is_pinned(self):
-        return self.pin is not None
-
-    @property
-    def is_minimized(self):
-        return self.pin is not None and bool(self.pin.get('minimized'))
-
-    def set_pin(self, pin):
-        """Fasten the note to the window, or back to the board with None.
-
-        Only what it is: where it goes is up to the view, which knows
-        the window.
-        """
-
-        self.prepareGeometryChange()
-        self.pin = dict(pin) if pin else None
-        flags = QtWidgets.QGraphicsItem.GraphicsItemFlag
-        self.setFlag(flags.ItemIgnoresTransformations, self.pin is not None)
-        if self.pin is not None:
-            self.setZValue(self.PINNED_Z)
-            self.join_pinned_notes()
-        self.show_or_fold_away()
-
-    def join_pinned_notes(self):
-        scene = self.scene()
-        if scene is not None and hasattr(scene, 'note_pinned'):
-            scene.note_pinned(self)
-
-    def set_minimized(self, minimized):
-        """Fold a pinned note away to its label, or open it out again."""
-
-        if self.pin is None:
-            return
-        self.pin['minimized'] = bool(minimized)
-        self.show_or_fold_away()
-
-    def show_or_fold_away(self):
-        folded = self.is_minimized
-        if folded:
-            if self.edit_mode:
-                self.exit_edit_mode()
-            self.setSelected(False)
-        self.setVisible(not folded)
-
-    def setZValue(self, value):
-        if self.pin is not None:
-            # Always on top, and left out of the board's reckoning of how
-            # high things go: otherwise the next item brought to the
-            # front would be put above it. One being dragged goes over
-            # the other pinned notes as well, on its way to its new place.
-            QtWidgets.QGraphicsTextItem.setZValue(
-                self, self.PINNED_Z + (1 if self.being_dragged() else 0))
-            return
-        super().setZValue(value)
-
-    def being_dragged(self):
-        scene = self.scene()
-        return any(item is self
-                   for item, _ in getattr(scene, 'dragged_z', None) or [])
-
-    def screen_rect(self, view):
-        """Where the note is in the window, in the window's pixels.
-
-        All of it: the box, and the title band standing on top of it.
-        """
-
-        return self.deviceTransform(view.viewportTransform()).mapRect(
-            self.whole_rect())
-
     def whole_rect(self):
         """The note as it is drawn, band and all, in its own coordinates."""
 
@@ -5341,62 +5480,35 @@ class BeeTextItem(TitleBandMixin, BeeItemMixin,
             rect = rect.united(self.header_rect())
         return rect
 
-    def board_transform(self):
-        """How a pinned note's own points land on the board, as seen now.
+    def pin_rect(self):
+        """What of the note is laid out in the tab: all of it."""
 
-        None for a note on the board. A pinned note ignores the zoom, so
-        Qt's own mapping to the board leaves the zoom out: fine for Qt,
-        which only asks with the view in hand, but wrong for everything
-        here that asks where on the board something is -- where a click
-        landed in it, where its bar goes, what a search should look at.
-        """
+        return self.whole_rect()
 
-        if self.pin is None or self.scene() is None:
-            return None
-        views = self.scene().views()
-        if not views:
-            return None
-        viewport = views[0].viewportTransform()
-        to_board, invertible = viewport.inverted()
-        if not invertible:
-            return None
-        return self.deviceTransform(viewport) * to_board
+    def pin_label_text(self):
+        """What its label says it is, folded away: its title, or failing
+        that its first line."""
 
-    @staticmethod
-    def map_with(transform, *args):
-        """Map a point, rectangle, polygon or path, as Qt's own do."""
+        if self.title.strip():
+            return self.title.strip()
+        lines = [line.strip() for line in self.toPlainText().splitlines()
+                 if line.strip()]
+        return lines[0] if lines else 'Note'
 
-        if len(args) == 2:
-            return transform.map(QtCore.QPointF(*args))
-        [what] = args
-        if isinstance(what, (QtCore.QRectF, QtCore.QRect)):
-            return transform.map(QtGui.QPolygonF(QtCore.QRectF(what)))
-        return transform.map(what)
+    def pin_label_color(self):
+        """The colour of its label: its title band's, or its box's,
+        which is what its band is drawn in."""
 
-    def mapToScene(self, *args):
-        transform = self.board_transform()
-        if transform is None:
-            return super().mapToScene(*args)
-        return self.map_with(transform, *args)
+        return self.visible_header_color()
 
-    def mapFromScene(self, *args):
-        transform = self.board_transform()
-        if transform is None:
-            return super().mapFromScene(*args)
-        inverse, _ = transform.inverted()
-        return self.map_with(inverse, *args)
+    def pin_controls_place(self):
+        """Where its buttons go, in its own coordinates, in what colour,
+        and whether centred in a band: its title band, or its top corner
+        when it has none."""
 
-    def sceneBoundingRect(self):
-        transform = self.board_transform()
-        if transform is None:
-            return super().sceneBoundingRect()
-        return transform.mapRect(self.boundingRect())
-
-    def itemChange(self, change, value):
-        changes = QtWidgets.QGraphicsItem.GraphicsItemChange
-        if change == changes.ItemSceneHasChanged and self.pin is not None:
-            self.join_pinned_notes()
-        return super().itemChange(change, value)
+        if self.shows_header():
+            return self.header_rect(), self.visible_header_color(), True
+        return self.whole_rect(), self.visible_box_color(), False
 
     def list_level(self, block):
         """How deep in a list a paragraph is: 0 when it is in none."""

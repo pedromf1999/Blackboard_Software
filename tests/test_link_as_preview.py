@@ -103,10 +103,11 @@ def test_which_notes_are_links(view):
     assert plain.isSelected() and sentence.isSelected()
 
 
-def test_a_pinned_note_is_not_a_link_to_show(view):
-    note(view, 'https://example.com')
+def test_a_pinned_note_is_a_link_to_show_too(view):
+    # Its picture takes its place in the tab; see test_pin_pictures.py
+    item = note(view, 'https://example.com')
     with patch.object(BeeTextItem, 'is_pinned', True):
-        assert view.selected_link_notes() == []
+        assert view.selected_link_notes() == [item]
 
 
 def test_nothing_happens_without_a_link(view):

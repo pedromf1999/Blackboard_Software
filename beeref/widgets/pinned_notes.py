@@ -432,13 +432,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
     def name(self):
         """What the label says the note is."""
 
-        if self.note.title.strip():
-            words = self.note.title.strip()
-        else:
-            lines = [line.strip()
-                     for line in self.note.toPlainText().splitlines()
-                     if line.strip()]
-            words = lines[0] if lines else 'Note'
+        words = self.note.pin_label_text()
         if len(words) > self.MAX_CHARS:
             words = words[:self.MAX_CHARS - 1].rstrip() + '…'
         return words
@@ -452,7 +446,7 @@ class PinnedNoteLabel(QtWidgets.QToolButton):
         what its band is drawn in.
         """
 
-        band = self.note.visible_header_color()
+        band = QtGui.QColor(self.note.pin_label_color())
         band.setAlpha(255)
         words = readable_grey(band)
         style = (f'#PinnedNoteLabel {{ background-color: {band.name()};'
