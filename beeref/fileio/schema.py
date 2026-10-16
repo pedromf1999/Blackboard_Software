@@ -56,6 +56,9 @@ META_LEGEND_KEY = 'legend'
 # Where the tab of pinned notes is in the window, and whether it is
 # folded away, as JSON, for the same reason
 META_PINS_TAB_KEY = 'pins_tab'
+# A number made up for each save, so that a window can tell its own save
+# from one made on another computer; see fileio/ondisk.py
+META_SAVE_MARK_KEY = 'save_mark'
 
 
 MIGRATIONS = {

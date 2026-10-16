@@ -33,6 +33,7 @@ from beeref import tables
 from beeref import fileio
 from beeref import link_preview
 from beeref.fileio.errors import IMG_LOADING_ERROR_MSG
+from beeref.fileio.ondisk import BoardOnDisk, new_mark
 from beeref.fileio.export import exporter_registry, ImagesToDirectoryExporter
 from beeref import widgets
 from beeref.items import (
@@ -173,6 +174,11 @@ class BeeGraphicsView(MainControlsMixin,
         self.undo_stack.cleanChanged.connect(self.on_undo_clean_changed)
 
         self.filename = None
+        # The board's file as this window last read or wrote it, to know
+        # when somebody else has written it since; see fileio/ondisk.py
+        self.on_disk = BoardOnDisk()
+        # The mark the save under way leaves in the file
+        self.saving_mark = None
         self.previous_transform = None
         # Where the board was, and what was selected, before a search
         # first moved it: what Go Back in the find bar returns to
@@ -1242,6 +1248,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.refresh_legend()
         self.undo_stack.clear()
         self.filename = None
+        self.on_disk.forget()
         self.setTransform(QtGui.QTransform())
 
     def reset_previous_transform(self, toggle_item=None):
@@ -2559,6 +2566,7 @@ class BeeGraphicsView(MainControlsMixin,
                  '<p>Not accessible or not a proper bee file</p>') % filename)
         else:
             self.filename = filename
+            self.on_disk.remember(filename)
             self.scene.add_queued_items()
             if self.scene.items_awaiting_group:
                 # Only reachable if a file names a group it does not
@@ -2644,6 +2652,7 @@ class BeeGraphicsView(MainControlsMixin,
                  '<p>File/directory not accessible</p>') % filename)
         else:
             self.filename = filename
+            self.on_disk.remember(filename, self.saving_mark)
             self.undo_stack.setClean()
 
     def thumbnail(self):
@@ -2686,10 +2695,14 @@ class BeeGraphicsView(MainControlsMixin,
     def do_save(self, filename, create_new):
         if not fileio.is_bee_file(filename):
             filename = f'{filename}{constants.FILE_EXT}'
+        # Left in the file, so that this save can be told apart from one
+        # made somewhere else
+        self.saving_mark = new_mark()
         self.worker = fileio.ThreadedIO(
             fileio.save_bee, filename, self.scene, create_new=create_new,
             thumbnail=self.thumbnail(),
-            legend=self.scene.legend)
+            legend=self.scene.legend,
+            mark=self.saving_mark)
         self.worker.finished.connect(self.on_saving_finished)
         self.progress = widgets.BeeProgressDialog(
             f'Saving {filename}',
@@ -2790,9 +2803,13 @@ class BeeGraphicsView(MainControlsMixin,
             size /= 1024
         return f'{size:.1f} GB'
 
-    def on_action_save_as(self):
+    def on_action_save_as(self, suggestion=None):
         self.cancel_active_modes()
         directory = os.path.dirname(self.filename) if self.filename else None
+        if suggestion:
+            # A whole path: the dialog opens in its folder, with its name
+            # filled in
+            directory = suggestion
         filename, f = QtWidgets.QFileDialog.getSaveFileName(
             parent=self,
             caption='Save file',
@@ -2805,8 +2822,52 @@ class BeeGraphicsView(MainControlsMixin,
         self.cancel_active_modes()
         if not self.filename:
             self.on_action_save_as()
+        elif self.on_disk.changed_elsewhere():
+            self.save_over_changed_elsewhere()
         else:
             self.do_save(self.filename, create_new=False)
+
+    def save_over_changed_elsewhere(self):
+        """Ask before saving over a version saved somewhere else.
+
+        Kept in a folder that syncs, the file may have been replaced by
+        another computer's since it was opened here. Saving here as
+        usual writes only what changed, into that other version, and
+        would mix the two boards up; so it is either kept, by saving
+        this one as a copy beside it, or replaced -- written again
+        whole, from this board alone.
+        """
+
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle('Saved somewhere else')
+        box.setText('This board was saved somewhere else after it was '
+                    'opened here — on another computer, most likely.')
+        box.setInformativeText(
+            'Saving here now would replace that version with this one. '
+            'Save this one as a copy to keep both.')
+        copy = box.addButton('Save as a Copy...',
+                             QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        replace = box.addButton('Replace It',
+                                QtWidgets.QMessageBox.ButtonRole.
+                                DestructiveRole)
+        box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(copy)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is copy:
+            self.on_action_save_as(suggestion=self.copy_name())
+        elif clicked is replace:
+            logger.info(f'Replacing {self.filename}, saved elsewhere')
+            self.do_save(self.filename, create_new=True)
+
+    def copy_name(self):
+        """Where to suggest a copy of this board goes: beside it, named
+        after this computer, so that the two can be told apart."""
+
+        stem, ext = os.path.splitext(self.filename)
+        computer = QtCore.QSysInfo.machineHostName() or 'copy'
+        return f'{stem} ({computer}){ext or constants.FILE_EXT}'
 
     def on_action_export_scene(self):
         directory = os.path.dirname(self.filename) if self.filename else None

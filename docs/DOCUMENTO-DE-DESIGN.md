@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.4** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.5** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -351,6 +351,27 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   a ser visto. Ao fechar com alterações, oferece gravar.
 - **Nunca** voltar a ler os elementos por uma lista de tipos conhecidos: foi
   isso que apagou grupos e desenhos duas vezes.
+- **Quadros numa pasta que sincroniza** (Google Drive, OneDrive, Dropbox,
+  iCloud): a sincronização é da app de cada serviço, não do Blackboard --
+  é o que o PureRef, o BeeRef e os programas de CAD fazem, e ligar uma
+  conta Google obrigava a registar uma app na Google, com a sessão a cair
+  de 7 em 7 dias até ela ser verificada. O Blackboard trata do problema
+  que essas pastas trazem: o mesmo quadro gravado em dois computadores.
+- **Marca de gravação** (15.5): cada gravação deixa no ficheiro um número
+  inventado para ela (`save_mark` em `blackboard_meta`; os ficheiros
+  continuam a abrir em versões que não o conhecem). A janela lembra o
+  tamanho, a hora e a marca do ficheiro tal como o leu ou gravou
+  (`fileio/ondisk.py`); tamanho ou hora diferentes, com outra marca (ou sem
+  marca), quer dizer que foi gravado noutro lado. Uma app de sincronização
+  que só lhe toca muda a hora, não a marca.
+- **Nunca grava por cima de outra versão sem perguntar** (15.5): Ctrl+S
+  com o ficheiro gravado noutro lado desde que foi aberto pergunta "Saved
+  somewhere else": **Save as a Copy...** (sugere ao lado, com o nome do
+  computador: `BVR001 (PEDRO-PC).blk`), **Replace It** ou Cancel. Porque
+  gravar só escreve o que mudou: escrito dentro da versão do outro
+  computador, apagava o trabalho de lá sem aviso (medido: a nota de lá
+  desapareceu). Substituir escreve o quadro inteiro de novo. Save As para
+  outro sítio não pergunta.
 - Exportar: imagem do quadro (PNG, etc.) e SVG.
 
 ## 10. Desempenho (porque é que o quadro é rápido)

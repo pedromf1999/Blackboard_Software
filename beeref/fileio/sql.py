@@ -44,7 +44,8 @@ from beeref.items import (
 from .errors import BeeFileIOError, IMG_LOADING_ERROR_MSG
 from .schema import (SCHEMA, USER_VERSION, MIGRATIONS, APPLICATION_ID,
                      META_TABLE, META_VERSION_KEY,
-                     META_THUMBNAIL_KEY, META_LEGEND_KEY, META_PINS_TAB_KEY)
+                     META_THUMBNAIL_KEY, META_LEGEND_KEY, META_PINS_TAB_KEY,
+                     META_SAVE_MARK_KEY)
 
 
 logger = logging.getLogger(__name__)
@@ -98,10 +99,12 @@ def handle_sqlite_errors(func):
 class SQLiteIO:
 
     def __init__(self, filename, scene, create_new=False, readonly=False,
-                 worker=None, thumbnail=None, legend=None):
+                 worker=None, thumbnail=None, legend=None, mark=None):
         self.scene = scene
         self.thumbnail = thumbnail
         self.legend = legend
+        # Left in the file by this save; see fileio/ondisk.py
+        self.mark = mark
         self.create_new = create_new
         self.filename = filename
         self.readonly = readonly
@@ -233,6 +236,11 @@ class SQLiteIO:
                 'INSERT OR REPLACE INTO blackboard_meta (key, value) '
                 'VALUES (?, ?)',
                 (META_PINS_TAB_KEY, json.dumps(pins_tab)))
+        if self.mark:
+            self.ex(
+                'INSERT OR REPLACE INTO blackboard_meta (key, value) '
+                'VALUES (?, ?)',
+                (META_SAVE_MARK_KEY, self.mark))
 
     def read_thumbnail(self):
         """The picture of the board saved with it, or None."""

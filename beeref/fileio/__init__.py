@@ -46,12 +46,12 @@ def load_bee(filename, scene, worker=None):
 
 
 def save_bee(filename, scene, create_new=False, worker=None,
-             thumbnail=None, legend=None):
+             thumbnail=None, legend=None, mark=None):
     """Save BeeRef native file."""
     logger.info(f'Saving to file {filename}...')
     logger.debug(f'Create new: {create_new}')
     io = SQLiteIO(filename, scene, create_new, worker=worker,
-                  thumbnail=thumbnail, legend=legend)
+                  thumbnail=thumbnail, legend=legend, mark=mark)
     io.write()
     logger.info('End save')
 
