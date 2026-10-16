@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.9** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.

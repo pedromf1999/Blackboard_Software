@@ -33,7 +33,20 @@ def saved_elsewhere(path, words='theirs', mark='their-mark'):
         os.utime(path, ns=(before[1] + 2 * 10**9, before[1] + 2 * 10**9))
 
 
+def finished_saving(view, qtbot):
+    """Wait until the window has taken in that its save is done.
+
+    Not only the thread having finished: what the window does once it
+    has -- remembering the file as it now is -- comes a moment later,
+    and on a busy computer the test looked before it.
+    """
+
+    qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
+    qtbot.waitUntil(lambda: view.saving_mark is not None
+                    and view.on_disk.mark == view.saving_mark,
+                    timeout=5000)
+
+
 def save(view, qtbot, path, create_new=True):
     view.do_save(path, create_new=create_new)
-    qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
-    qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
+    finished_saving(view, qtbot)

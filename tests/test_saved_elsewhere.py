@@ -10,7 +10,7 @@ from beeref.fileio.ondisk import BoardOnDisk, looks, read_mark
 from beeref.fileio.sql import SQLiteIO
 from beeref.items import BeeTextItem
 from beeref.scene import BeeGraphicsScene
-from tests.elsewhere import save, saved_elsewhere, words_in
+from tests.elsewhere import finished_saving, save, saved_elsewhere, words_in
 
 
 def answering(text):
@@ -136,8 +136,7 @@ def test_saving_as_usual_asks_nothing(view, qtbot, saved_board):
     view.scene.addItem(BeeTextItem('more'))
     with never_asked():
         view.on_action_save()
-    qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
-    qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
+    finished_saving(view, qtbot)
     assert words_in(saved_board) == ['mine', 'more']
 
 
@@ -156,8 +155,7 @@ def test_replacing_it_writes_this_board_whole(view, qtbot, saved_board):
     view.scene.addItem(BeeTextItem('more'))
     with answering('Replace It'):
         view.on_action_save()
-    qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
-    qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
+    finished_saving(view, qtbot)
     assert words_in(saved_board) == ['mine', 'more']
     assert read_mark(saved_board) == view.on_disk.mark
     assert not view.on_disk.changed_elsewhere()
