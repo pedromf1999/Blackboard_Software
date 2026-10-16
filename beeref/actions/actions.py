@@ -698,6 +698,16 @@ actions = ActionList([
         callback='on_action_show_legend',
     ),
     Action(
+        id='show_spotify',
+        text='Show S&potify Player',
+        shortcuts=['Ctrl+Shift+M'],
+        checkable=True,
+        # Remembered: music goes on from one day to the next, and the
+        # player with it
+        settings='View/show_spotify_player',
+        callback='on_action_show_spotify',
+    ),
+    Action(
         id='show_grid',
         text='Show &Grid',
         checkable=True,

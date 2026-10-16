@@ -36,6 +36,7 @@ class ShortcutsHint(QtWidgets.QWidget):
 
     SHORTCUTS = (
         ('Ctrl + J', 'Show or hide the layers panel'),
+        ('Ctrl + Shift + M', 'Show or hide the Spotify player'),
         ('Ctrl + T', 'Add a text note, ready to type'),
         ('Ctrl + Shift + T', 'Add a task list'),
         ('Alt + T', 'Add a table'),

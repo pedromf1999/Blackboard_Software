@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.1** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.2** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -279,6 +279,43 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - A arrumação, a posição do separador e se está recolhido ficam gravados no
   quadro.
 
+### Leitor do Spotify (15.2)
+- **Ctrl+Shift+M** (View → Show Spotify Player) mostra um pequeno leitor por
+  cima do quadro: capa, música, artista, uma linha de quanto já tocou,
+  anterior / play-pausa / seguinte e o volume. A roda do rato por cima dele
+  muda o volume, não o zoom. Arrasta-se por qualquer sítio fora dos botões
+  e fica preso ao canto mais próximo da janela; de origem, em baixo à
+  direita. Clique direito: abrir a música no Spotify, sair da conta,
+  esconder. Se estava à vista ao fechar, volta a estar ao abrir.
+- **A música toca no próprio Spotify** (no PC ou no telemóvel); o Blackboard
+  só pergunta o que está a tocar e dá as ordens, pela Web API do Spotify
+  (`beeref/spotify.py`). Tocar dentro do Blackboard exigiria um navegador
+  embutido com a proteção de cópia do Spotify, que o do Qt não tem.
+  Play sem nada a tocar em lado nenhum acorda o Spotify aberto neste
+  computador (ou o primeiro aberto noutro sítio).
+- **Entrar na conta**, uma vez: "Connect Spotify" abre a página do Spotify
+  no navegador; o Spotify devolve o navegador a um pequeno servidor do
+  Blackboard em `http://127.0.0.1:43821/callback`, só neste computador, com
+  um código que é trocado pelas chaves. A chave que renova as outras fica
+  nas definições (não nas que "Restore Defaults" repõe); a das ordens dura
+  uma hora e é renovada sozinha. Sem segredo no programa: o modo PKCE prova
+  quem pede com um enigma de uso único.
+- **A app no Spotify:** o Spotify exige que cada programa seja registado em
+  developer.spotify.com por uma conta Premium, com aquele endereço de
+  regresso escrito exatamente assim (desde 2025 não aceita "localhost").
+  O número da app (Client ID) cola-se no próprio leitor, ou fica em
+  `constants.SPOTIFY_CLIENT_ID`. Os botões só funcionam com Premium; sem
+  ele o leitor diz isso.
+- Pergunta ao Spotify de 2 em 2 s com a janela em uso, de 8 em 8 s sem
+  ela, e nada com o leitor escondido (nem sequer é criado até ser mostrado
+  pela primeira vez). Se o Spotify pede para abrandar, espera o que ele
+  disser. A capa é pedida uma vez por música, no tamanho mais pequeno que
+  enche os 64 px.
+- **Não faz o quadro redesenhar-se:** a linha do progresso pinta-se a si
+  própria por inteiro (`WA_OpaquePaintEvent`) e o botão play só muda de
+  ícone quando muda de estado. Medido: com música a tocar, 0 pinturas do
+  quadro por trás do leitor em 4 s.
+
 ## 7. Pesquisar
 - **Ctrl+F** abre a barra; **F3** / Find Next / Previous percorrem os
   resultados. Procura nas notas, nos títulos de notas e grupos e nas
@@ -417,6 +454,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | `beeref/selection.py` | Pegas, redimensionar, rodar, esticar, contorno de seleção |
 | `beeref/imagecache.py` | Imagens comprimidas e abertas ao tamanho visto |
 | `beeref/spelling.py` e `beeref/assets/spelling/` | Ortografia: dicionários, sugestões, erros comuns |
+| `beeref/spotify.py` e `beeref/widgets/spotify_player.py` | Leitor do Spotify: entrar na conta, perguntar, dar ordens; a janela dele |
 | `beeref/commands.py` | Os passos de desfazer/refazer |
 | `beeref/actions/` | Menus, atalhos e o que cada um chama |
 | `beeref/fileio/` | Ler e gravar `.blk`, exportar |
@@ -444,6 +482,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | Ctrl+F / F3 | Pesquisar / resultado seguinte |
 | Ctrl+P / Ctrl+Shift+P | Afixar nota / recolher separador Pins |
 | Ctrl+J / Ctrl+L | Painel de camadas / legenda |
+| Ctrl+Shift+M | Leitor do Spotify |
 | Shift+G | Encaixe na grelha |
 | Shift + arrastar | Encaixar noutro elemento |
 | Alt + arrastar | Tirar um elemento do grupo |

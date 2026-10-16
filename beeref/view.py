@@ -41,6 +41,7 @@ from beeref.items import (
 from beeref.main_controls import MainControlsMixin
 from beeref.scene import BeeGraphicsScene
 from beeref.spelling import speller
+from beeref import spotify
 from beeref.utils import get_file_extension_from_format, qcolor_to_hex
 
 
@@ -135,6 +136,11 @@ class BeeGraphicsView(MainControlsMixin,
             widgets.loading_overlay.LoadingOverlay(self))
         self.layers_handle = widgets.layers.LayersHandle(self, self)
         self.legend_handle = widgets.legend.LegendHandle(self, self)
+        # The Spotify player, and what it talks to Spotify with: made the
+        # first time it is shown, so that nothing is asked of Spotify by
+        # anyone who never uses it
+        self.spotify = None
+        self.spotify_player = None
 
         # Set before the actions are built, since the grid toggle acts
         # on it as soon as it is restored from the settings
@@ -368,6 +374,30 @@ class BeeGraphicsView(MainControlsMixin,
 
         qaction = actions.actions['show_legend'].qaction
         qaction.setChecked(not qaction.isChecked())
+
+    def on_action_show_spotify(self, checked):
+        """Show the Spotify player over the board, or put it away."""
+
+        if checked:
+            if self.spotify_player is None:
+                self.spotify = spotify.Spotify(self)
+                self.spotify_player = widgets.spotify_player.SpotifyPlayer(
+                    self, self, self.spotify)
+            self.spotify_player.open()
+        elif self.spotify_player is not None:
+            self.spotify_player.put_away()
+
+    def toggle_spotify_player(self, shown=None):
+        """Show or put away the player, from wherever it was asked for.
+
+        Through the menu entry, like the panels, so that the player, the
+        menu and what is remembered for next time cannot drift apart.
+        """
+
+        qaction = actions.actions['show_spotify'].qaction
+        if shown is None:
+            shown = not qaction.isChecked()
+        qaction.setChecked(shown)
 
     def update_legend_handle(self):
         """Show the handle only while the panel itself is away."""
@@ -3821,6 +3851,9 @@ class BeeGraphicsView(MainControlsMixin,
             self.shortcuts_hint.reposition()
         if self.find_bar.isVisible():
             self.find_bar.reposition()
+        if self.spotify_player is not None \
+                and self.spotify_player.isVisible():
+            self.spotify_player.place()
         if self.layers_handle.isVisible():
             self.layers_handle.reposition()
         if self.legend_handle.isVisible():

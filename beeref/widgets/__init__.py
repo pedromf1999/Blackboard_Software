@@ -38,6 +38,7 @@ from beeref.widgets import (  # noqa: F401
     pinned_notes,
     pinned_toolbar,
     shortcuts_hint,
+    spotify_player,
     table_toolbar,
     text_toolbar,
     welcome_overlay,

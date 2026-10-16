@@ -73,6 +73,7 @@ menu_structure = [
             'snap_to_grid',
             'show_layers',
             'show_legend',
+            'show_spotify',
             MENU_SEPARATOR,
             'fullscreen',
             'always_on_top',

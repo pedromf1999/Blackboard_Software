@@ -29,13 +29,19 @@ APPNAME_FULL = f'{APPNAME} Reference Image Viewer'
 # one on every commit, so the version in the About box names the exact
 # commit a build came from. This is the only place it is written down;
 # pyproject.toml reads it from here.
-VERSION = '15.1'
+VERSION = '15.2'
 
 UPSTREAM_NAME = 'BeeRef'
 WEBSITE = 'https://github.com/rbreu/beeref'
 COPYRIGHT = 'Copyright © 2021-2024 Rebecca Breu'
 
 CHANGED_SYMBOL = '✎'
+
+# The number of the app registered on developer.spotify.com that the
+# Spotify player signs in through; see spotify.py. Not a secret: it only
+# names the app, and anyone signing in still has to let it in. One typed
+# into the player itself is used instead.
+SPOTIFY_CLIENT_ID = ''
 
 # Files are saved with this extension; the one BeeRef uses is still
 # opened, so boards made before the rename keep working
