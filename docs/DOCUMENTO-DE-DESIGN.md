@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -372,6 +372,16 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   computador, apagava o trabalho de lá sem aviso (medido: a nota de lá
   desapareceu). Substituir escreve o quadro inteiro de novo. Save As para
   outro sítio não pergunta.
+- **Aviso de versão nova** (15.6): de 2 em 2 s, e ao voltar à janela, a
+  janela pergunta ao disco o tamanho e a hora do ficheiro (só isso; o
+  ficheiro só é aberto, para ler a marca, quando mudam). Mudado e igual em
+  duas vezes seguidas -- para não ler um ficheiro ainda a chegar --,
+  aparece uma barra por baixo da barra de ferramentas: "This board was
+  saved somewhere else", com **Reload** e ✕ ("not now", até mudar de
+  novo; gravar continua a perguntar). Com alterações por gravar: **Save
+  Mine as a Copy...** e **Reload, Losing Mine**. Reload lê o quadro de
+  novo no mesmo zoom e no mesmo sítio, sem ajustar à janela. Nunca recarrega
+  sozinho: é quem trabalha que escolhe quando o quadro muda.
 - Exportar: imagem do quadro (PNG, etc.) e SVG.
 
 ## 10. Desempenho (porque é que o quadro é rápido)

@@ -135,3 +135,16 @@ def no_unattended_dialogs():
 
     with patch('PyQt6.QtWidgets.QMessageBox.question', refuse):
         yield
+
+
+@pytest.fixture
+def saved_board(view, qtbot, tmpdir):
+    """A board with a note, saved and so open; see tests/elsewhere.py."""
+
+    from beeref.items import BeeTextItem
+    from tests.elsewhere import save
+
+    path = os.path.join(str(tmpdir), 'board.blk')
+    view.scene.addItem(BeeTextItem('mine'))
+    save(view, qtbot, path)
+    return path

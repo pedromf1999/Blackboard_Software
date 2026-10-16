@@ -33,7 +33,7 @@ from beeref import tables
 from beeref import fileio
 from beeref import link_preview
 from beeref.fileio.errors import IMG_LOADING_ERROR_MSG
-from beeref.fileio.ondisk import BoardOnDisk, new_mark
+from beeref.fileio.ondisk import BoardOnDisk, looks, new_mark
 from beeref.fileio.export import exporter_registry, ImagesToDirectoryExporter
 from beeref import widgets
 from beeref.items import (
@@ -80,6 +80,11 @@ class BeeGraphicsView(MainControlsMixin,
     # used to come in at their own pixel size, so a small one landed
     # too small to see and had to be scaled up by hand every time.
     NEW_IMAGE_SHARE = 0.5
+
+    # How often, in milliseconds, to look whether the board's file was
+    # saved somewhere else. A look is one question to the disk, of a
+    # file's size and time; only when they change is the file opened.
+    ELSEWHERE_INTERVAL = 2000
 
     # How wide the picture saved with a board is. Small enough to sit
     # in the file without being noticed, big enough to recognise a
@@ -179,6 +184,18 @@ class BeeGraphicsView(MainControlsMixin,
         self.on_disk = BoardOnDisk()
         # The mark the save under way leaves in the file
         self.saving_mark = None
+        # Every so often, whether the board's file has been saved
+        # somewhere else since; see check_elsewhere
+        self.elsewhere_timer = QtCore.QTimer(self)
+        self.elsewhere_timer.setInterval(self.ELSEWHERE_INTERVAL)
+        self.elsewhere_timer.timeout.connect(self.check_elsewhere)
+        self.elsewhere_timer.start()
+        # How the file looked at the last look that found it different,
+        # and when told "not now"
+        self.elsewhere_seen = None
+        self.elsewhere_dismissed = None
+        # How the board was being looked at, for after it is read again
+        self.view_after_loading = None
         self.previous_transform = None
         # Where the board was, and what was selected, before a search
         # first moved it: what Go Back in the find bar returns to
@@ -259,6 +276,15 @@ class BeeGraphicsView(MainControlsMixin,
         self.draw_toolbar = widgets.draw_toolbar.DrawToolBar(self, self)
         self.draw_toolbar.reposition()
         self.draw_toolbar.show()
+        # Under it, when the board was saved somewhere else
+        self.elsewhere_bar = widgets.elsewhere_bar.ElsewhereBar(self, self)
+        self.undo_stack.cleanChanged.connect(self.on_clean_for_elsewhere)
+        application = QtGui.QGuiApplication.instance()
+        if application is not None:
+            # Coming back to the window is when a newer version has most
+            # likely come in, from the computer just left
+            application.applicationStateChanged.connect(
+                self.on_application_state_for_elsewhere)
 
         # These follow what is selected; see update_pinned_toolbars
         self.text_toolbar = widgets.text_toolbar.TextToolBar(self, self)
@@ -1249,6 +1275,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.undo_stack.clear()
         self.filename = None
         self.on_disk.forget()
+        self.forget_elsewhere()
         self.setTransform(QtGui.QTransform())
 
     def reset_previous_transform(self, toggle_item=None):
@@ -2578,7 +2605,15 @@ class BeeGraphicsView(MainControlsMixin,
             # Loading adds images before everything else, which reverses
             # items that share a z value; put them back as they were
             self.scene.restack_as_saved()
-            self.on_action_fit_scene()
+            if self.view_after_loading is not None:
+                # Read again: looked at where it was being looked at
+                transform, center = self.view_after_loading
+                self.recalc_scene_rect()
+                self.setTransform(transform)
+                self.centerOn(center)
+            else:
+                self.on_action_fit_scene()
+        self.view_after_loading = None
         # Reading could only record the legend; its lines are made here,
         # on the thread the window belongs to
         self.refresh_legend()
@@ -2653,6 +2688,7 @@ class BeeGraphicsView(MainControlsMixin,
         else:
             self.filename = filename
             self.on_disk.remember(filename, self.saving_mark)
+            self.forget_elsewhere()
             self.undo_stack.setClean()
 
     def thumbnail(self):
@@ -2860,6 +2896,80 @@ class BeeGraphicsView(MainControlsMixin,
         elif clicked is replace:
             logger.info(f'Replacing {self.filename}, saved elsewhere')
             self.do_save(self.filename, create_new=True)
+
+    # A version saved somewhere else
+
+    def check_elsewhere(self):
+        """Show the bar if the board was saved somewhere else since.
+
+        Only once the file has looked the same twice running: a file
+        still coming in from the other computer would be read half
+        written.
+        """
+
+        if not self.filename or self.on_disk.filename != self.filename:
+            return
+        worker = getattr(self, 'worker', None)
+        if worker is not None and worker.isRunning():
+            # This window reading or writing it
+            return
+        now = looks(self.filename)
+        if now is None or now == self.on_disk.looked:
+            self.elsewhere_seen = None
+            return
+        if now != self.elsewhere_seen:
+            self.elsewhere_seen = now
+            return
+        if (now == self.elsewhere_dismissed
+                or not self.elsewhere_bar.isHidden()):
+            return
+        if self.on_disk.changed_elsewhere():
+            logger.info(f'{self.filename} was saved somewhere else')
+            self.elsewhere_bar.open(not self.undo_stack.isClean())
+
+    def on_application_state_for_elsewhere(self, state):
+        if state == Qt.ApplicationState.ApplicationActive:
+            self.check_elsewhere()
+
+    def on_clean_for_elsewhere(self, clean):
+        if not self.elsewhere_bar.isHidden():
+            self.elsewhere_bar.refresh(not clean)
+
+    def forget_elsewhere(self):
+        self.elsewhere_seen = None
+        self.elsewhere_dismissed = None
+        bar = getattr(self, 'elsewhere_bar', None)
+        if bar is not None:
+            bar.hide()
+
+    def dismiss_elsewhere(self):
+        """Not now: put the bar away until the file changes again.
+        Saving here still asks before replacing it."""
+
+        self.elsewhere_dismissed = looks(self.filename) \
+            if self.filename else None
+        self.elsewhere_bar.hide()
+
+    def reload_from_elsewhere(self):
+        """Read the board again from its file, as it was saved somewhere
+        else, keeping where it is being looked at. What is not saved
+        here is lost: the bar says so on the button."""
+
+        if not self.filename:
+            return
+        logger.info(f'Reading {self.filename} again, saved elsewhere')
+        filename = self.filename
+        view_now = (QtGui.QTransform(self.transform()),
+                    self.mapToScene(self.viewport().rect().center()))
+        self.elsewhere_bar.hide()
+        self.open_from_file(filename)
+        self.view_after_loading = view_now
+
+    def save_copy_of_mine(self):
+        """Keep the changes made here, in a copy beside the board."""
+
+        self.elsewhere_bar.hide()
+        self.on_action_save_as(suggestion=self.copy_name())
 
     def copy_name(self):
         """Where to suggest a copy of this board goes: beside it, named
@@ -3915,6 +4025,9 @@ class BeeGraphicsView(MainControlsMixin,
             self.shortcuts_hint.reposition()
         if self.find_bar.isVisible():
             self.find_bar.reposition()
+        bar = getattr(self, 'elsewhere_bar', None)
+        if bar is not None and not bar.isHidden():
+            bar.reposition()
         if self.spotify_player is not None \
                 and self.spotify_player.isVisible():
             self.spotify_player.place()

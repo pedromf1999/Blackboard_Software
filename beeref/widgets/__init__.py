@@ -28,6 +28,7 @@ from beeref.widgets import (  # noqa: F401
     controls,
     draw_item_toolbar,
     draw_toolbar,
+    elsewhere_bar,
     find_bar,
     group_toolbar,
     image_toolbar,

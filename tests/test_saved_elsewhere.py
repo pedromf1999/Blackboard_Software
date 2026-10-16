@@ -4,52 +4,13 @@ knowing it, and never saving over it unasked."""
 import os
 from unittest.mock import patch
 
-import pytest
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 from beeref.fileio.ondisk import BoardOnDisk, looks, read_mark
 from beeref.fileio.sql import SQLiteIO
 from beeref.items import BeeTextItem
 from beeref.scene import BeeGraphicsScene
-
-
-def words_in(path):
-    """The words of the notes in a board file."""
-
-    scene = BeeGraphicsScene(QtGui.QUndoStack())
-    io = SQLiteIO(path, scene, readonly=True)
-    io.read()
-    scene.add_queued_items()
-    return sorted(item.toPlainText()
-                  for item in scene.items_by_type('text'))
-
-
-def saved_elsewhere(path, words='theirs', mark='their-mark'):
-    """The board saved on another computer, and synced here."""
-
-    scene = BeeGraphicsScene(QtGui.QUndoStack())
-    scene.addItem(BeeTextItem(words))
-    before = looks(path)
-    SQLiteIO(path, scene, create_new=True, mark=mark).write()
-    if before is not None:
-        # Whatever the clock's grain, it looks different now
-        os.utime(path, ns=(before[1] + 2 * 10**9, before[1] + 2 * 10**9))
-
-
-def save(view, qtbot, path, create_new=True):
-    view.do_save(path, create_new=create_new)
-    qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
-    qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
-
-
-@pytest.fixture
-def board(view, qtbot, tmpdir):
-    """A board with a note, saved and so open."""
-
-    path = os.path.join(str(tmpdir), 'board.blk')
-    view.scene.addItem(BeeTextItem('mine'))
-    save(view, qtbot, path)
-    return path
+from tests.elsewhere import save, saved_elsewhere, words_in
 
 
 def answering(text):
@@ -75,18 +36,18 @@ def never_asked():
 
 # The marks
 
-def test_a_save_leaves_its_mark(view, board):
+def test_a_save_leaves_its_mark(view, saved_board):
     assert view.on_disk.mark
-    assert read_mark(board) == view.on_disk.mark
-    assert view.on_disk.looked == looks(board)
+    assert read_mark(saved_board) == view.on_disk.mark
+    assert view.on_disk.looked == looks(saved_board)
 
 
-def test_every_save_leaves_a_new_mark(view, qtbot, board):
+def test_every_save_leaves_a_new_mark(view, qtbot, saved_board):
     first = view.on_disk.mark
     view.scene.addItem(BeeTextItem('more'))
-    save(view, qtbot, board, create_new=False)
+    save(view, qtbot, saved_board, create_new=False)
     assert view.on_disk.mark != first
-    assert read_mark(board) == view.on_disk.mark
+    assert read_mark(saved_board) == view.on_disk.mark
 
 
 def test_opening_remembers_the_mark_in_the_file(view, qtbot, tmpdir):
@@ -119,26 +80,26 @@ def test_reading_the_mark_changes_nothing(tmpdir):
 
 # Knowing
 
-def test_untouched_is_not_changed(board):
+def test_untouched_is_not_changed(saved_board):
     on_disk = BoardOnDisk()
-    on_disk.remember(board)
+    on_disk.remember(saved_board)
     assert not on_disk.changed_elsewhere()
 
 
-def test_touched_with_its_own_mark_is_not_changed(board):
+def test_touched_with_its_own_mark_is_not_changed(saved_board):
     # As a sync program does to a file it uploads
     on_disk = BoardOnDisk()
-    on_disk.remember(board)
-    looked = looks(board)
-    os.utime(board, ns=(looked[1] + 5 * 10**9, looked[1] + 5 * 10**9))
+    on_disk.remember(saved_board)
+    looked = looks(saved_board)
+    os.utime(saved_board, ns=(looked[1] + 5 * 10**9, looked[1] + 5 * 10**9))
     assert not on_disk.changed_elsewhere()
-    assert on_disk.looked == looks(board)
+    assert on_disk.looked == looks(saved_board)
 
 
-def test_saved_elsewhere_is_changed(board):
+def test_saved_elsewhere_is_changed(saved_board):
     on_disk = BoardOnDisk()
-    on_disk.remember(board)
-    saved_elsewhere(board)
+    on_disk.remember(saved_board)
+    saved_elsewhere(saved_board)
     assert on_disk.changed_elsewhere()
 
 
@@ -156,14 +117,14 @@ def test_a_file_without_marks_is_known_by_its_looks(tmpdir):
     assert on_disk.changed_elsewhere()
 
 
-def test_a_file_gone_is_not_changed(board):
+def test_a_file_gone_is_not_changed(saved_board):
     on_disk = BoardOnDisk()
-    on_disk.remember(board)
-    os.remove(board)
+    on_disk.remember(saved_board)
+    os.remove(saved_board)
     assert not on_disk.changed_elsewhere()
 
 
-def test_a_new_board_has_no_file_to_watch(view, board):
+def test_a_new_board_has_no_file_to_watch(view, saved_board):
     view.clear_scene()
     assert view.on_disk.filename is None
     assert not view.on_disk.changed_elsewhere()
@@ -171,39 +132,39 @@ def test_a_new_board_has_no_file_to_watch(view, board):
 
 # Saving
 
-def test_saving_as_usual_asks_nothing(view, qtbot, board):
+def test_saving_as_usual_asks_nothing(view, qtbot, saved_board):
     view.scene.addItem(BeeTextItem('more'))
     with never_asked():
         view.on_action_save()
     qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
     qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
-    assert words_in(board) == ['mine', 'more']
+    assert words_in(saved_board) == ['mine', 'more']
 
 
-def test_saving_over_a_version_from_elsewhere_asks(view, board):
-    saved_elsewhere(board)
+def test_saving_over_a_version_from_elsewhere_asks(view, saved_board):
+    saved_elsewhere(saved_board)
     with answering('Cancel'), patch.object(view, 'do_save') as do_save:
         view.on_action_save()
     do_save.assert_not_called()
-    assert words_in(board) == ['theirs']
+    assert words_in(saved_board) == ['theirs']
 
 
-def test_replacing_it_writes_this_board_whole(view, qtbot, board):
+def test_replacing_it_writes_this_board_whole(view, qtbot, saved_board):
     # Written as usual, only what changed, into the other version: the
     # two boards would be mixed up
-    saved_elsewhere(board)
+    saved_elsewhere(saved_board)
     view.scene.addItem(BeeTextItem('more'))
     with answering('Replace It'):
         view.on_action_save()
     qtbot.waitUntil(lambda: not view.worker.isRunning(), timeout=10000)
     qtbot.waitUntil(lambda: view.undo_stack.isClean(), timeout=5000)
-    assert words_in(board) == ['mine', 'more']
-    assert read_mark(board) == view.on_disk.mark
+    assert words_in(saved_board) == ['mine', 'more']
+    assert read_mark(saved_board) == view.on_disk.mark
     assert not view.on_disk.changed_elsewhere()
 
 
-def test_saving_as_a_copy_keeps_both(view, qtbot, board):
-    saved_elsewhere(board)
+def test_saving_as_a_copy_keeps_both(view, qtbot, saved_board):
+    saved_elsewhere(saved_board)
     suggested = []
 
     def save_dialog(parent, caption, directory, filter):
@@ -217,13 +178,13 @@ def test_saving_as_a_copy_keeps_both(view, qtbot, board):
     qtbot.waitUntil(lambda: view.filename == suggested[0], timeout=5000)
     computer = QtCore.QSysInfo.machineHostName()
     assert os.path.basename(suggested[0]) == f'board ({computer}).blk'
-    assert os.path.dirname(suggested[0]) == os.path.dirname(board)
-    assert words_in(board) == ['theirs']
+    assert os.path.dirname(suggested[0]) == os.path.dirname(saved_board)
+    assert words_in(saved_board) == ['theirs']
     assert words_in(suggested[0]) == ['mine']
 
 
-def test_the_copy_dialog_dismissed_saves_nothing(view, board):
-    saved_elsewhere(board)
+def test_the_copy_dialog_dismissed_saves_nothing(view, saved_board):
+    saved_elsewhere(saved_board)
     with answering('Save as a Copy...'), patch(
             'PyQt6.QtWidgets.QFileDialog.getSaveFileName',
             return_value=('', '')), patch.object(view, 'do_save') as do_save:
@@ -232,17 +193,17 @@ def test_the_copy_dialog_dismissed_saves_nothing(view, board):
 
 
 def test_closing_and_cancelling_the_question_keeps_the_board_open(
-        view, board):
+        view, saved_board):
     # Saving on the way out, which waits for the save
-    saved_elsewhere(board)
+    saved_elsewhere(saved_board)
     view.scene.addItem(BeeTextItem('more'))
     with answering('Cancel'):
         assert view.save_and_wait() is False
-    assert words_in(board) == ['theirs']
+    assert words_in(saved_board) == ['theirs']
 
 
-def test_save_as_somewhere_new_asks_nothing(view, qtbot, board, tmpdir):
-    saved_elsewhere(board)
+def test_save_as_somewhere_new_asks_nothing(view, qtbot, saved_board, tmpdir):
+    saved_elsewhere(saved_board)
     other = os.path.join(str(tmpdir), 'new.blk')
     with never_asked(), patch(
             'PyQt6.QtWidgets.QFileDialog.getSaveFileName',
