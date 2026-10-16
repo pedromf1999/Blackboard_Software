@@ -731,8 +731,15 @@ class BeeGraphicsView(MainControlsMixin,
         than stopping short of it or burying itself inside.
         """
 
-        for which, scene_pos in (('start', start), ('end', end)):
-            target = self.snap_target_at(scene_pos)
+        targets = {which: self.snap_target_at(scene_pos)
+                   for which, scene_pos in (('start', start), ('end', end))}
+        if targets['start'] is not None \
+                and targets['start'] is targets['end']:
+            # Drawn across one thing, from it to itself: held at both
+            # ends, both were pulled to its nearest edge and the line
+            # shrank to a dot there. It is a line drawn over it.
+            return
+        for which, target in targets.items():
             if target is None:
                 continue
             item.attach_end(which, target)
@@ -745,28 +752,45 @@ class BeeGraphicsView(MainControlsMixin,
     SNAP_TYPES = ('text', 'group', 'pixmap')
 
     def snap_target_at(self, scene_pos):
-        """The item near enough to this point to catch an end."""
+        """The item near enough to this point to catch an end.
 
+        Near enough is within BeeDrawItem.SNAP_DISTANCE pixels on the
+        screen, whatever the zoom. A note or a picture catches an end
+        dropped on it or near it; a group only one dropped near its
+        edge. Inside, a group is mostly empty board -- and on a board
+        laid out in groups, a line drawn between two things in one had
+        both its ends caught by the group and pulled out to its sides,
+        bending a curve out of shape or shrinking a line to a dot.
+        """
+
+        reach = BeeDrawItem.SNAP_DISTANCE / max(self.get_scale(), 1e-12)
         best = None
         best_distance = None
         for target in self.scene.items():
-            if getattr(target, 'TYPE', None) not in self.SNAP_TYPES:
+            kind = getattr(target, 'TYPE', None)
+            if kind not in self.SNAP_TYPES:
                 continue
             if getattr(target, 'is_pinned', False):
                 # It floats over the board: a line held by it would be
                 # dragged across the board whenever the board moved
                 continue
             rect = target.attach_rect()
-            distance = 0 if rect.contains(scene_pos) else min(
-                abs(scene_pos.x() - rect.left()),
-                abs(scene_pos.x() - rect.right()),
-                abs(scene_pos.y() - rect.top()),
-                abs(scene_pos.y() - rect.bottom()))
-            if not rect.adjusted(
-                    -BeeDrawItem.SNAP_DISTANCE, -BeeDrawItem.SNAP_DISTANCE,
-                    BeeDrawItem.SNAP_DISTANCE,
-                    BeeDrawItem.SNAP_DISTANCE).contains(scene_pos):
+            if not rect.adjusted(-reach, -reach, reach, reach).contains(
+                    scene_pos):
                 continue
+            edge = min(abs(scene_pos.x() - rect.left()),
+                       abs(scene_pos.x() - rect.right()),
+                       abs(scene_pos.y() - rect.top()),
+                       abs(scene_pos.y() - rect.bottom()))
+            if kind == BeeGroupItem.TYPE:
+                # And nearer still: a group's box is big, and an end put
+                # down inside it near a side was caught when it was meant
+                # for nothing
+                if edge > reach / 2:
+                    continue
+                distance = edge
+            else:
+                distance = 0 if rect.contains(scene_pos) else edge
             if best_distance is None or distance < best_distance:
                 best, best_distance = target, distance
         return best

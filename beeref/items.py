@@ -730,26 +730,40 @@ class BeeDrawItem(BeeItemMixin, QtWidgets.QGraphicsItem):
         path = self.path
         if stretch is not None:
             path = QtGui.QTransform.fromScale(*stretch).map(path)
+        head = self.arrow_head(path)
 
+        # Stroked in the window's own pixels rather than the drawing's.
+        # Qt leaves out a stroke whose line runs to millions of its own
+        # units, however small that comes to on screen: on a board seen
+        # at a ten-thousandth of its size, which a board as big as the
+        # real one is worked at, every line drawn there was missing --
+        # only arrow heads, which are filled rather than stroked, showed.
+        # In pixels the numbers are small at any zoom.
+        transform = painter.worldTransform()
+        scale = math.sqrt(abs(transform.determinant())) or 1
+        painter.save()
+        painter.resetTransform()
         pen = QtGui.QPen(self.color)
-        pen.setWidthF(self.line_width)
+        pen.setWidthF(self.line_width * scale)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
         painter.setBrush(QtGui.QBrush())
-        painter.drawPath(path)
-
-        head = self.arrow_head(path)
+        painter.drawPath(transform.map(path))
         if head is not None:
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QtGui.QBrush(self.color))
-            painter.drawPolygon(head)
+            painter.drawPolygon(transform.map(head))
+        painter.restore()
 
         if stretch is not None:
             painter.restore()
         self.paint_selectable(painter, option, widget)
 
-    # How close to an item an end has to be dropped to catch on it.
+    # How close to an item an end has to be dropped to catch on it, in
+    # pixels on the screen. It was in the board's own units, which on a
+    # board seen at a hundredth of its size is a quarter of a pixel, and
+    # zoomed right in is a good way off.
     SNAP_DISTANCE = 24
 
     # How close to an end the cursor has to be to take hold of it, in

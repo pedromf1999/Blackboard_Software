@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.9** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.0** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -210,6 +210,22 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Linhas presas:** a ponta de uma linha ou seta agarra-se a uma nota, grupo
   ou imagem, mostra onde vai prender enquanto se desenha, contorna a caixa em
   vez de a atravessar, e cada ponta arrasta-se sozinha.
+  - **Quando prende** (16.0): a ponta largada em cima de uma nota ou imagem,
+    ou a menos de 24 px dela **no ecrã** (era em unidades do quadro: no
+    BVR001, visto a 1:450, isso era um vigésimo de píxel, e com zoom muito
+    perto era longe demais). Um **grupo só prende junto à borda** (12 px):
+    por dentro é quadro vazio, e num quadro feito de grupos uma linha
+    desenhada dentro de um tinha as duas pontas puxadas para os lados dele
+    -- uma curva ficava torta, uma linha encolhia para um ponto. A nota ou
+    imagem dentro do grupo ganha ao grupo. Uma linha desenhada por cima de
+    um só elemento, de um lado ao outro, não fica presa a ele.
+- **Traços em qualquer zoom** (16.0): o BVR001 vai de -33 a 277 milhões de
+  unidades e é trabalhado a 1:450 e até 1:260 000. O Qt deixa de desenhar
+  um traço cujo caminho tem milhões de unidades (medido: a partir de 1:10 000
+  nada aparece), por fino que fique no ecrã -- só as pontas das setas, que
+  são preenchidas, se viam. Os desenhos são agora traçados já nos píxeis da
+  janela (`BeeDrawItem.paint`), onde os números são pequenos em qualquer
+  zoom; a espessura no ecrã é a mesma. Clicar neles sempre funcionou.
 
 ### 3.4 Grupos
 - Ctrl+G agrupa, Ctrl+Shift+G desagrupa. Caixa colorida com margem e cantos
