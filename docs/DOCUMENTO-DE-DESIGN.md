@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.3** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -279,42 +279,48 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - A arrumação, a posição do separador e se está recolhido ficam gravados no
   quadro.
 
-### Leitor do Spotify (15.2)
+### Leitor do Spotify (15.2, local desde 15.3)
 - **Ctrl+Shift+M** (View → Show Spotify Player) mostra um pequeno leitor por
   cima do quadro: capa, música, artista, uma linha de quanto já tocou,
   anterior / play-pausa / seguinte e o volume. A roda do rato por cima dele
   muda o volume, não o zoom. Arrasta-se por qualquer sítio fora dos botões
   e fica preso ao canto mais próximo da janela; de origem, em baixo à
-  direita. Clique direito: abrir a música no Spotify, sair da conta,
-  esconder. Se estava à vista ao fechar, volta a estar ao abrir.
-- **A música toca no próprio Spotify** (no PC ou no telemóvel); o Blackboard
-  só pergunta o que está a tocar e dá as ordens, pela Web API do Spotify
-  (`beeref/spotify.py`). Tocar dentro do Blackboard exigiria um navegador
-  embutido com a proteção de cópia do Spotify, que o do Qt não tem.
-  Play sem nada a tocar em lado nenhum acorda o Spotify aberto neste
-  computador (ou o primeiro aberto noutro sítio).
-- **Entrar na conta**, uma vez: "Connect Spotify" abre a página do Spotify
-  no navegador; o Spotify devolve o navegador a um pequeno servidor do
-  Blackboard em `http://127.0.0.1:43821/callback`, só neste computador, com
-  um código que é trocado pelas chaves. A chave que renova as outras fica
-  nas definições (não nas que "Restore Defaults" repõe); a das ordens dura
-  uma hora e é renovada sozinha. Sem segredo no programa: o modo PKCE prova
-  quem pede com um enigma de uso único.
-- **A app no Spotify:** o Spotify exige que cada programa seja registado em
-  developer.spotify.com por uma conta Premium, com aquele endereço de
-  regresso escrito exatamente assim (desde 2025 não aceita "localhost").
-  O número da app (Client ID) cola-se no próprio leitor, ou fica em
-  `constants.SPOTIFY_CLIENT_ID`. Os botões só funcionam com Premium; sem
-  ele o leitor diz isso.
-- Pergunta ao Spotify de 2 em 2 s com a janela em uso, de 8 em 8 s sem
-  ela, e nada com o leitor escondido (nem sequer é criado até ser mostrado
-  pela primeira vez). Se o Spotify pede para abrandar, espera o que ele
-  disser. A capa é pedida uma vez por música, no tamanho mais pequeno que
-  enche os 64 px.
-- **Não faz o quadro redesenhar-se:** a linha do progresso pinta-se a si
-  própria por inteiro (`WA_OpaquePaintEvent`) e o botão play só muda de
-  ícone quando muda de estado. Medido: com música a tocar, 0 pinturas do
-  quadro por trás do leitor em 4 s.
+  direita. Sem nada a tocar, um botão "Open Spotify". Clique direito: abrir
+  o Spotify, esconder. Se estava à vista ao fechar, volta a estar ao abrir.
+- **Lê o que toca no próprio computador** (`beeref/nowplaying.py`): sem
+  conta, sem entrar, sem Premium e sem limite de pessoas. A 15.2 falava com
+  o Spotify pela internet, o que obrigava cada pessoa a ser acrescentada à
+  mão pelo dono da app no site do Spotify (no máximo 5); nunca foi
+  publicada. Tocar dentro do Blackboard exigiria um navegador embutido com
+  a proteção de cópia do Spotify, que o do Qt não tem.
+- **Windows:** pelos controlos de música do sistema (os que aparecem ao
+  carregar nas teclas de volume), com o `winrt`. Vê qualquer leitor (o
+  Spotify, um vídeo no navegador...): Spotify a tocar ganha, depois
+  qualquer coisa a tocar, depois o Spotify em pausa. O volume é o do
+  computador, lido e mudado pelo áudio do Windows com `ctypes` -- o
+  Windows não deixa um programa mudar o volume de outro. O Spotify só diz
+  a posição de 4,5 em 4,5 s; entre as duas, a linha avança sozinha, nunca
+  mais de 10 s para lá do que ele disse.
+- **Mac:** pergunta à app do Spotify com AppleScript (`osascript`), tudo
+  numa só pergunta. Nunca abre o Spotify: só pergunta se já estiver aberto,
+  e não pergunta nada se não estiver instalado (perguntar por uma app que
+  não existe faz o Mac perguntar onde está). Na primeira vez o Mac pergunta
+  se o Blackboard pode controlar o Spotify; a frase vem de
+  `NSAppleEventsUsageDescription` no `Blackboard.spec` -- sem ela o Mac
+  recusa sem perguntar. A capa vem pelo endereço que o Spotify dá. O volume
+  é o do Spotify. **Não testado num Mac real**: só a leitura da resposta,
+  com respostas simuladas.
+- **Nunca atrasa o quadro:** as perguntas são feitas numa linha de
+  execução à parte, uma de cada vez (2–3 ms cada no Windows), de 1 em 1 s
+  com a janela em uso, de 4 em 4 s sem ela, e nada com o leitor escondido
+  (nem é criado até ser mostrado). A capa só é lida quando a música muda e
+  é guardada a 128 px. A linha do progresso pinta-se a si própria por
+  inteiro (`WA_OpaquePaintEvent`) e o botão play só muda de ícone quando
+  muda de estado. Medido com o Spotify a tocar: 0 pinturas do quadro por
+  trás do leitor em 5 s.
+- O `winrt` (MIT, ~1,8 MB) só entra no Windows (`sys_platform == 'win32'`
+  no `pyproject.toml`); sem ele, ou num sistema sem forma de saber, o
+  leitor diz "Not available on this computer" e o resto não muda.
 
 ## 7. Pesquisar
 - **Ctrl+F** abre a barra; **F3** / Find Next / Previous percorrem os
@@ -454,7 +460,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | `beeref/selection.py` | Pegas, redimensionar, rodar, esticar, contorno de seleção |
 | `beeref/imagecache.py` | Imagens comprimidas e abertas ao tamanho visto |
 | `beeref/spelling.py` e `beeref/assets/spelling/` | Ortografia: dicionários, sugestões, erros comuns |
-| `beeref/spotify.py` e `beeref/widgets/spotify_player.py` | Leitor do Spotify: entrar na conta, perguntar, dar ordens; a janela dele |
+| `beeref/nowplaying.py` e `beeref/widgets/spotify_player.py` | Leitor do Spotify: o que toca no computador e os botões; a janela dele |
 | `beeref/commands.py` | Os passos de desfazer/refazer |
 | `beeref/actions/` | Menus, atalhos e o que cada um chama |
 | `beeref/fileio/` | Ler e gravar `.blk`, exportar |
@@ -507,6 +513,19 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **Os controlos de música do Windows nunca respondem à linha principal.**
+  O Qt prepara a linha da janela de uma maneira (STA) em que as respostas
+  do `winrt` só chegam pela fila de mensagens, que ninguém lê enquanto se
+  espera por elas: o programa fica parado para sempre. Por isso tudo o que
+  é do `winrt` vive e morre na linha à parte (`nowplaying.Asker`), que é
+  preparada da outra maneira antes de mais nada; e é largado lá dentro ao
+  parar (`WindowsMedia.close`) -- largado noutra linha, o Windows recusa
+  (erro 0x8001010E).
+- **Caminhos compridos demais impedem o `winrt` de carregar** ("O nome de
+  ficheiro ou a extensão é demasiado longo"): passou dos 260 caracteres
+  numa pasta temporária funda. Instalado (`%LOCALAPPDATA%\Programs\
+  Blackboard`) ou descompactado em Downloads fica muito abaixo; se
+  acontecer, o leitor só diz que não está disponível.
 - **As barras de botões ficam por cima de tudo o que flutua sobre o
   quadro.** As etiquetas das notas afixadas minimizadas eram postas por
   cima em cada frame, e tapavam a barra da nota em edição. Agora cada coisa

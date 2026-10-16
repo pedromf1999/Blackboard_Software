@@ -15,15 +15,16 @@
 
 """A small Spotify player that floats over the board.
 
-It shows what Spotify is playing -- its cover, its name, who by and
-how far it has got -- with buttons to pause, skip and change the
-volume. It belongs to the window, not to the board: it stays where it
-was put while the board is moved and zoomed under it, keeping to the
-corner of the window it is nearest as the window changes size. See
-spotify.py for how it talks to Spotify.
+It shows what is playing on this computer -- Spotify, most often --
+with its cover, its name, who by and how far it has got, and buttons to
+pause, skip and change the volume. It belongs to the window, not to the
+board: it stays where it was put while the board is moved and zoomed
+under it, keeping to the corner of the window it is nearest as the
+window changes size. See nowplaying.py for how it learns what plays.
 """
 
 import logging
+import sys
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
@@ -126,7 +127,7 @@ class Cover(QtWidgets.QWidget):
 
 
 class SpotifyPlayer(QtWidgets.QWidget):
-    """The player: what is playing and its buttons, or how to sign in."""
+    """The player: what is playing and its buttons."""
 
     WIDTH = 340
     MARGIN = 16
@@ -134,10 +135,10 @@ class SpotifyPlayer(QtWidgets.QWidget):
     TICK = 500
     VOLUME_STEP = 5
 
-    def __init__(self, parent, view, spotify):
+    def __init__(self, parent, view, music):
         super().__init__(parent)
         self.view = view
-        self.spotify = spotify
+        self.music = music
         self.settings = BeeSettings()
         self.setObjectName('SpotifyPlayer')
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -152,8 +153,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
             ' #SpotifyPlayer QToolButton:hover {'
             ' background-color: rgba(255, 255, 255, 30); }')
         self.setFixedWidth(self.WIDTH)
-        # Never take the keyboard from the board, but for the one box
-        # that is typed in
+        # Never take the keyboard from the board
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # Where a drag started on the screen and where the player was
         self.pressed_at = None
@@ -172,11 +172,11 @@ class SpotifyPlayer(QtWidgets.QWidget):
             None, 'Hide the player (Ctrl+Shift+M)', self.on_close)
         self.close_button.setText('✕')
 
-        # What is under the names: the buttons, or how to sign in
+        # What is under the names: the buttons, or a way of starting
+        # Spotify when nothing plays
         self.pages = QtWidgets.QStackedWidget(self)
         self.pages.addWidget(self.make_controls())
-        self.pages.addWidget(self.make_sign_in())
-        self.pages.addWidget(self.make_app_number())
+        self.pages.addWidget(self.make_open_spotify())
 
         self.progress = ProgressLine(self)
 
@@ -212,7 +212,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
         self.tick_timer = QtCore.QTimer(self)
         self.tick_timer.setInterval(self.TICK)
         self.tick_timer.timeout.connect(self.tick)
-        self.spotify.changed.connect(self.refresh)
+        self.music.changed.connect(self.refresh)
         self.refresh()
         self.adjustSize()
         self.hide()
@@ -232,21 +232,26 @@ class SpotifyPlayer(QtWidgets.QWidget):
     def make_controls(self):
         page = QtWidgets.QWidget(self)
         self.previous_button = self.tool_button(
-            'skip_back', 'Previous', self.spotify.previous)
+            'skip_back', 'Previous', self.music.previous)
         self.play_button = self.tool_button(
-            'play', 'Play', self.spotify.play_pause, size=32)
+            'play', 'Play', self.music.play_pause, size=32)
         self.next_button = self.tool_button(
-            'skip_forward', 'Next', self.spotify.next)
+            'skip_forward', 'Next', self.music.next)
         self.volume_icon = QtWidgets.QLabel(page)
         self.volume_icon.setPixmap(tinted('volume', QUIET_WORDS, 16))
         self.volume = QtWidgets.QSlider(Qt.Orientation.Horizontal, page)
         self.volume.setRange(0, 100)
         self.volume.setFixedWidth(80)
         self.volume.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.volume.setToolTip('Volume (or turn the wheel over the player)')
-        # Told to Spotify once let go of, not at every step of the drag
+        # Windows lets no program change another's volume, so there it
+        # is the computer's
+        self.volume.setToolTip(
+            ("Spotify's volume" if sys.platform == 'darwin'
+             else "The computer's volume")
+            + ' (or turn the wheel over the player)')
+        # Told to the player once let go of, not at every step of the drag
         self.volume.sliderReleased.connect(
-            lambda: self.spotify.set_volume(self.volume.value()))
+            lambda: self.music.set_volume(self.volume.value()))
         self.volume.actionTriggered.connect(self.on_volume_clicked)
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -260,60 +265,37 @@ class SpotifyPlayer(QtWidgets.QWidget):
         page.setLayout(row)
         return page
 
-    def make_sign_in(self):
+    def make_open_spotify(self):
         page = QtWidgets.QWidget(self)
-        self.sign_in_button = QtWidgets.QPushButton('Connect Spotify', page)
-        self.sign_in_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.sign_in_button.clicked.connect(self.on_sign_in)
+        self.open_button = QtWidgets.QPushButton('Open Spotify', page)
+        self.open_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.open_button.clicked.connect(open_spotify)
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.sign_in_button)
+        row.addWidget(self.open_button)
         row.addStretch(1)
         page.setLayout(row)
         return page
 
-    def make_app_number(self):
-        page = QtWidgets.QWidget(self)
-        self.app_number = QtWidgets.QLineEdit(page)
-        self.app_number.setPlaceholderText('Client ID')
-        self.app_number.returnPressed.connect(self.on_app_number)
-        button = QtWidgets.QPushButton('Save', page)
-        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        button.clicked.connect(self.on_app_number)
-        row = QtWidgets.QHBoxLayout()
-        row.setContentsMargins(0, 0, 0, 0)
-        row.addWidget(self.app_number, 1)
-        row.addWidget(button)
-        page.setLayout(row)
-        return page
-
-    # Following Spotify
+    # Following what plays
 
     def refresh(self):
-        """Show what Spotify says, in whichever state it is in."""
+        """Show what plays, or that nothing does."""
 
-        spotify = self.spotify
-        status = spotify.status
-        now = spotify.now
-        if status == 'no_app':
-            self.say('Spotify', "Paste your Spotify app's Client ID")
-            self.pages.setCurrentIndex(2)
-        elif status == 'signed_out':
-            self.say('Spotify', spotify.message
-                     or 'Connect to see and control what is playing')
-            self.sign_in_button.setText('Connect Spotify')
-            self.pages.setCurrentIndex(1)
-        elif status == 'signing_in':
-            self.say('Spotify', 'Let Blackboard in, in the browser')
-            self.sign_in_button.setText('Cancel')
-            self.pages.setCurrentIndex(1)
+        music = self.music
+        status = music.status
+        now = music.now
+        if status == 'unavailable':
+            self.say('Spotify', 'Not available on this computer')
+            self.pages.hide()
         elif now is None:
-            self.say('Nothing playing', spotify.message
-                     or 'Start a song in Spotify, or press play')
-            self.pages.setCurrentIndex(0)
+            self.say('Nothing playing', 'Start a song in Spotify')
+            self.pages.setCurrentIndex(1)
+            self.pages.show()
         else:
-            self.say(now['title'], spotify.message or now['artists'])
+            self.say(now['title'] or 'Playing', now['artists'])
             self.pages.setCurrentIndex(0)
+            self.pages.show()
         playing = bool(now and now['playing'])
         if playing != self.shown_playing:
             # Only when it changes: a button drawn again has the board
@@ -324,7 +306,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
                 tinted('pause' if playing else 'play', WORDS)))
             self.play_button.setToolTip('Pause' if playing else 'Play')
         for button in (self.previous_button, self.next_button):
-            button.setEnabled(now is not None)
+            button.setEnabled(bool(now and now['can_skip']))
         if now and now['volume'] is not None \
                 and not self.volume.isSliderDown():
             self.volume.blockSignals(True)
@@ -336,7 +318,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
         self.volume.setVisible(has_volume)
         self.volume_icon.setVisible(has_volume)
         self.progress.set_shown(now is not None)
-        self.cover.set_image(spotify.cover if now else QtGui.QImage())
+        self.cover.set_image(music.cover if now else QtGui.QImage())
         if playing and not self.isHidden():
             self.tick_timer.start()
         else:
@@ -354,32 +336,19 @@ class SpotifyPlayer(QtWidgets.QWidget):
             words if self.artists.text() != words else '')
 
     def tick(self):
-        now = self.spotify.now
+        now = self.music.now
         if now and now['duration']:
             self.progress.set_fraction(
-                self.spotify.progress() / now['duration'])
+                self.music.progress() / now['duration'])
         else:
             self.progress.set_fraction(0)
 
-    def on_sign_in(self):
-        if self.spotify.status == 'signing_in':
-            self.spotify.cancel_sign_in()
-        else:
-            self.spotify.sign_in()
-
-    def on_app_number(self):
-        number = self.app_number.text().strip()
-        if number:
-            self.spotify.set_client_id(number)
-            self.app_number.clear()
-            self.view.setFocus()
-
     def on_volume_clicked(self, action):
-        # A click beside the knob moves it by a step; tell Spotify then
-        # too, once the slider has moved
+        # A click beside the knob moves it by a step; tell the player
+        # then too, once the slider has moved
         if not self.volume.isSliderDown():
             QtCore.QTimer.singleShot(
-                0, lambda: self.spotify.set_volume(self.volume.value()))
+                0, lambda: self.music.set_volume(self.volume.value()))
 
     def on_close(self):
         self.view.toggle_spotify_player(False)
@@ -390,13 +359,13 @@ class SpotifyPlayer(QtWidgets.QWidget):
         self.place()
         self.show()
         self.raise_()
-        self.spotify.watch(True)
+        self.music.watch(True)
         self.refresh()
 
     def put_away(self):
         self.hide()
         self.tick_timer.stop()
-        self.spotify.watch(False)
+        self.music.watch(False)
 
     def remembered_place(self):
         """The corner it was put nearest, and how far from it."""
@@ -472,18 +441,26 @@ class SpotifyPlayer(QtWidgets.QWidget):
                 value = round(self.volume.value()
                               + steps * self.VOLUME_STEP)
                 self.volume.setValue(max(0, min(100, value)))
-                self.spotify.set_volume(self.volume.value())
+                self.music.set_volume(self.volume.value())
         event.accept()
 
     def contextMenuEvent(self, event):
         menu = QtWidgets.QMenu(self)
-        now = self.spotify.now
+        now = self.music.now
         if now and now.get('link'):
-            menu.addAction(
-                'Open in Spotify', lambda: QtGui.QDesktopServices.openUrl(
-                    QtCore.QUrl(now['link'])))
-        if self.spotify.status in ('idle', 'playing'):
-            menu.addAction('Sign out of Spotify', self.spotify.sign_out)
+            menu.addAction('Open in Spotify', lambda: open_spotify(
+                now['link']))
+        else:
+            menu.addAction('Open Spotify', open_spotify)
         menu.addAction('Hide the player', self.on_close)
         menu.exec(event.globalPos())
         event.accept()
+
+
+def open_spotify(address='spotify:'):
+    """Bring the Spotify app up, or open a song in it."""
+
+    if not isinstance(address, str):
+        # Called by a button, which says whether it is checked
+        address = 'spotify:'
+    QtGui.QDesktopServices.openUrl(QtCore.QUrl(address))

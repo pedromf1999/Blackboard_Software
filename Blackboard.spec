@@ -130,6 +130,12 @@ if sys.platform == 'darwin':
         bundle_identifier='org.bvref.app',
         version=f'{constants.VERSION}',
         info_plist={
+            # What the Mac says when it asks, once, whether Blackboard
+            # may ask Spotify what it plays (see nowplaying.py). Without
+            # it the Mac refuses without asking at all.
+            'NSAppleEventsUsageDescription':
+                'Blackboard shows what Spotify is playing, and pauses or '
+                'skips it from the player over the board.',
             'CFBundleDocumentTypes': [
                 {
                     # Boards are written as well as read, and a .blk is

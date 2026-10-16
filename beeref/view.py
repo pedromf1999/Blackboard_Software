@@ -41,7 +41,7 @@ from beeref.items import (
 from beeref.main_controls import MainControlsMixin
 from beeref.scene import BeeGraphicsScene
 from beeref.spelling import speller
-from beeref import spotify
+from beeref.nowplaying import NowPlaying
 from beeref.utils import get_file_extension_from_format, qcolor_to_hex
 
 
@@ -136,10 +136,10 @@ class BeeGraphicsView(MainControlsMixin,
             widgets.loading_overlay.LoadingOverlay(self))
         self.layers_handle = widgets.layers.LayersHandle(self, self)
         self.legend_handle = widgets.legend.LegendHandle(self, self)
-        # The Spotify player, and what it talks to Spotify with: made the
-        # first time it is shown, so that nothing is asked of Spotify by
-        # anyone who never uses it
-        self.spotify = None
+        # The Spotify player, and what it learns what plays from: made
+        # the first time it is shown, so that nothing is asked by anyone
+        # who never uses it
+        self.music = None
         self.spotify_player = None
 
         # Set before the actions are built, since the grid toggle acts
@@ -380,9 +380,9 @@ class BeeGraphicsView(MainControlsMixin,
 
         if checked:
             if self.spotify_player is None:
-                self.spotify = spotify.Spotify(self)
+                self.music = NowPlaying(self)
                 self.spotify_player = widgets.spotify_player.SpotifyPlayer(
-                    self, self, self.spotify)
+                    self, self, self.music)
             self.spotify_player.open()
         elif self.spotify_player is not None:
             self.spotify_player.put_away()

@@ -33,6 +33,13 @@ dependencies = [
     "pyQt6>=6.7.0,<=6.7.0",
     "rectangle-packer>=2.0.1,<=2.0.2",
     "spylls==0.1.7",
+    # What plays on the computer, for the Spotify player: Windows' media
+    # controls. A Mac asks Spotify itself and needs nothing.
+    "winrt-runtime==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Media.Control==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'",
 ]
 
 [project.gui-scripts]
