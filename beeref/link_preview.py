@@ -36,7 +36,7 @@ import logging
 import re
 from urllib.parse import parse_qs, urljoin, urlparse
 
-from PyQt6 import QtCore, QtGui, QtNetwork
+from PyQt6 import QtCore, QtGui, QtNetwork, QtPdf
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,13 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 # An icon is small, and not worth waiting long for: the picture comes
 # without it rather than late
 MAX_ICON_BYTES = 1024 * 1024
+# A PDF is drawn from its first page, and has to come whole for that:
+# where the pages are is written at its end. A datasheet is a few
+# megabytes; a catalogue can be tens.
+MAX_PDF_BYTES = 40 * 1024 * 1024
+# How wide the first page of a PDF is drawn: as wide as the pictures
+# pages offer for their links, give or take
+PDF_WIDTH = 1000
 ICON_TIMEOUT_MS = 6000
 
 # An icon at least this wide looks sharp in the corner of a picture
@@ -304,6 +311,46 @@ def read_page(html, page_url):
             if each and each not in tried:
                 tried.append(each)
     return tried, icon_urls(reader.icons, page_url)
+
+
+def is_pdf(url, content_type=''):
+    """Whether a link is to a PDF: by what the site says it sends, or,
+    before it has said, by the address."""
+
+    if (content_type or '').lower().startswith('application/pdf'):
+        return True
+    return urlparse(url or '').path.lower().endswith('.pdf')
+
+
+def pdf_first_page(data, width=PDF_WIDTH):
+    """The first page of a PDF, drawn this wide on white; or a null
+    picture, for a PDF that cannot be read (or is locked)."""
+
+    document = QtPdf.QPdfDocument(None)
+    buffer = QtCore.QBuffer()
+    buffer.setData(data)
+    buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
+    document.load(buffer)
+    if (document.status() != QtPdf.QPdfDocument.Status.Ready
+            or document.pageCount() < 1):
+        logger.debug(f'PDF not readable: {document.error()}')
+        return QtGui.QImage()
+    size = document.pagePointSize(0)
+    if size.width() <= 0 or size.height() <= 0:
+        return QtGui.QImage()
+    height = max(1, round(width * size.height() / size.width()))
+    page = document.render(0, QtCore.QSize(width, height))
+    document.close()
+    if page.isNull():
+        return page
+    # A page leaves where nothing is printed see-through; on paper, and
+    # on the board, it is white
+    image = QtGui.QImage(page.size(), QtGui.QImage.Format.Format_RGB32)
+    image.fill(QtGui.QColor('white'))
+    painter = QtGui.QPainter(image)
+    painter.drawImage(0, 0, page)
+    painter.end()
+    return image
 
 
 def readable_format(url):
@@ -692,7 +739,7 @@ class LinkPreview(QtCore.QObject):
             self.icon_asked = True
             self.next_icon()
             return
-        self.request(self.url, self.on_page, MAX_PAGE_BYTES, TIMEOUT_MS)
+        self.request(self.url, self.on_page, self.page_limit, TIMEOUT_MS)
 
     def on_grabcad(self, reply):
         picture = None
@@ -704,7 +751,7 @@ class LinkPreview(QtCore.QObject):
                 picture = None
         if not isinstance(picture, str) or 'missing' in picture:
             # Read the page instead, for what it is worth
-            self.request(self.url, self.on_page, MAX_PAGE_BYTES, TIMEOUT_MS)
+            self.request(self.url, self.on_page, self.page_limit, TIMEOUT_MS)
             return
         # The picture shown on a card, and the same one larger
         self.image_addresses = [picture.replace('/card.', '/large.'),
@@ -720,7 +767,7 @@ class LinkPreview(QtCore.QObject):
         if not self.image_addresses:
             if self.page_after:
                 self.page_after = False
-                self.request(self.url, self.on_page, MAX_PAGE_BYTES,
+                self.request(self.url, self.on_page, self.page_limit,
                              TIMEOUT_MS)
                 return
             self.finish(QtGui.QImage(), 'The picture could not be read')
@@ -729,15 +776,19 @@ class LinkPreview(QtCore.QObject):
                      MAX_IMAGE_BYTES, TIMEOUT_MS)
 
     def request(self, url, then, limit, timeout):
+        """Ask for an address; `limit` is the most of it to take, or
+        what says how much once the answer has begun."""
+
         request = QtNetwork.QNetworkRequest(QtCore.QUrl(url))
         request.setRawHeader(b'User-Agent', USER_AGENT)
         request.setRawHeader(b'Accept-Language', b'pt-PT,pt;q=0.9,en;q=0.8')
         request.setTransferTimeout(timeout)
         reply = self.manager.get(request)
         self.replies.append(reply)
+        most = limit if callable(limit) else (lambda reply: limit)
         reply.downloadProgress.connect(
             lambda received, total, reply=reply:
-            received > limit and reply.abort())
+            received > most(reply) and reply.abort())
         reply.finished.connect(lambda reply=reply: self.answered(reply, then))
 
     def answered(self, reply, then):
@@ -750,6 +801,16 @@ class LinkPreview(QtCore.QObject):
     @staticmethod
     def failed(reply):
         return reply.error() != QtNetwork.QNetworkReply.NetworkError.NoError
+
+    def page_limit(self, reply):
+        """How much of the link to take: a page is read for its head,
+        a PDF has to come whole."""
+
+        content_type = str(reply.header(
+            QtNetwork.QNetworkRequest.KnownHeaders.ContentTypeHeader) or '')
+        url = reply.url().toString() or self.url
+        return (MAX_PDF_BYTES if is_pdf(url, content_type)
+                else MAX_PAGE_BYTES)
 
     def on_page(self, reply):
         if self.failed(reply):
@@ -764,6 +825,13 @@ class LinkPreview(QtCore.QObject):
         if content_type.lower().startswith('image/'):
             # The link was to a picture itself
             self.image = QtGui.QImage.fromData(data)
+            icons = [urljoin(page_url, '/favicon.ico')]
+        elif is_pdf(page_url, content_type) or data.startswith(b'%PDF'):
+            # A document: its first page, as it would be printed
+            self.image = pdf_first_page(data)
+            if self.image.isNull():
+                self.finish(self.image, 'The PDF could not be read')
+                return
             icons = [urljoin(page_url, '/favicon.ico')]
         else:
             pictures, icons = read_page(

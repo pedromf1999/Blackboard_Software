@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.6** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.7** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -103,6 +103,17 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     página de resultados do Google não dá: só existe depois de o browser
     correr o JavaScript, e na Europa pede consentimento. Copiar a imagem,
     ou o endereço dela, funciona.
+  - **PDF** (15.7): um link para um PDF (pelo tipo que o site diz enviar,
+    ou por o endereço acabar em `.pdf`) entra como a **primeira página**,
+    desenhada com 1000 px de largura sobre branco pelo QtPdf, que já vem
+    com o PyQt6 (sem peça nova; +5 MB no programa compilado). Um PDF tem
+    de chegar inteiro, porque diz onde estão as páginas no fim: por isso
+    o limite sobe de 3 MB (o de uma página web) para 40 MB, só quando a
+    resposta é um PDF. Medido: datasheet da TI (4,1 MB, 68 páginas) 0,7 s;
+    artigo do arXiv 0,3 s; desenhar a página 5–45 ms. Um PDF trancado ou
+    estragado fica como nota ("The PDF could not be read"). Sites atrás
+    da verificação anti-robôs da Cloudflare ("Just a moment...") também:
+    não se contorna.
   - **Voltar a texto** (14.2): com a imagem de um link selecionada (uma
     imagem cuja descrição é só um endereço), aparece na barra dela um ícone
     de corrente, "Show as a text link", também em Images → Show Link as
