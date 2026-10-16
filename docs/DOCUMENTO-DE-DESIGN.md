@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **15.3** (outubro de 2026). Este documento descreve o que o
+Estado na versão **15.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -280,8 +280,9 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   quadro.
 
 ### Leitor do Spotify (15.2, local desde 15.3)
-- **Ctrl+Shift+M** (View → Show Spotify Player) mostra um pequeno leitor por
-  cima do quadro: capa, música, artista, uma linha de quanto já tocou,
+- **Ctrl+Shift+M**, o botão da nota musical no fim da barra de ferramentas
+  (15.4; fica carregado enquanto o leitor está à vista) ou View → Show
+  Spotify Player mostram um pequeno leitor por cima do quadro: capa, música, artista, uma linha de quanto já tocou,
   anterior / play-pausa / seguinte e o volume. A roda do rato por cima dele
   muda o volume, não o zoom. Arrasta-se por qualquer sítio fora dos botões
   e fica preso ao canto mais próximo da janela; de origem, em baixo à

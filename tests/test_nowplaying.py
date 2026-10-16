@@ -619,6 +619,42 @@ def test_the_wheel_over_it_turns_the_volume_not_the_board(
     assert view.get_scale() == zoom
 
 
+def test_the_tool_bar_button_shows_and_hides_it(view, made_up):
+    button = view.draw_toolbar.music
+    assert not button.isChecked()
+    button.click()
+    try:
+        assert not view.spotify_player.isHidden()
+        assert button.isChecked()
+        assert actions['show_spotify'].qaction.isChecked()
+        button.click()
+        assert view.spotify_player.isHidden()
+        assert not button.isChecked()
+    finally:
+        view.music.stop()
+
+
+def test_the_tool_bar_button_follows_the_player(view, made_up):
+    button = view.draw_toolbar.music
+    view.toggle_spotify_player(True)
+    try:
+        assert button.isChecked()
+        view.spotify_player.close_button.click()
+        assert not button.isChecked()
+    finally:
+        view.music.stop()
+
+
+def test_the_tool_bar_button_starts_pressed_with_the_player_up(
+        view, made_up):
+    from beeref.widgets.draw_toolbar import DrawToolBar
+    view.toggle_spotify_player(True)
+    try:
+        assert DrawToolBar(view, view).music.isChecked()
+    finally:
+        view.music.stop()
+
+
 def test_the_shortcut_is_listed_in_the_hint():
     assert ('Ctrl + Shift + M', 'Show or hide the Spotify player') \
         in ShortcutsHint.SHORTCUTS

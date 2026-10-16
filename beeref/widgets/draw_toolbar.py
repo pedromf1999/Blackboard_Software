@@ -124,6 +124,19 @@ class DrawToolBar(QtWidgets.QWidget):
             callback=self.view.on_table_button)
         layout.addWidget(self.insert_table)
 
+        # A switch like the snap: pressed while the Spotify player is up
+        self.music = QtWidgets.QToolButton(self)
+        self.music.setCheckable(True)
+        self.music.setToolTip('Spotify player (Ctrl+Shift+M): what is '
+                              'playing, and its buttons')
+        self.music.setFixedSize(self.BUTTON_SIZE, self.BUTTON_SIZE)
+        self.music.setIconSize(QtCore.QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.music.setIcon(BeeAssets().tool_icon('music'))
+        # The player may already be up, brought back from last time
+        self.music.setChecked(actions['show_spotify'].qaction.isChecked())
+        self.music.clicked.connect(self.on_music_clicked)
+        layout.addWidget(self.music)
+
         # The colour lives on the bar that follows a selected drawing,
         # where it is next to the line it recolours
         self.setLayout(layout)
@@ -156,6 +169,11 @@ class DrawToolBar(QtWidgets.QWidget):
         button keep step."""
 
         actions['snap_to_grid'].qaction.trigger()
+
+    def on_music_clicked(self):
+        """Through the menu entry, like the snap."""
+
+        actions['show_spotify'].qaction.trigger()
 
     def on_shapes_clicked(self):
         self.set_shapes_open(not self.shape_bar.isVisible())

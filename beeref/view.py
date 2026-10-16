@@ -386,6 +386,9 @@ class BeeGraphicsView(MainControlsMixin,
             self.spotify_player.open()
         elif self.spotify_player is not None:
             self.spotify_player.put_away()
+        toolbar = getattr(self, 'draw_toolbar', None)
+        if toolbar is not None:
+            toolbar.music.setChecked(checked)
 
     def toggle_spotify_player(self, shown=None):
         """Show or put away the player, from wherever it was asked for.
