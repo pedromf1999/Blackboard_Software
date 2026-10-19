@@ -2030,11 +2030,33 @@ class ImageCaptionEditor(QtWidgets.QGraphicsTextItem):
             self.item.exit_caption_edit_mode(commit=False)
             event.accept()
             return
+        if paste_plain_words(self, event):
+            return
         super().keyPressEvent(event)
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
         self.item.exit_caption_edit_mode()
+
+
+def paste_plain_words(editor, event):
+    """Paste into a title or a caption: the words alone, on one line.
+
+    A band is drawn in its own font, at its own size, from plain words;
+    Qt's paste brought the copied formatting along, so the words being
+    typed showed at the size and in the face they were copied in, until
+    the writing was done. And a band is one line: lines copied together
+    come in side by side. Returns whether the key was answered.
+    """
+
+    if not event.matches(QtGui.QKeySequence.StandardKey.Paste):
+        return False
+    words = ' '.join(QtWidgets.QApplication.clipboard().text().split())
+    cursor = editor.textCursor()
+    cursor.insertText(words)
+    editor.setTextCursor(cursor)
+    event.accept()
+    return True
 
 
 class TitleEditor(QtWidgets.QGraphicsTextItem):
@@ -2107,6 +2129,8 @@ class TitleEditor(QtWidgets.QGraphicsTextItem):
         if event.key() == Qt.Key.Key_Escape:
             self.item.exit_title_edit_mode(commit=False)
             event.accept()
+            return
+        if paste_plain_words(self, event):
             return
         super().keyPressEvent(event)
 
@@ -6647,7 +6671,7 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         if self.list_key_press(event):
             event.accept()
         else:
-            if self.copy_key_press(event):
+            if self.copy_key_press(event) or self.paste_key_press(event):
                 event.accept()
             else:
                 super().keyPressEvent(event)
@@ -6985,6 +7009,117 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
             cursor.removeSelectedText()
             self.setTextCursor(cursor)
         return True
+
+    # The smallest and largest pasted words are brought to, in points: as
+    # far as the size buttons go
+    PASTED_SIZES = (4, 400)
+
+    def paste_key_press(self, event):
+        """Answer Paste while writing: the words come in at the size of
+        the words they are put among.
+
+        Qt's own paste kept the sizes the words had where they were
+        copied from. A size here is in the note's own points, and a note
+        is as big as its points times its own scale -- one note written
+        at ten points and made four hundred times bigger, another at
+        fourteen and left as it was. Words copied from the one came into
+        the other at ten points, a fraction of the words beside them; a
+        web page's came in at whatever its pixels were. Returns whether
+        the key was answered here.
+        """
+
+        if not event.matches(QtGui.QKeySequence.StandardKey.Paste):
+            return False
+        return self.paste_mimedata(QtWidgets.QApplication.clipboard()
+                                   .mimeData())
+
+    def paste_mimedata(self, mimedata):
+        """Put what was copied where the cursor is, fitted to the note.
+
+        Only what comes with its own formatting needs it: plain words
+        are typed in the format already at the cursor. Returns whether
+        anything was put in.
+        """
+
+        if mimedata is None or not mimedata.hasHtml():
+            return False
+        cursor = self.textCursor()
+        size = cursor.charFormat().fontPointSize()
+        if size <= 0:
+            size = self.usual_point_size()
+        fragment = self.fitted_fragment(mimedata.html(), size)
+        if fragment is None:
+            return False
+        cursor.insertFragment(fragment)
+        self.setTextCursor(cursor)
+        return True
+
+    def fitted_fragment(self, html, size):
+        """What was copied, with its words brought to this size.
+
+        The size most of its words are written at becomes this one, and
+        the rest keep their size next to that: a heading copied with its
+        paragraph is still bigger than the paragraph. Copied from another
+        program, it also leaves its own typeface and the backgrounds
+        behind -- a page's white behind every word would read here as a
+        highlight -- and takes the note's. From another note it keeps
+        its highlights, which are its own.
+        """
+
+        copied = QtGui.QTextDocument()
+        copied.setDefaultFont(self.document().defaultFont())
+        copied.setHtml(html)
+        if copied.isEmpty():
+            return None
+        own = 'name="qrichtext"' in html
+        default = QtGui.QFontInfo(copied.defaultFont()).pointSizeF()
+        letters = {}
+        runs = []
+        block = copied.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                it += 1
+                if not fragment.isValid():
+                    continue
+                run_size = fragment.charFormat().fontPointSize() or default
+                letters[run_size] = letters.get(run_size, 0) + \
+                    fragment.length()
+                runs.append((fragment.position(), fragment.length(),
+                             run_size, fragment.charFormat()))
+            block = block.next()
+        if not runs:
+            return QtGui.QTextDocumentFragment(copied)
+        usual = max(letters, key=letters.get)
+        factor = size / usual if usual > 0 else 1
+        smallest, largest = self.PASTED_SIZES
+        cursor = QtGui.QTextCursor(copied)
+        for position, length, run_size, run_format in runs:
+            cursor.setPosition(position)
+            cursor.setPosition(position + length,
+                               QtGui.QTextCursor.MoveMode.KeepAnchor)
+            # The run's own format, for its bold, italics and links
+            charformat = QtGui.QTextCharFormat(run_format)
+            if not own:
+                # Cleared rather than set to nothing: what is cleared
+                # falls back to the note's own
+                charformat.clearBackground()
+                charformat.clearProperty(
+                    QtGui.QTextFormat.Property.FontFamilies)
+            # Most of it brought exactly to the size, the rest by the same
+            # step; kept to a hundredth, as the size buttons are
+            fitted = size if run_size == usual else run_size * factor
+            charformat.setFontPointSize(
+                round(min(largest, max(smallest, fitted)), 2))
+            # In the colour words take here, on the box or on their own
+            # highlight: copied from a page with a white background,
+            # they came in black on a dark box. Set before the words go
+            # in, so that the paste is one step to undo
+            charformat.setForeground(QtGui.QBrush(
+                self.text_color_over(self.run_background(charformat))))
+            cursor.setCharFormat(charformat)
+        return QtGui.QTextDocumentFragment(copied)
 
     def selection_for_other_programs(self):
         """The words picked out while writing, the way the note shows them.

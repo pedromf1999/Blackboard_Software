@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.0** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.1** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -157,6 +157,37 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   tamanho próprios. Duplo clique na faixa para escrever.
 - **Links** sublinhados; Ctrl+clique abre no browser.
 - **Largura:** arrastar o lado da nota faz o texto quebrar de novo.
+- **Como o tamanho do texto funciona** (análise do pedido 152): todo o texto
+  tem um tamanho **relativo ao seu próprio elemento**, e é isso que o faz
+  funcionar em qualquer escala do quadro.
+  - Nota: tamanho no quadro = pontos da letra × escala da nota. Uma nota
+    nova recebe a escala que a faz parecer do tamanho normal ao zoom do
+    momento (por isso no BVR001 quase todas as notas são de 9 pt, com
+    escalas de 1 a 260 000). Ctrl+= / Ctrl+- mudam os pontos; os cantos
+    mudam a escala.
+  - Título de nota: em pontos da nota (por isso acompanha a escala dela).
+  - Título de grupo: proporcional à largura da caixa do grupo × um fator
+    próprio. Descrição de imagem: proporcional à largura da imagem
+    recortada × um fator próprio. Notas afixadas: pontos fixos das
+    definições.
+  - Medir tudo em tamanho absoluto no quadro obrigaria a mudar o formato
+    do ficheiro e perder-se-ia o "cresce com o seu elemento" -- não é
+    melhor. O ponto fraco eram **as passagens de texto de um sítio para
+    outro**, que levavam os pontos de onde vinham para um sítio onde esses
+    pontos querem dizer outra coisa.
+- **Colar dentro de uma nota** (16.1): as palavras ficam com **o tamanho do
+  texto onde são postas**. O tamanho da maior parte do que se colou passa
+  a ser esse; o resto mantém a proporção (um título colado com o seu
+  parágrafo continua maior). Vindo de outro programa (um site, o Word, um
+  email) também larga a letra e os fundos dele -- o branco de uma página
+  lia-se aqui como destaque -- e fica na letra da nota; a cor segue a caixa
+  (texto preto de uma página ficava preto numa nota escura). Vindo de
+  outra nota, mantém os destaques. Um só passo de desfazer. Texto simples
+  já entrava no formato do cursor. Medido antes: texto colado deste chat
+  entrava a 11 pt numa nota de 14 pt.
+- **Colar num título ou numa descrição** (16.1): só as palavras, numa linha,
+  na letra e tamanho da faixa (antes trazia a formatação copiada até se
+  acabar de escrever).
 - **Listas:** uma linha começada por "- " passa a lista.
 - **Listas de tarefas** (Ctrl+Shift+T): cada linha tem uma caixa; riscar uma
   tarefa leva-a para a faixa de "concluídas", que se recolhe; as tarefas

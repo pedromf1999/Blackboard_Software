@@ -508,6 +508,8 @@ def test_key_press_event_any_key(exit_mock, key_press_mock, view):
     view.scene.addItem(item)
     view.scene.edit_item = item
     event = MagicMock()
+    # A key, not a shortcut: neither Copy nor Paste
+    event.matches.return_value = False
     event.key.return_value = Qt.Key.Key_T
     event.modifiers.return_value = Qt.KeyboardModifier.NoModifier
     item.keyPressEvent(event)
@@ -523,6 +525,8 @@ def test_key_press_event_shift_return(exit_mock, key_press_mock, view):
     view.scene.addItem(item)
     view.scene.edit_item = item
     event = MagicMock()
+    # A key, not a shortcut: neither Copy nor Paste
+    event.matches.return_value = False
     event.key.return_value = Qt.Key.Key_Return
     event.modifiers.return_value = Qt.KeyboardModifier.ShiftModifier
     item.keyPressEvent(event)
@@ -538,6 +542,8 @@ def test_key_press_event_shift_enter(exit_mock, key_press_mock, view):
     view.scene.addItem(item)
     view.scene.edit_item = item
     event = MagicMock()
+    # A key, not a shortcut: neither Copy nor Paste
+    event.matches.return_value = False
     event.key.return_value = Qt.Key.Key_Enter
     event.modifiers.return_value = Qt.KeyboardModifier.ShiftModifier
     item.keyPressEvent(event)
@@ -556,6 +562,8 @@ def test_key_press_event_return_keeps_editing(exit_mock, key_press_mock,
     view.scene.addItem(item)
     view.scene.edit_item = item
     event = MagicMock()
+    # A key, not a shortcut: neither Copy nor Paste
+    event.matches.return_value = False
     event.key.return_value = Qt.Key.Key_Return
     event.modifiers.return_value = Qt.KeyboardModifier.NoModifier
     item.keyPressEvent(event)
@@ -571,6 +579,8 @@ def test_key_press_event_enter_keeps_editing(exit_mock, key_press_mock, view):
     view.scene.addItem(item)
     view.scene.edit_item = item
     event = MagicMock()
+    # A key, not a shortcut: neither Copy nor Paste
+    event.matches.return_value = False
     event.key.return_value = Qt.Key.Key_Enter
     event.modifiers.return_value = Qt.KeyboardModifier.NoModifier
     item.keyPressEvent(event)
