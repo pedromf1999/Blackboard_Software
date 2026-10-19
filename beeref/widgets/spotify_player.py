@@ -49,46 +49,151 @@ PLAYED = QtGui.QColor(*constants.COLORS['Active:Highlight'])
 PLACE_KEY = 'View/spotify_player_place'
 
 
+def as_time(milliseconds):
+    """Minutes and seconds, as a player writes them: 3:07."""
+
+    seconds = max(0, int(milliseconds // 1000))
+    return f'{seconds // 60}:{seconds % 60:02d}'
+
+
 class ProgressLine(QtWidgets.QWidget):
-    """How far the song has got: a thin line along the player's foot.
+    """How far the song has got: a thin line along the player's foot,
+    which can be clicked or dragged along to go back or on in the song.
 
     It moves on twice a second while a song plays, so it paints all of
     itself, background too, and says so: otherwise every step would have
     the board behind the player drawn again as well.
     """
 
-    def __init__(self, parent):
+    # Taller than the line, so that it can be got hold of; the line
+    # itself thickens, with a knob on it, under the mouse
+    HEIGHT = 12
+    LINE = 3
+    LINE_HELD = 5
+    KNOB = 6
+
+    def __init__(self, parent, seek=None):
         super().__init__(parent)
         self.fraction = 0.0
         # With nothing playing it is drawn in the player's own colour,
         # rather than hidden, so that the player keeps its height
         self.shown = True
-        self.setFixedHeight(3)
+        # Whether the song can be gone back or on in, and how long it is
+        self.seekable = False
+        self.duration = 0
+        # Called with where in the song to go, in milliseconds
+        self.seek = seek
+        self.hovered = False
+        # Where the line is being dragged to, as a fraction, while it is
+        self.dragged = None
+        self.setFixedHeight(self.HEIGHT)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setMouseTracking(True)
 
     def set_fraction(self, fraction):
         fraction = max(0.0, min(1.0, fraction))
         if abs(fraction - self.fraction) * self.width() >= 0.5 or (
                 fraction in (0.0, 1.0) and fraction != self.fraction):
             self.fraction = fraction
-            self.update()
+            if self.dragged is None:
+                self.update()
 
     def set_shown(self, shown):
         if shown != self.shown:
             self.shown = shown
             self.update()
 
+    def set_seekable(self, seekable, duration):
+        self.duration = duration
+        seekable = bool(seekable and duration > 0)
+        if seekable != self.seekable:
+            self.seekable = seekable
+            self.setCursor(Qt.CursorShape.PointingHandCursor if seekable
+                           else Qt.CursorShape.ArrowCursor)
+            self.setToolTip('Drag or click to go back or on in the song'
+                            if seekable else '')
+            self.update()
+
+    def fraction_at(self, x):
+        inset = self.KNOB
+        width = max(1, self.width() - 2 * inset)
+        return max(0.0, min(1.0, (x - inset) / width))
+
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
+        painter.fillRect(self.rect(), PANEL)
         if not self.shown:
-            painter.fillRect(self.rect(), PANEL)
             painter.end()
             return
-        painter.fillRect(self.rect(), TRACK)
-        played = QtCore.QRect(self.rect())
-        played.setWidth(round(self.width() * self.fraction))
-        painter.fillRect(played, PLAYED)
+        held = self.seekable and (self.hovered or self.dragged is not None)
+        thick = self.LINE_HELD if held else self.LINE
+        inset = self.KNOB
+        track = QtCore.QRectF(inset, (self.height() - thick) / 2,
+                              self.width() - 2 * inset, thick)
+        fraction = self.fraction if self.dragged is None else self.dragged
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(TRACK)
+        painter.drawRoundedRect(track, thick / 2, thick / 2)
+        played = QtCore.QRectF(track)
+        played.setWidth(track.width() * fraction)
+        painter.setBrush(PLAYED)
+        painter.drawRoundedRect(played, thick / 2, thick / 2)
+        if held:
+            painter.setBrush(WORDS)
+            painter.drawEllipse(
+                QtCore.QPointF(played.right(), track.center().y()),
+                self.KNOB / 2 + 1, self.KNOB / 2 + 1)
         painter.end()
+
+    def enterEvent(self, event):
+        self.hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if not self.seekable or event.button() != Qt.MouseButton.LeftButton:
+            # Not taken: the press drags the player about, as anywhere
+            # else on it
+            event.ignore()
+            return
+        self.drag_to(event.position().x())
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self.dragged is not None:
+            self.drag_to(event.position().x())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self.dragged is None:
+            event.ignore()
+            return
+        fraction = self.dragged
+        self.dragged = None
+        self.fraction = fraction
+        QtWidgets.QToolTip.hideText()
+        if self.seek is not None:
+            self.seek(fraction * self.duration)
+        self.update()
+        event.accept()
+
+    def drag_to(self, x):
+        """Show where letting go would go to, and at what time."""
+
+        self.dragged = self.fraction_at(x)
+        QtWidgets.QToolTip.showText(
+            self.mapToGlobal(QtCore.QPoint(int(x), -28)),
+            f'{as_time(self.dragged * self.duration)} / '
+            f'{as_time(self.duration)}', self)
+        self.update()
 
 
 class Cover(QtWidgets.QWidget):
@@ -178,7 +283,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
         self.pages.addWidget(self.make_controls())
         self.pages.addWidget(self.make_open_spotify())
 
-        self.progress = ProgressLine(self)
+        self.progress = ProgressLine(self, seek=self.music.seek)
 
         names = QtWidgets.QVBoxLayout()
         names.setSpacing(1)
@@ -204,7 +309,7 @@ class SpotifyPlayer(QtWidgets.QWidget):
         layout.addLayout(body)
         progress_row = QtWidgets.QHBoxLayout()
         # In from the rounded corners
-        progress_row.setContentsMargins(8, 0, 8, 6)
+        progress_row.setContentsMargins(2, 0, 2, 2)
         progress_row.addWidget(self.progress)
         layout.addLayout(progress_row)
         self.setLayout(layout)
@@ -318,6 +423,8 @@ class SpotifyPlayer(QtWidgets.QWidget):
         self.volume.setVisible(has_volume)
         self.volume_icon.setVisible(has_volume)
         self.progress.set_shown(now is not None)
+        self.progress.set_seekable(bool(now and now.get('can_seek')),
+                                   now['duration'] if now else 0)
         self.cover.set_image(music.cover if now else QtGui.QImage())
         if playing and not self.isHidden():
             self.tick_timer.start()

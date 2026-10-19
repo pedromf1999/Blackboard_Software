@@ -26,7 +26,8 @@ windows_only = pytest.mark.skipif(sys.platform != 'win32',
 def song(**changes):
     now = {'title': 'Strobe', 'artists': 'deadmau5', 'playing': True,
            'progress': 60000, 'duration': 600000, 'volume': 40,
-           'can_skip': True, 'link': None, 'cover_url': None,
+           'can_skip': True, 'can_seek': True, 'link': None,
+           'cover_url': None,
            'cover_key': ('Strobe', 'deadmau5'), 'spotify': True}
     now.update(changes)
     return now
@@ -74,6 +75,9 @@ class FakeBackend:
 
     def set_volume(self, percent):
         self.told.append(('volume', percent))
+
+    def seek(self, milliseconds):
+        self.told.append(('seek', milliseconds))
 
 
 @pytest.fixture
@@ -247,7 +251,8 @@ class FakeSession:
         return SimpleNamespace(
             playback_status=self.status,
             controls=SimpleNamespace(is_next_enabled=True,
-                                     is_previous_enabled=False))
+                                     is_previous_enabled=False,
+                                     is_playback_position_enabled=True))
 
     def get_timeline_properties(self):
         return SimpleNamespace(
@@ -265,6 +270,9 @@ class FakeSession:
 
     async def try_skip_next_async(self):
         self.told.append('next')
+
+    async def try_change_playback_position_async(self, ticks):
+        self.told.append(('seek', ticks))
 
 
 class FakeManager:
@@ -658,3 +666,129 @@ def test_the_tool_bar_button_starts_pressed_with_the_player_up(
 def test_the_shortcut_is_listed_in_the_hint():
     assert ('Ctrl + Shift + M', 'Show or hide the Spotify player') \
         in ShortcutsHint.SHORTCUTS
+
+
+# Going back or on in the song
+
+def test_seeking_shows_at_once_and_is_passed_on(qtbot, music, backend):
+    answered(qtbot, music)
+    music.seek(300000)
+    assert music.now['progress'] == 300000
+    assert 299900 <= music.progress() <= 300100
+    assert told(qtbot, backend, 1) == [('seek', 300000)]
+
+
+def test_seeking_is_kept_within_the_song(qtbot, music, backend):
+    answered(qtbot, music)
+    music.seek(10 ** 9)
+    music.seek(-5)
+    assert told(qtbot, backend, 2) == [('seek', 600000), ('seek', 0)]
+
+
+def test_a_song_that_cannot_be_gone_back_in_is_left_alone(
+        qtbot, music, backend):
+    backend.now = song(can_seek=False)
+    answered(qtbot, music)
+    music.seek(100000)
+    assert music.now['progress'] == 60000
+    qtbot.wait(100)
+    assert backend.told == []
+
+
+@windows_only
+def test_windows_is_told_where_in_hundreds_of_nanoseconds(windows):
+    Status = statuses()
+    session = FakeSession('Spotify.exe', Status.PLAYING)
+    windows.manager = FakeManager([session], session)
+    assert windows.read()['can_seek'] is True
+    windows.seek(83500)
+    assert session.told == [('seek', 835000000)]
+
+
+def test_the_mac_spotify_is_told_where_in_seconds():
+    scripts = []
+    mac = MacSpotify(run=lambda script: scripts.append(script) or '')
+    with patch.object(MacSpotify, 'installed', return_value=True):
+        mac.seek(83500)
+    assert scripts == [
+        'tell application id "com.spotify.client" to set player position '
+        'to 83.500']
+    assert read_mac_answer(
+        'playing\tA\tB\t1000\t1\t50\t\t\n')['can_seek'] is True
+
+
+def test_as_time():
+    from beeref.widgets.spotify_player import as_time
+    assert as_time(0) == '0:00'
+    assert as_time(187500) == '3:07'
+    assert as_time(3_725_000) == '62:05'
+
+
+def drag_along(line, start, end):
+    """Press on the line at one fraction of it, drag, let go at another."""
+
+    def at(fraction):
+        x = line.KNOB + fraction * (line.width() - 2 * line.KNOB)
+        return QtCore.QPointF(x, line.height() / 2)
+
+    def event(kind, fraction, buttons):
+        point = at(fraction)
+        return QtGui.QMouseEvent(
+            kind, point, line.mapToGlobal(point),
+            Qt.MouseButton.LeftButton, buttons, Qt.KeyboardModifier.NoModifier)
+
+    held = Qt.MouseButton.LeftButton
+    line.mousePressEvent(event(QtCore.QEvent.Type.MouseButtonPress, start,
+                               held))
+    line.mouseMoveEvent(event(QtCore.QEvent.Type.MouseMove,
+                              (start + end) / 2, held))
+    line.mouseMoveEvent(event(QtCore.QEvent.Type.MouseMove, end, held))
+    line.mouseReleaseEvent(event(QtCore.QEvent.Type.MouseButtonRelease, end,
+                                 Qt.MouseButton.NoButton))
+
+
+def test_dragging_the_line_goes_there_in_the_song(view, shown, made_up,
+                                                  qtbot):
+    line = shown.progress
+    assert line.seekable
+    drag_along(line, 0.1, 0.5)
+    assert told(qtbot, made_up, 1) == [('seek', 300000)]
+    assert line.fraction == pytest.approx(0.5)
+
+
+def test_a_click_on_the_line_goes_there_too(view, shown, made_up, qtbot):
+    drag_along(shown.progress, 0.75, 0.75)
+    assert told(qtbot, made_up, 1) == [('seek', 450000)]
+
+
+def test_while_dragged_it_does_not_move_on_by_itself(view, shown):
+    line = shown.progress
+    line.dragged = 0.8
+    line.set_fraction(0.2)
+    assert line.dragged == 0.8
+    line.dragged = None
+
+
+def test_a_line_that_cannot_be_dragged_moves_the_player_instead(
+        view, made_up, qtbot):
+    made_up.now = song(can_seek=False)
+    view.toggle_spotify_player(True)
+    answered(qtbot, view.music)
+    try:
+        line = view.spotify_player.progress
+        assert not line.seekable
+        event = QtGui.QMouseEvent(
+            QtCore.QEvent.Type.MouseButtonPress, QtCore.QPointF(20, 5),
+            QtCore.QPointF(20, 5), Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        line.mousePressEvent(event)
+        assert not event.isAccepted()
+        assert line.dragged is None
+    finally:
+        view.music.stop()
+
+
+def test_the_line_still_draws_all_of_itself(view, shown):
+    # So that its every step is not drawn over the board behind it too
+    assert shown.progress.testAttribute(
+        Qt.WidgetAttribute.WA_OpaquePaintEvent)

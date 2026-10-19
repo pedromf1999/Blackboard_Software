@@ -305,6 +305,7 @@ class WindowsMedia:
             'volume': self.volume.get(),
             'can_skip': bool(controls.is_next_enabled
                              or controls.is_previous_enabled),
+            'can_seek': bool(controls.is_playback_position_enabled),
             'link': None,
             'cover_url': None,
             'cover_key': (session.source_app_user_model_id, properties.title,
@@ -340,6 +341,14 @@ class WindowsMedia:
 
     def set_volume(self, percent):
         self.volume.set(percent)
+
+    def seek(self, milliseconds):
+        """Go to this far into what plays."""
+
+        if self.session is not None:
+            # In the hundred nanoseconds Windows counts time in
+            self.run(self.session.try_change_playback_position_async(
+                int(max(0, milliseconds) * 10000)))
 
 
 # Mac
@@ -394,6 +403,7 @@ def read_mac_answer(answer):
         'duration': round(number(duration)),
         'volume': round(number(volume)),
         'can_skip': True,
+        'can_seek': True,
         'link': link if link.startswith('spotify:') else None,
         'cover_url': cover if cover.startswith('http') else None,
         'cover_key': (title, artists, cover),
@@ -452,6 +462,10 @@ class MacSpotify:
 
     def set_volume(self, percent):
         self.tell(f'set sound volume to {max(0, min(100, int(percent)))}')
+
+    def seek(self, milliseconds):
+        # In seconds, with a point whatever the computer writes them with
+        self.tell(f'set player position to {max(0, milliseconds) / 1000:.3f}')
 
 
 def make_backend():
@@ -704,6 +718,17 @@ class NowPlaying(QtCore.QObject):
         if self.now:
             self.now['volume'] = percent
         self.command('set_volume', percent)
+
+    def seek(self, milliseconds):
+        """Go back or on in what plays: shown at once, then told."""
+
+        if not self.now or not self.now.get('can_seek'):
+            return
+        milliseconds = max(0, min(milliseconds, self.now['duration']))
+        self.now['progress'] = milliseconds
+        self.heard_at = time.monotonic()
+        self.changed.emit()
+        self.command('seek', milliseconds)
 
 
 def small_cover(data):

@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.3** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -378,6 +378,17 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   e fica preso ao canto mais próximo da janela; de origem, em baixo à
   direita. Sem nada a tocar, um botão "Open Spotify". Clique direito: abrir
   o Spotify, esconder. Se estava à vista ao fechar, volta a estar ao abrir.
+- **Andar para trás ou para a frente na música** (16.3): a linha de quanto
+  já tocou arrasta-se, ou clica-se num ponto dela. Debaixo do rato engrossa
+  e mostra um botão redondo; enquanto se arrasta diz o tempo ("1:23 /
+  3:45") e não avança sozinha; ao largar, o leitor vai para lá e a linha
+  mostra-o logo. Windows: pelos mesmos controlos de música
+  (`try_change_playback_position_async`, em centenas de nanossegundos), só
+  quando o leitor diz que deixa -- o Spotify deixa. Mac: `set player
+  position` do Spotify, em segundos. Quando o leitor não deixa, a linha não
+  se agarra e arrastá-la move o leitor, como o resto dele. A linha tem 12 px
+  de altura para se apanhar com o rato e continua a pintar-se toda (não faz
+  o quadro redesenhar-se).
 - **Lê o que toca no próprio computador** (`beeref/nowplaying.py`): sem
   conta, sem entrar, sem Premium e sem limite de pessoas. A 15.2 falava com
   o Spotify pela internet, o que obrigava cada pessoa a ser acrescentada à
