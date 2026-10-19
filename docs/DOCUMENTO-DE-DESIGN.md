@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.1** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.2** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -277,6 +277,18 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Zoom** com a roda (invertido de origem), suavizado ao longo de alguns
   frames; Ctrl + botão do meio para zoom arrastado. 1 = ver tudo, 2 = ver a
   seleção.
+- **Até onde se aproxima** (16.2): até o canto mais afastado do quadro ficar
+  a mil milhões de píxeis do ponto de onde o Qt conta (`PIXEL_LIMIT`), e
+  nunca mais do que 1 unidade = 10 000 px (`MAX_ZOOM`). Era até o quadro
+  inteiro medir 10 milhões de píxeis de lado: no BVR001 (382 milhões de
+  unidades) o zoom parava a 2,8 % e as primeiras imagens ficavam com 23 px.
+  Agora vai a 281 % (a mais pequena com 2200 px); um quadro perto da origem
+  vai até ao fim. Para lá disto o Qt deixa de conseguir deslocar: conta os
+  píxeis em números inteiros, até 2 mil milhões, e passado isso trava-os e
+  limita-se a centrar. Ir ainda mais longe obrigaria a mudar o ponto de onde
+  a janela conta para junto do que se vê; experimentado, o Qt volta a
+  centrar pelas suas próprias contas a cada mudança de zoom, e ficou de
+  fora. "Ajustar à seleção" de algo minúsculo e longe fica nesse limite.
 - **Trackpad (Mac):** dois dedos deslocam o quadro, à distância que os dedos
   andaram e continuando a deslizar depois de os levantar; a pinça faz zoom
   no ponto debaixo dos dedos, de imediato (sem a suavização da roda). É como

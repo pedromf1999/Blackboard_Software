@@ -1329,6 +1329,14 @@ class BeeGraphicsView(MainControlsMixin,
         # It seems to be more reliable when we fit a second time
         # Sometimes a changing scene rect can mess up the fitting
         self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+        limit = self.zoom_in_limit()
+        if self.get_scale() > limit:
+            # Something small, far out on a big board: as close as the
+            # window can count to, rather than past it, where it would
+            # no longer scroll at all
+            self.setTransform(QtGui.QTransform.fromScale(limit, limit))
+            self.recalc_scene_rect()
+            self.centerOn(rect.center())
         # Qt's own fitting passes by setTransform and scale here, so the
         # pinned notes and the bars are told of the new zoom directly
         self.update_pinned_toolbars()
@@ -3587,6 +3595,31 @@ class BeeGraphicsView(MainControlsMixin,
             logger.info('Maximum scene size reached')
         logger.trace('Done recalculating scene rectangle')
 
+    # How far in the board can be zoomed at most: one unit of the board
+    # this many pixels, far past the pixels of any picture on it
+    MAX_ZOOM = 10000
+    # The furthest from the board's origin, in pixels, the window may
+    # have to count. Qt counts them in whole numbers, which run out at
+    # two thousand million, and beyond that it stops scrolling at all.
+    PIXEL_LIMIT = 1000000000
+
+    def zoom_in_limit(self):
+        """How far in the board can be zoomed.
+
+        Until its furthest corner is PIXEL_LIMIT pixels from where Qt
+        counts from. It used to be until the whole board came to ten
+        million pixels across: on the real board, three hundred and
+        eighty million units wide, that stopped a zoom with its first
+        pictures still twenty pixels on screen. Measured from the
+        origin rather than across, the same board goes a hundred times
+        closer; a board near the origin, all the way to MAX_ZOOM.
+        """
+
+        items = self.scene.itemsBoundingRect()
+        furthest = max(abs(items.left()), abs(items.right()),
+                       abs(items.top()), abs(items.bottom()), 1)
+        return min(self.MAX_ZOOM, self.PIXEL_LIMIT / furthest)
+
     def get_zoom_size(self, func):
         """Calculates the size of all items' bounding box in the view's
         coordinates.
@@ -3658,10 +3691,12 @@ class BeeGraphicsView(MainControlsMixin,
         self.start_quick_zoom()
         factor = 1 + abs(delta / 1000)
         if delta > 0:
-            if self.get_zoom_size(max) < 10000000:
+            # Up to the limit exactly, rather than stopping a step short
+            factor = min(factor, self.zoom_in_limit() / self.get_scale())
+            if factor > 1.000001:
                 self.scale(factor, factor)
             else:
-                logger.debug('Maximum zoom size reached')
+                logger.debug('Maximum zoom reached')
                 return
         else:
             if self.get_zoom_size(min) > 50:
