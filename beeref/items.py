@@ -4049,6 +4049,9 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         # dragged by it -- both kept as where its line starts
         self.hovered_task = None
         self.task_drag = None
+        # Where each task ticked off stood among those still to do, by
+        # its words, so that putting it back puts it back there
+        self.task_places = {}
         # Whatever changes the text can change how big it is, so the
         # margin is kept up to date from one place rather than from
         # every caller that might resize a word
@@ -4369,9 +4372,10 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         rect = self.text_rect()
         if not self.shows_done_bar():
             return rect
-        if self.tasks_collapsed:
-            # Opened out, the strip sits in a gap inside the text, so
-            # the note is already as tall as it needs to be
+        if self.tasks_collapsed and self.words_after_done() is None:
+            # Opened out, or with words after the finished tasks, the
+            # strip sits in a gap inside the text, so the note is already
+            # as tall as it needs to be
             rect.setHeight(rect.height() + self.done_bar_height())
         # And wide enough for what the strip says: a note of short tasks
         # cut it off at "1 comple"
@@ -5760,6 +5764,28 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                 changed = True
             self.set_room_above(block, gap if number == 0 else 0)
             self.set_room_before(block, numbers)
+        # Folded away with words after them, the strip stands where they
+        # are, with room made for it above those words: under all the
+        # words, it read as if the tasks had gone to the end of the note
+        follows = self.words_after_done() if self.tasks_collapsed else None
+        block = document.begin()
+        while block.isValid():
+            if block.blockFormat().hasProperty(self.DONE_BAR_ROOM) \
+                    and (follows is None
+                         or block.position() != follows.position()):
+                fmt = block.blockFormat()
+                fmt.setTopMargin(0)
+                fmt.clearProperty(self.DONE_BAR_ROOM)
+                QtGui.QTextCursor(block).setBlockFormat(fmt)
+            block = block.next()
+        if follows is not None:
+            room = self.done_bar_height() + document.documentMargin()
+            fmt = follows.blockFormat()
+            if (abs(fmt.topMargin() - room) > 0.01
+                    or not fmt.hasProperty(self.DONE_BAR_ROOM)):
+                fmt.setTopMargin(room)
+                fmt.setProperty(self.DONE_BAR_ROOM, True)
+                QtGui.QTextCursor(follows).setBlockFormat(fmt)
         # Numbered lines need room for their numbers just the same, and
         # this is where every way of putting text into a note comes by
         self.refresh_numbers()
@@ -5914,6 +5940,9 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
     # that it can be taken away again once the line is out of the list,
     # rather than any margin a pasted line came with
     NUMBER_ROOM = QtGui.QTextFormat.Property.UserProperty + 1
+    # Marks the room kept above the words that follow the finished tasks,
+    # for the strip of them folded away there
+    DONE_BAR_ROOM = QtGui.QTextFormat.Property.UserProperty + 2
 
     def refresh_numbers(self):
         """Keep room in front of each numbered list for its widest number.
@@ -6000,6 +6029,13 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
 
         if not self.is_task(block) or self.task_is_done(block) == done:
             return
+        if done:
+            # Where it stands among those still to do, to come back to
+            to_do = [other.position()
+                     for other in self.task_blocks(done=False)]
+            if block.position() in to_do:
+                self.task_places[block.text()] = to_do.index(
+                    block.position())
         home = self.task_home(block, done)
         edit = QtGui.QTextCursor(self.document())
         edit.beginEditBlock()
@@ -6011,8 +6047,15 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         fmt.setMarker(self.DONE if done else self.TO_DO)
         QtGui.QTextCursor(block).setBlockFormat(fmt)
         edit.endEditBlock()
+        if not done:
+            self.task_places.pop(block.text(), None)
+        # Counted afresh: inside the one step a tick is while writing, Qt
+        # has not yet numbered the change, and what the census kept from
+        # before the move would be taken for what is there now
+        self._census = None
         self.refresh_tasks()
         if self.edit_mode:
+            self._census = None
             self.keep_cursor_on_the_list()
 
     def task_home(self, block, done):
@@ -6032,7 +6075,24 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
             after = tasks[-1]
         else:
             to_do = [other for other in tasks if not self.task_is_done(other)]
-            after = to_do[-1] if to_do else None
+            place = self.task_places.get(block.text())
+            if place is not None and to_do and place < len(to_do):
+                # Back where it stood when it was ticked off: in front of
+                # the task that is now in its place
+                if place == 0:
+                    above = to_do[0].previous()
+                    if (above.isValid()
+                            and above.position() == block.position()):
+                        return False
+                    after = above if above.isValid() else None
+                    if after is None:
+                        first = self.document().firstBlock()
+                        return (False if block.position() == first.position()
+                                else None)
+                    return after
+                after = to_do[place - 1]
+            else:
+                after = to_do[-1] if to_do else None
         if after is None:
             first = self.document().firstBlock()
             return False if block.position() == first.position() else None
@@ -6412,6 +6472,18 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
 
         return self.done_count() > 0
 
+    def words_after_done(self):
+        """The first line after the finished tasks, if words follow them:
+        a note with tasks in the middle of what it says."""
+
+        done = self.task_blocks(done=True)
+        if not done:
+            return None
+        follows = done[-1].next()
+        while follows.isValid() and self.task_is_done(follows):
+            follows = follows.next()
+        return follows if follows.isValid() else None
+
     def done_bar_height(self):
         return self.text_line_height() * self.DONE_BAR_FRACTION
 
@@ -6426,13 +6498,18 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         height = self.done_bar_height()
         width = max(rect.width(), self.done_bar_width())
         top = rect.bottom()
+        layout = self.document().documentLayout()
         if not self.tasks_collapsed:
             done = self.task_blocks(done=True)
             if done:
                 # The block's own box starts after the room kept above
                 # it, which is exactly where the strip goes
-                top = self.document().documentLayout().blockBoundingRect(
-                    done[0]).top() - height
+                top = layout.blockBoundingRect(done[0]).top() - height
+        else:
+            follows = self.words_after_done()
+            if follows is not None:
+                # In the room kept above the words after them
+                top = layout.blockBoundingRect(follows).top() - height
         return QtCore.QRectF(rect.x(), top, width, height)
 
     def done_bar_text(self):
@@ -6589,8 +6666,27 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                 [self], [self.toHtml()], [drag['html']]))
 
     def change_task(self, block, done):
-        """Tick a task off, or put it back, as one undoable step."""
+        """Tick a task off, or put it back, as one undoable step.
 
+        While the note is being written in, one step of the writing's
+        own, which Ctrl+Z takes back whole with whatever was typed. Put
+        on the board's list instead, its text set afresh threw away all
+        the writing could undo, the tick included: Ctrl+Z did nothing.
+        The board's list gets the whole of the writing, ticks and all,
+        once it is done.
+        """
+
+        if self.edit_mode:
+            # One step, the tidying after it included: as several, Ctrl+Z
+            # took back the box before the words, and left it empty
+            writing = QtGui.QTextCursor(self.document())
+            writing.beginEditBlock()
+            try:
+                self.set_task_done(block, done)
+            finally:
+                writing.endEditBlock()
+            self.refresh_tasks()
+            return
         old_html = self.toHtml()
         self.set_task_done(block, done)
         scene = self.scene()

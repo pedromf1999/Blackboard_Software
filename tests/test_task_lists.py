@@ -108,15 +108,28 @@ def test_the_finished_tasks_show_when_the_strip_is_opened(view):
     assert lines(item)[-1] == ('one', True, False)
 
 
-def test_unticking_a_task_puts_it_back_with_the_others(view):
+def test_unticking_a_task_puts_it_back_where_it_was(view):
     item = task_note(view)
     item.set_task_done(blocks(item)[0], True)
 
     item.set_task_done(blocks(item)[-1], False)
 
+    assert lines(item) == [('one', False, True), ('two', False, True),
+                           ('three', False, True)]
+    assert blocks(item)[0].charFormat().fontStrikeOut() is False
+    assert item.done_count() == 0
+
+
+def test_unticking_one_ticked_before_it_was_opened_puts_it_last(view):
+    # Where it stood is not kept in the file
+    item = task_note(view)
+    item.set_task_done(blocks(item)[0], True)
+    item.task_places.clear()
+
+    item.set_task_done(blocks(item)[-1], False)
+
     assert lines(item) == [('two', False, True), ('three', False, True),
                            ('one', False, True)]
-    assert blocks(item)[-1].charFormat().fontStrikeOut() is False
     assert item.done_count() == 0
 
 

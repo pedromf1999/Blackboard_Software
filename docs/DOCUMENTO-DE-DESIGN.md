@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.3** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -192,6 +192,23 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Listas de tarefas** (Ctrl+Shift+T): cada linha tem uma caixa; riscar uma
   tarefa leva-a para a faixa de "concluídas", que se recolhe; as tarefas
   arrastam-se pela pega; o botão de números numera as linhas.
+  - **Tarefas no meio do texto** (16.4): a faixa de concluídas, recolhida,
+    fica logo a seguir às tarefas, com espaço guardado por cima das
+    palavras que vêm depois (propriedade `DONE_BAR_ROOM`); estava por
+    baixo de todo o texto e parecia que a tarefa tinha ido para o fim da
+    nota. Numa nota só de tarefas continua por baixo delas.
+  - **Desmarcar devolve a tarefa ao sítio onde estava** entre as que
+    faltam (lembrado pelas palavras dela, em `task_places`; não fica no
+    ficheiro, e uma marcada antes de abrir o quadro volta para o fim).
+  - **Ctrl+Z enquanto se escreve desfaz a marcação inteira**, de uma vez
+    (Ctrl+Shift+Z refaz). Era um passo da lista do quadro, que trocava o
+    texto todo da nota e com isso apagava tudo o que a escrita podia
+    desfazer: o Ctrl+Z não fazia nada, e desfeita aos bocados a marcação
+    podia deixar uma caixa sem palavras. Agora é um só passo da própria
+    escrita (um "edit block" do Qt, com o census contado de novo lá
+    dentro); ao acabar de escrever, o quadro recebe a escrita toda, tarefas
+    incluídas, como um passo. Fora da escrita, marcar continua a ser um
+    passo do quadro.
 - **Tabelas** (Alt+T): cabeçalhos, juntar e separar células, arrastar
   divisórias; colar uma tabela do Excel, Word, Sheets ou Teams cria uma
   tabela.
