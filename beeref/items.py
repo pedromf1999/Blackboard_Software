@@ -4372,10 +4372,9 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         rect = self.text_rect()
         if not self.shows_done_bar():
             return rect
-        if self.tasks_collapsed and self.words_after_done() is None:
-            # Opened out, or with words after the finished tasks, the
-            # strip sits in a gap inside the text, so the note is already
-            # as tall as it needs to be
+        if self.tasks_collapsed:
+            # Opened out, the strip sits in a gap inside the text, so
+            # the note is already as tall as it needs to be
             rect.setHeight(rect.height() + self.done_bar_height())
         # And wide enough for what the strip says: a note of short tasks
         # cut it off at "1 comple"
@@ -5764,28 +5763,6 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                 changed = True
             self.set_room_above(block, gap if number == 0 else 0)
             self.set_room_before(block, numbers)
-        # Folded away with words after them, the strip stands where they
-        # are, with room made for it above those words: under all the
-        # words, it read as if the tasks had gone to the end of the note
-        follows = self.words_after_done() if self.tasks_collapsed else None
-        block = document.begin()
-        while block.isValid():
-            if block.blockFormat().hasProperty(self.DONE_BAR_ROOM) \
-                    and (follows is None
-                         or block.position() != follows.position()):
-                fmt = block.blockFormat()
-                fmt.setTopMargin(0)
-                fmt.clearProperty(self.DONE_BAR_ROOM)
-                QtGui.QTextCursor(block).setBlockFormat(fmt)
-            block = block.next()
-        if follows is not None:
-            room = self.done_bar_height() + document.documentMargin()
-            fmt = follows.blockFormat()
-            if (abs(fmt.topMargin() - room) > 0.01
-                    or not fmt.hasProperty(self.DONE_BAR_ROOM)):
-                fmt.setTopMargin(room)
-                fmt.setProperty(self.DONE_BAR_ROOM, True)
-                QtGui.QTextCursor(follows).setBlockFormat(fmt)
         # Numbered lines need room for their numbers just the same, and
         # this is where every way of putting text into a note comes by
         self.refresh_numbers()
@@ -5940,9 +5917,6 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
     # that it can be taken away again once the line is out of the list,
     # rather than any margin a pasted line came with
     NUMBER_ROOM = QtGui.QTextFormat.Property.UserProperty + 1
-    # Marks the room kept above the words that follow the finished tasks,
-    # for the strip of them folded away there
-    DONE_BAR_ROOM = QtGui.QTextFormat.Property.UserProperty + 2
 
     def refresh_numbers(self):
         """Keep room in front of each numbered list for its widest number.
@@ -6022,9 +5996,10 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
     def set_task_done(self, block, done):
         """Tick a task off, or put it back on the list.
 
-        A finished task drops to the foot of the tasks, where the
-        finished ones gather; an unfinished one comes back to the end of
-        those still to do. The words keep the formatting they were given.
+        A finished task drops to the foot of the note, where the
+        finished ones gather; an unfinished one comes back where it
+        stood among those still to do. The words keep the formatting
+        they were given.
         """
 
         if not self.is_task(block) or self.task_is_done(block) == done:
@@ -6061,18 +6036,23 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
     def task_home(self, block, done):
         """Which line a task should follow once it is ticked, or unticked.
 
-        A finished task follows the last of the tasks, where the
-        finished ones gather; an unfinished one follows the last task
-        still to do. False when it already sits there, and None when it
-        belongs in front of everything.
+        A finished task goes to the very end of the note, below all of
+        its words, so that the finished ones and their strip are always
+        at the foot of it, even with tasks in the middle of what it
+        says. An unfinished one goes back where it stood among those
+        still to do, or after the last of them. False when it already
+        sits there, and None when it belongs in front of everything.
         """
 
         tasks = [other for other in self.task_blocks()
                  if other.position() != block.position()]
+        if done:
+            last = self.document().lastBlock()
+            if last.position() == block.position():
+                return False
+            return last
         if not tasks:
             return False
-        if done:
-            after = tasks[-1]
         else:
             to_do = [other for other in tasks if not self.task_is_done(other)]
             place = self.task_places.get(block.text())
@@ -6472,18 +6452,6 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
 
         return self.done_count() > 0
 
-    def words_after_done(self):
-        """The first line after the finished tasks, if words follow them:
-        a note with tasks in the middle of what it says."""
-
-        done = self.task_blocks(done=True)
-        if not done:
-            return None
-        follows = done[-1].next()
-        while follows.isValid() and self.task_is_done(follows):
-            follows = follows.next()
-        return follows if follows.isValid() else None
-
     def done_bar_height(self):
         return self.text_line_height() * self.DONE_BAR_FRACTION
 
@@ -6498,18 +6466,13 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         height = self.done_bar_height()
         width = max(rect.width(), self.done_bar_width())
         top = rect.bottom()
-        layout = self.document().documentLayout()
         if not self.tasks_collapsed:
             done = self.task_blocks(done=True)
             if done:
                 # The block's own box starts after the room kept above
                 # it, which is exactly where the strip goes
-                top = layout.blockBoundingRect(done[0]).top() - height
-        else:
-            follows = self.words_after_done()
-            if follows is not None:
-                # In the room kept above the words after them
-                top = layout.blockBoundingRect(follows).top() - height
+                top = self.document().documentLayout().blockBoundingRect(
+                    done[0]).top() - height
         return QtCore.QRectF(rect.x(), top, width, height)
 
     def done_bar_text(self):
