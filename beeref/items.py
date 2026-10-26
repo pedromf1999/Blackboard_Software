@@ -2420,6 +2420,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         item = kwargs.pop('item')
         data = kwargs.pop('data', {})
         item.filename = item.filename or data.get('filename')
+        if data.get('page'):
+            item.show_page(data['page'])
         if 'crop' in data:
             item.crop = QtCore.QRectF(*data['crop'])
         item.setOpacity(data.get('opacity', 1))
@@ -3099,6 +3101,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
                          self.crop.topLeft().y(),
                          self.crop.width(),
                          self.crop.height()]}
+        if self.page:
+            # Read by nothing before 16.8, which shows the first page
+            data['page'] = self.page
         data.update(self.band_scale_save_data())
         if not self.link_icon.isNull():
             # Small, so kept with the rest rather than as a picture of
@@ -3159,6 +3164,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         if (encoded is not None and not apply_crop
                 and not (apply_grayscale and self.grayscale)
                 and self.keeps_format(fmt)):
+            if isinstance(encoded, imagecache.PdfPage):
+                # The whole PDF, every page of it, as it came
+                return (encoded.data, fmt)
             return (encoded, fmt)
 
         img = self.full_image()
@@ -3177,6 +3185,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
     def keeps_format(self, fmt):
         """Whether a picture stored as this would be stored the same now."""
 
+        if fmt == 'pdf':
+            # Kept as the PDF it is, whatever pictures are stored as
+            return True
         wanted = self.settings.valueOrDefault('Items/image_storage_format')
         return fmt in ('png', 'jpg') and wanted in ('best', fmt)
 
@@ -3189,6 +3200,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         picture is set first, so there is always one or the other.
         """
 
+        if fmt == 'pdf':
+            # Still showing the page it was showing
+            data = imagecache.PdfPage(data, self.page, self.page_count())
         self._encoded = data
         self._encoded_format = fmt
         self._source = None
@@ -3276,7 +3290,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         """
 
         had_picture = not self._size.isEmpty()
-        data = bytes(data)
+        # A PDF is kept whole, and shows its first page; see show_page
+        data = imagecache.as_source(bytes(data))
         size, thumbnail = small or imagecache.small_copy(data)
         if thumbnail.isNull():
             self._encoded = None
@@ -3288,6 +3303,59 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         self._source = None
         self._thumbnail = thumbnail
         self.picture_changed(had_picture, size)
+
+    @property
+    def pdf(self):
+        """The page of a PDF the picture shows, if it is a PDF's."""
+
+        if isinstance(self._encoded, imagecache.PdfPage):
+            return self._encoded
+        return None
+
+    @property
+    def page(self):
+        """Which page of its PDF the picture shows, from nought."""
+
+        pdf = self.pdf
+        return pdf.page if pdf is not None else 0
+
+    def page_count(self):
+        """How many pages its PDF has: one, for any other picture."""
+
+        pdf = self.pdf
+        return pdf.count() if pdf is not None else 1
+
+    def show_page(self, page):
+        """Show another page of its PDF, in the same picture.
+
+        Pages need not all be the same size: the picture takes on the
+        size of the one it shows, at the same scale, so that a page
+        turned sideways is as legible as the rest. A crop is kept from
+        one page to another the same size, and let go otherwise.
+        """
+
+        pdf = self.pdf
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            return
+        if pdf is None:
+            return
+        page = max(0, min(page, pdf.count() - 1))
+        if page == pdf.page:
+            return
+        crop = QtCore.QRectF(self.crop)
+        before = self.image_size()
+        shown = pdf.turned_to(page)
+        size, thumbnail = imagecache.small_copy(shown)
+        if thumbnail.isNull():
+            return
+        self._encoded = shown
+        self._thumbnail = thumbnail
+        self.picture_changed(True, size)
+        if size == before:
+            self.crop = crop
+        self.update()
 
     def share_picture(self, other):
         """Show the same picture as another item, without a copy of it."""

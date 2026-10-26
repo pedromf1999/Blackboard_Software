@@ -4188,6 +4188,31 @@ class BeeGraphicsView(MainControlsMixin,
             toolbar.update_title(groups[0])
         self.pin_toolbar_to(toolbar, groups)
 
+    def pdf_to_turn(self):
+        """The one picture of a PDF of several pages that is selected."""
+
+        images = self.scene.selected_images()
+        if len(images) == 1 and images[0].page_count() > 1:
+            return images[0]
+        return None
+
+    def turn_page(self, step):
+        """Show the page before, or after, of the PDF selected."""
+
+        item = self.pdf_to_turn()
+        if item is None:
+            return False
+        page = max(0, min(item.page + step, item.page_count() - 1))
+        if page != item.page:
+            self.undo_stack.push(commands.TurnPage(self, item, page))
+        return True
+
+    def on_action_previous_page(self):
+        self.turn_page(-1)
+
+    def on_action_next_page(self):
+        self.turn_page(1)
+
     def update_image_toolbar(self):
         """Show the crop and contour buttons over the selected images."""
 
@@ -4952,4 +4977,15 @@ class BeeGraphicsView(MainControlsMixin,
             self.escape()
             event.accept()
             return
+        if (event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right)
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier
+                and self.scene.edit_item is None
+                and self.scene.crop_item is None
+                and self.scene.focusItem() is None):
+            # The arrows turn the pages of a PDF that is selected, and
+            # are left to the board otherwise
+            step = -1 if event.key() == Qt.Key.Key_Left else 1
+            if self.turn_page(step):
+                event.accept()
+                return
         super().keyPressEvent(event)

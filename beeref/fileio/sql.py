@@ -616,6 +616,10 @@ class SQLiteIO:
             'SELECT data FROM sqlar WHERE item_id=?', (item_id,))
         if not row:
             return 0
+        if imagecache.is_pdf(row[0]):
+            # A PDF is kept whole, every page of it; Qt would read its
+            # first page as a picture, and that is all that would be kept
+            return 0
         image = QtGui.QImage()
         if not image.loadFromData(row[0]):
             logger.debug(f'Could not read image {name}')

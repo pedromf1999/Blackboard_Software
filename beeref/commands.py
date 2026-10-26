@@ -828,6 +828,30 @@ class ChangeLineWidth(QtGui.QUndoCommand):
             item.set_line_width(width)
 
 
+class TurnPage(QtGui.QUndoCommand):
+    """Show another page of a PDF's picture."""
+
+    def __init__(self, view, item, page):
+        super().__init__('Turn page')
+        self.view = view
+        self.item = item
+        self.page = page
+        self.old_page = item.page
+
+    def redo(self):
+        self.turn_to(self.page)
+
+    def undo(self):
+        self.turn_to(self.old_page)
+
+    def turn_to(self, page):
+        self.item.show_page(page)
+        if self.item.is_pinned:
+            # A page of another size takes another place in the tab
+            self.view.place_pinned_notes()
+        self.view.update_image_toolbar()
+
+
 class ChangeOutline(QtGui.QUndoCommand):
     """Put a contour on images, take it off, or change how thick it is.
 

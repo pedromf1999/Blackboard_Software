@@ -17,6 +17,9 @@
 
 import logging
 
+from PyQt6 import QtWidgets
+from PyQt6.QtCore import Qt
+
 from beeref.link_preview import link_in
 from beeref.widgets.pinned_toolbar import PinnedToolBar
 
@@ -69,6 +72,21 @@ class ImageToolBar(PinnedToolBar):
             'pin', 'Pin to the window, where it stays in sight (Ctrl+P)',
             view.on_action_pin_note)
         self.pin.setCheckable(True)
+        # Only on a PDF of more than one page: which page it shows, with
+        # a way to the one before and the one after
+        self.previous_page = self.add_button(
+            'page_previous', 'Previous page (Left)',
+            view.on_action_previous_page)
+        self.page_number = QtWidgets.QLabel(self)
+        self.page_number.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.page_number.setToolTip('Page')
+        self.layout.addWidget(self.page_number)
+        self.next_page = self.add_button(
+            'page_next', 'Next page (Right)', view.on_action_next_page)
+        self.page_buttons = (
+            self.previous_page, self.page_number, self.next_page)
+        for widget in self.page_buttons:
+            widget.hide()
 
         self.adjustSize()
 
@@ -109,3 +127,17 @@ class ImageToolBar(PinnedToolBar):
         self.thicker.setToolTip(
             'Bigger caption (Ctrl++)' if self.writing_caption
             else 'Bigger image (Ctrl++)')
+        self.update_pages(items)
+
+    def update_pages(self, items):
+        """Which page of a PDF is shown, for one picture of a PDF."""
+
+        count = items[0].page_count() if len(items) == 1 else 1
+        for widget in self.page_buttons:
+            widget.setVisible(count > 1)
+        if count > 1:
+            page = items[0].page
+            self.page_number.setText(f' {page + 1} / {count} ')
+            self.previous_page.setEnabled(page > 0)
+            self.next_page.setEnabled(page < count - 1)
+        self.adjustSize()

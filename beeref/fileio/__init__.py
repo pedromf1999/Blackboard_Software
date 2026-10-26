@@ -15,9 +15,9 @@
 
 import logging
 
-from PyQt6 import QtCore
+from PyQt6 import QtCore, QtGui
 
-from beeref import commands
+from beeref import commands, imagecache
 from beeref.fileio.errors import BeeFileIOError
 from beeref.fileio.image import held_open, let_go, load_image, name_of
 from beeref.fileio.sql import SQLiteIO, is_bee_file
@@ -101,14 +101,22 @@ def picture_from(filename, pos, fit_size):
     """
 
     img, filename = load_image(filename)
-    if img.isNull():
-        return None, filename
-    item = BeePixmapItem(without_pointless_alpha(img), filename)
-    # Compressed here, on this thread, as it would be when the board
-    # is next saved: kept open until then, a few large pictures
-    # brought in at once took as much memory as a whole board did
-    item.compress()
-    del img
+    if isinstance(img, imagecache.PdfPage):
+        # The whole PDF, kept as it is, showing its first page
+        item = BeePixmapItem(QtGui.QImage(), filename)
+        item.set_encoded(img.data)
+        if item.is_null():
+            return None, filename
+    else:
+        if img.isNull():
+            return None, filename
+        item = BeePixmapItem(without_pointless_alpha(img), filename)
+        # Compressed here, on this thread, as it would be when the
+        # board is next saved: kept open until then, a few large
+        # pictures brought in at once took as much memory as a whole
+        # board did
+        item.compress()
+        del img
     if fit_size is not None:
         item.setScale(item.fit_scale_to(fit_size))
     item.set_pos_center(pos)

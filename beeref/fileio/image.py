@@ -24,15 +24,13 @@ from PyQt6 import QtCore, QtGui
 import exif
 from lxml import etree
 
+from beeref import imagecache
+
 
 logger = logging.getLogger(__name__)
 
 # What every JPEG file begins with
 JPEG_START = b'\xff\xd8'
-# And what a PDF has within its first kilobyte
-PDF_START = b'%PDF-'
-# How many pixels a PDF's page is drawn with for each of its points
-PDF_DETAIL = 2
 
 # How many dropped files are held open at once. A Mac lets a program
 # have 256 files open in all; the rest of a larger drop is opened as it
@@ -97,8 +95,9 @@ def image_from(data, path=None):
     it does not for every kind of file, by how the file is named.
     """
 
-    if is_pdf(data):
-        img = pdf_page(data)
+    if imagecache.is_pdf(data):
+        # Its first page, drawn sharp and on white
+        img = imagecache.open_image(imagecache.PdfPage(data))
         if not img.isNull():
             return img
     img = QtGui.QImage.fromData(data)
@@ -106,51 +105,6 @@ def image_from(data, path=None):
     if img.isNull() and suffix:
         img = QtGui.QImage.fromData(data, suffix)
     return img
-
-
-def pdf_page(data):
-    """The first page of a PDF, as a picture.
-
-    Drawn at twice the size Qt's reader gives, which is a point to a
-    pixel: an A4 drawing came in 595 pixels wide, and its small print
-    blurred as soon as it was looked at closely. Null when the reader
-    cannot make anything of it.
-    """
-
-    buffer = QtCore.QBuffer()
-    buffer.setData(data)
-    buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
-    reader = QtGui.QImageReader(buffer, b'pdf')
-    size = reader.size()
-    if size.isValid():
-        reader.setScaledSize(size * PDF_DETAIL)
-    img = reader.read()
-    if img.isNull():
-        return img
-    return on_white(img)
-
-
-def is_pdf(data):
-    """Whether a file's contents are a PDF, which says so near its start."""
-
-    return PDF_START in data[:1024]
-
-
-def on_white(img):
-    """The picture laid on white.
-
-    A page of a PDF comes in see-through where nothing is printed, and
-    on a dark board a drawing in black lines all but disappeared. On
-    paper it is white, and so it is here.
-    """
-
-    flat = QtGui.QImage(img.size(), QtGui.QImage.Format.Format_RGB32)
-    flat.setDevicePixelRatio(img.devicePixelRatio())
-    flat.fill(QtGui.QColor('white'))
-    painter = QtGui.QPainter(flat)
-    painter.drawImage(0, 0, img)
-    painter.end()
-    return flat
 
 
 def exif_rotated_image(path=None, data=None):
@@ -225,19 +179,41 @@ def exif_rotated_image(path=None, data=None):
     return img
 
 
+def picture_in(path=None, data=None):
+    """What a file holds, to show: a picture, or a PDF.
+
+    A PDF is kept whole, as a page of it -- imagecache.PdfPage -- so
+    that the picture made of it can turn to any of its pages. Anything
+    else is opened, the right way up.
+    """
+
+    if data is None:
+        try:
+            with open(path, 'rb') as f:
+                data = f.read()
+        except (OSError, TypeError):
+            return QtGui.QImage()
+    if imagecache.is_pdf(data):
+        return imagecache.PdfPage(data)
+    return exif_rotated_image(path, data)
+
+
 def load_image(path):
+    """What is in a file dropped or opened: (picture, where it came
+    from), the picture a PdfPage for a PDF; see picture_in."""
+
     if isinstance(path, tuple):
         # Held open since it was dropped; see held_open
         path, held = path
         with held:
             data = held.read()
-        return (exif_rotated_image(path, data), path)
+        return (picture_in(path, data), path)
     if isinstance(path, str):
         path = os.path.normpath(path)
-        return (exif_rotated_image(path), path)
+        return (picture_in(path), path)
     if path.isLocalFile():
         path = os.path.normpath(path.toLocalFile())
-        return (exif_rotated_image(path), path)
+        return (picture_in(path), path)
 
     url = bytes(path.toEncoded()).decode()
     domain = '.'.join(parse.urlparse(url).netloc.split(".")[-2:])
@@ -259,5 +235,5 @@ def load_image(path):
             with open(fname, 'wb') as f:
                 f.write(imgdata)
                 logger.debug(f'Temporarily saved in: {fname}')
-            img = exif_rotated_image(fname)
+            img = picture_in(fname)
     return (img, url)

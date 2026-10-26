@@ -66,6 +66,13 @@ KEEP_SECONDS = 30
 # it lasts, so only a couple are opened at once.
 THREADS = 2
 
+# What a PDF has within its first kilobyte
+PDF_START = b'%PDF-'
+# How many pixels a PDF's page is drawn with for each of its points.
+# Qt's reader gives one, and an A4 drawing came in 595 pixels wide, its
+# small print blurred as soon as it was looked at closely.
+PDF_DETAIL = 2
+
 _keys = itertools.count(1)
 
 
@@ -75,9 +82,91 @@ def new_key():
     return next(_keys)
 
 
+def is_pdf(data):
+    """Whether a file's contents are a PDF, which says so near its start."""
+
+    return PDF_START in bytes(data[:1024])
+
+
+class PdfPage:
+    """One page of a PDF, with the whole of the PDF kept as it came.
+
+    What a picture from a PDF is opened from, the way any other picture
+    is opened from its compressed bytes: drawn at whatever size it is
+    seen at, so that any of the PDF's pages can be shown in the same
+    picture. Turning to another page makes another of these; the PDF
+    itself is shared, not copied.
+    """
+
+    __slots__ = ('data', 'page', '_count')
+
+    def __init__(self, data, page=0, count=None):
+        self.data = data if isinstance(data, bytes) else bytes(data)
+        self.page = page
+        self._count = count
+
+    def reader(self):
+        """A reader at this page, and the buffer it reads, which has to
+        be kept for as long as the reader is."""
+
+        buffer = QtCore.QBuffer()
+        buffer.setData(QtCore.QByteArray(self.data))
+        buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
+        reader = QtGui.QImageReader(buffer, b'pdf')
+        if self.page:
+            reader.jumpToImage(self.page)
+        return reader, buffer
+
+    def count(self):
+        """How many pages the PDF has; worked out once."""
+
+        if self._count is None:
+            reader, buffer = self.reader()
+            self._count = max(1, reader.imageCount())
+        return self._count
+
+    def size(self):
+        """How big this page is drawn, which pages need not all be."""
+
+        reader, buffer = self.reader()
+        size = reader.size()
+        if not size.isValid():
+            return QtCore.QSize()
+        return size * PDF_DETAIL
+
+    def turned_to(self, page):
+        return PdfPage(self.data, page, self._count)
+
+
+def as_source(data):
+    """What a picture is opened from: its bytes, or for a PDF its page."""
+
+    if isinstance(data, PdfPage) or not is_pdf(data):
+        return data
+    return PdfPage(data)
+
+
+def on_white(image):
+    """The picture laid on white.
+
+    A page of a PDF comes in see-through where nothing is printed, and
+    on a dark board a drawing in black lines all but disappeared. On
+    paper it is white, and so it is here.
+    """
+
+    flat = QtGui.QImage(image.size(), QtGui.QImage.Format.Format_RGB32)
+    flat.fill(QtGui.QColor('white'))
+    painter = QtGui.QPainter(flat)
+    painter.drawImage(0, 0, image)
+    painter.end()
+    return flat
+
+
 def image_size(data):
     """How big a compressed picture is, without opening it."""
 
+    if isinstance(data, PdfPage):
+        return data.size()
     buffer = QtCore.QBuffer()
     buffer.setData(QtCore.QByteArray(data))
     buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
@@ -87,6 +176,8 @@ def image_size(data):
 def image_format(data):
     """What a compressed picture is stored as: 'png', 'jpg' or other."""
 
+    if isinstance(data, PdfPage):
+        return 'pdf'
     buffer = QtCore.QBuffer()
     buffer.setData(QtCore.QByteArray(data))
     buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
@@ -109,6 +200,17 @@ def open_image(source, size=None):
         return source.scaled(
             size, QtCore.Qt.AspectRatioMode.IgnoreAspectRatio,
             QtCore.Qt.TransformationMode.SmoothTransformation)
+    if isinstance(source, PdfPage):
+        # Drawn afresh at the size wanted, so it is as sharp as it is
+        # seen, and on white
+        reader, buffer = source.reader()
+        reader.setScaledSize(size if size is not None
+                             else reader.size() * PDF_DETAIL)
+        image = reader.read()
+        if image.isNull():
+            logger.debug(f'Could not open a PDF: {reader.errorString()}')
+            return image
+        return on_white(image)
     buffer = QtCore.QBuffer()
     buffer.setData(QtCore.QByteArray(source))
     buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
@@ -126,9 +228,11 @@ def small_copy(data):
 
     Safe off the main thread, and in several threads at once: Qt lets go
     of Python while it opens a picture, so a board's pictures are opened
-    side by side as it is read.
+    side by side as it is read. A PDF is opened at its first page, or
+    at the page it is given.
     """
 
+    data = as_source(data)
     size = image_size(data)
     if not size.isValid() or size.isEmpty():
         return size, QtGui.QImage()

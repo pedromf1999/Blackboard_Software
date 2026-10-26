@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.7** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.8** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -44,11 +44,28 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Um PDF arrastado entra sobre branco** (16.6), como em papel: o Qt lê a
   primeira página com o seu leitor de PDF, que deixa transparente onde nada
   está impresso, e num quadro escuro um desenho a preto mal se via. Só os
-  PDF (reconhecidos por `%PDF-` no primeiro kilobyte, `fileio/image.py`); um
-  PNG transparente continua transparente. **Com o dobro do detalhe** (16.7):
-  o leitor do Qt dá um pixel por ponto (A4 = 595×842 px) e a letra pequena
-  desfocava ao aproximar; agora desenha a 2× (`PDF_DETAIL`, A4 = 1190×1684
-  px, 0,02 s). No quadro entra do mesmo tamanho, só mais nítido.
+  PDF (reconhecidos por `%PDF-` no primeiro kilobyte, `imagecache.is_pdf`);
+  um PNG transparente continua transparente. **Com o dobro do detalhe**
+  (16.7): o leitor do Qt dá um pixel por ponto (A4 = 595×842 px) e a letra
+  pequena desfocava ao aproximar; agora desenha a 2× (`PDF_DETAIL`, A4 =
+  1190×1684 px, 0,02 s). No quadro entra do mesmo tamanho, só mais nítido.
+- **PDF de várias páginas** (16.8): é uma só imagem, que mostra uma página
+  de cada vez. Escolhida a imagem, a barra mostra ‹ 2 / 7 › (só num PDF de
+  mais de uma página); as setas do teclado ← → fazem o mesmo, quando nada
+  está a ser escrito. Virar uma página desfaz-se com Ctrl+Z e demora ~8 ms.
+  - O quadro guarda o **PDF inteiro**, tal como veio, na linha `sqlar` da
+    imagem (nome `0012-ficheiro.pdf`), e a página mostrada em `page` no
+    JSON. A imagem abre-se do PDF como qualquer outra se abre dos seus bytes
+    (`imagecache.PdfPage`): desenhada ao tamanho a que é vista, em branco.
+    Exportar as imagens para uma pasta dá o PDF original.
+  - Cada página tem o seu tamanho: uma página deitada mostra-se deitada, à
+    mesma escala. O recorte mantém-se entre páginas do mesmo tamanho.
+  - "Compact" deixa os PDF em paz (lia só a primeira página como imagem e
+    era isso que ficaria guardado).
+  - **Ficheiros**: uma versão anterior à 16.8, ou o BeeRef, mostra a
+    primeira página (transparente, a 1×) e ignora `page`; o PDF fica no
+    ficheiro. Um PDF largado antes da 16.8 continua a ser só a imagem da
+    primeira página: é preciso largá-lo outra vez para ter as páginas.
 - **Aumentar e diminuir** (13.9): os dois botões de tamanho na barra da
   imagem, ou Ctrl+= / Ctrl+-, fazem a imagem 10% maior ou menor de cada vez,
   à volta do centro (várias imagens crescem juntas, mantendo as distâncias).
