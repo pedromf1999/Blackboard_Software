@@ -3708,6 +3708,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
                                    crop.width() * fx, crop.height() * fy)
             painter.drawPixmap(crop, picture, source)
             self.paint_link_icon(painter)
+            if not getattr(self.scene(), 'drawing_afresh', False):
+                # On screen only: an exported picture is the page itself
+                self.paint_page_badge(painter)
             # The caption first: a contour is centred on the edge it
             # follows, and the band drawn over it swallowed the inner
             # half, leaving the frame half as thick along the caption
@@ -3787,6 +3790,74 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         drawn = QtCore.QRectF(0, 0, icon.width() * fit, icon.height() * fit)
         drawn.moveCenter(room.center())
         painter.drawPixmap(drawn, icon, QtCore.QRectF(icon.rect()))
+        painter.restore()
+
+    # Which page of a PDF of several is shown, in the bottom right corner
+    # of the picture: always in sight, so that a PDF can be told from a
+    # picture of its first page without choosing it. The same size on
+    # screen at any zoom, like the buttons, set in from the corner; and
+    # left out where the picture is drawn too small to carry it.
+    PAGE_BADGE_FONT_PX = 11
+    PAGE_BADGE_PADDING = (7, 3)
+    PAGE_BADGE_INSET = 6
+    PAGE_BADGE_ROOM = 3
+
+    def page_badge_text(self):
+        return f'{self.page + 1} / {self.page_count()}'
+
+    def page_badge_rect(self, transform, font):
+        """Where the badge goes on screen, given how the picture is
+        drawn there; None when it is not shown.
+
+        Worked out on screen rather than on the picture, so that its
+        words stay upright and the right way round on a picture turned
+        or flipped: set in from wherever the picture's bottom right
+        corner has gone, towards the middle.
+        """
+
+        if self.page_count() < 2:
+            return None
+        crop = QtCore.QRectF(self.crop)
+        corner = transform.map(crop.bottomRight())
+        middle = transform.map(crop.center())
+        drawn = transform.mapRect(crop)
+        metrics = QtGui.QFontMetricsF(font)
+        across, down = self.PAGE_BADGE_PADDING
+        width = metrics.horizontalAdvance(self.page_badge_text()) + 2 * across
+        height = metrics.height() + 2 * down
+        if (drawn.width() < width * self.PAGE_BADGE_ROOM
+                or drawn.height() < height * self.PAGE_BADGE_ROOM):
+            return None
+        inset = self.PAGE_BADGE_INSET
+        towards_x = 1 if middle.x() >= corner.x() else -1
+        towards_y = 1 if middle.y() >= corner.y() else -1
+        x = corner.x() + towards_x * inset
+        y = corner.y() + towards_y * inset
+        return QtCore.QRectF(min(x, x + towards_x * width),
+                             min(y, y + towards_y * height),
+                             width, height)
+
+    def paint_page_badge(self, painter):
+        if self.page_count() < 2:
+            return
+        font = QtGui.QFont(painter.font())
+        font.setPixelSize(self.PAGE_BADGE_FONT_PX)
+        transform = painter.worldTransform()
+        rect = self.page_badge_rect(transform, font)
+        if rect is None:
+            return
+        painter.save()
+        # Drawn on screen, where its size is measured
+        painter.resetTransform()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 160))
+        radius = rect.height() / 2
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(255, 255, 255))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                         self.page_badge_text())
         painter.restore()
 
     def paint_outline(self, painter):

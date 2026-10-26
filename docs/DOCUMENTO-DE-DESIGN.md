@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.1** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.2** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -60,6 +60,14 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     Exportar as imagens para uma pasta dá o PDF original.
   - Cada página tem o seu tamanho: uma página deitada mostra-se deitada, à
     mesma escala. O recorte mantém-se entre páginas do mesmo tamanho.
+  - **Indicador sempre visível** (17.2): "3 / 7" num rótulo escuro no canto
+    de baixo à direita do PDF, mesmo sem estar escolhido. Do mesmo tamanho
+    no ecrã a qualquer zoom (letra de 11 px), sempre direito, mesmo com o
+    PDF virado; esconde-se quando o PDF fica pequeno demais no ecrã para o
+    levar. Não entra nas exportações nem na miniatura do ficheiro, que se
+    desenham dentro de `scene.drawn_afresh()` (`drawing_afresh`): o Qt não
+    diz a um elemento se está a ser desenhado para o ecrã, porque o guarda
+    desenhado (`DeviceCoordinateCache`) e aí não lhe passa a janela.
   - "Compact" deixa os PDF em paz (lia só a primeira página como imagem e
     era isso que ficaria guardado).
   - **Ficheiros**: uma versão anterior à 16.8, ou o BeeRef, mostra a

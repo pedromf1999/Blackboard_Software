@@ -177,6 +177,77 @@ def test_turning_a_page_is_undone(view, tmpdir):
     assert item.page == 1
 
 
+# The page shown, always in sight
+
+def badge_font():
+    font = QtGui.QFont()
+    font.setPixelSize(BeePixmapItem.PAGE_BADGE_FONT_PX)
+    return font
+
+
+def test_a_pdf_of_pages_says_which_page_it_shows(qapp, tmpdir):
+    item = dropped(pages_pdf(os.path.join(tmpdir, 'pages.pdf')))
+    item.show_page(1)
+    assert item.page_badge_text() == '2 / 3'
+    rect = item.page_badge_rect(QtGui.QTransform(), badge_font())
+    assert rect is not None
+    # In the bottom right corner, set in from it
+    crop = item.crop
+    assert rect.right() < crop.right() and rect.bottom() < crop.bottom()
+    assert rect.right() > crop.right() - 20
+    assert rect.bottom() > crop.bottom() - 20
+
+
+def test_the_badge_is_the_same_size_on_screen_at_any_zoom(qapp, tmpdir):
+    item = dropped(pages_pdf(os.path.join(tmpdir, 'pages.pdf')))
+    near = item.page_badge_rect(QtGui.QTransform.fromScale(2, 2),
+                                badge_font())
+    far = item.page_badge_rect(QtGui.QTransform.fromScale(0.5, 0.5),
+                               badge_font())
+    assert near.size() == far.size()
+
+
+def test_no_badge_on_a_pdf_drawn_too_small_to_carry_it(qapp, tmpdir):
+    item = dropped(pages_pdf(os.path.join(tmpdir, 'pages.pdf')))
+    assert item.page_badge_rect(QtGui.QTransform.fromScale(0.02, 0.02),
+                                badge_font()) is None
+
+
+def test_no_badge_on_a_pdf_of_one_page_or_another_picture(qapp, tmpdir,
+                                                          item):
+    one = dropped(pages_pdf(os.path.join(tmpdir, 'one.pdf'), pages=1))
+    assert one.page_badge_rect(QtGui.QTransform(), badge_font()) is None
+    assert item.page_badge_rect(QtGui.QTransform(), badge_font()) is None
+
+
+def test_flipped_the_badge_stays_inside_the_picture(qapp, tmpdir):
+    item = dropped(pages_pdf(os.path.join(tmpdir, 'pages.pdf')))
+    flip = QtGui.QTransform.fromScale(-1, 1)
+    rect = item.page_badge_rect(flip, badge_font())
+    assert flip.mapRect(item.crop).contains(rect)
+
+
+def test_the_badge_is_on_screen_and_not_in_an_export(view, tmpdir):
+    item = on_board(view, pages_pdf(os.path.join(tmpdir, 'pages.pdf')))
+    view.scene.deselect_all_items()
+    view.fit_rect(item.sceneBoundingRect())
+    view.viewport().repaint()
+    rect = item.page_badge_rect(
+        item.deviceTransform(view.viewportTransform()), badge_font())
+    spot = rect.center().toPoint()
+    on_screen = view.viewport().grab().toImage()
+    assert on_screen.pixelColor(spot).lightness() < 128
+    # The board drawn as a picture, the size it is on screen
+    image = QtGui.QImage(view.viewport().size(),
+                         QtGui.QImage.Format.Format_RGB32)
+    painter = QtGui.QPainter(image)
+    with view.scene.drawn_afresh():
+        view.render(painter, QtCore.QRectF(image.rect()),
+                    view.viewport().rect())
+    painter.end()
+    assert image.pixelColor(spot).lightness() > 200
+
+
 # Saved
 
 def saved_and_read(view, tmpdir):

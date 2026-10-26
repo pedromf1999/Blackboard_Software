@@ -75,6 +75,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         # Set while everything in an area is being chosen at once, by
         # Select All; see let_groups_speak_for_their_contents
         self._choosing_area = False
+        # Set while a picture of the board is drawn; see drawn_afresh
+        self.drawing_afresh = False
         # The group highlighted as the drop target during a drag
         self.drop_target = None
         # Original z values of the items being dragged
@@ -1391,7 +1393,14 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         """Draw every item straight from what it is, for a picture of
         the board -- an export, a file's thumbnail -- rather than from
         how it was last drawn on the screen, which is at the screen's
-        size and not the picture's."""
+        size and not the picture's.
+
+        And without what is there only to be seen on the screen, such as
+        the page a PDF shows: ``drawing_afresh`` says so to the items,
+        which cannot tell from how they are asked to draw themselves --
+        Qt gives no window either way, drawing into what it keeps of
+        them for the screen.
+        """
 
         cached = []
         no_cache = QtWidgets.QGraphicsItem.CacheMode.NoCache
@@ -1400,9 +1409,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             if mode != no_cache:
                 cached.append((item, mode))
                 item.setCacheMode(no_cache)
+        self.drawing_afresh = True
         try:
             yield
         finally:
+            self.drawing_afresh = False
             for item, mode in cached:
                 item.setCacheMode(mode)
 
