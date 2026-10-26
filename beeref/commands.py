@@ -1115,7 +1115,10 @@ class ToggleGrayscale(QtGui.QUndoCommand):
         super().__init__('Toggle Grayscale')
         self.items = list(filter(lambda item: item.is_image, items))
         self.grayscale = grayscale
-        self.old_grayscales = [item.grayscale for item in items]
+        # Of the images only, as they are put back: taken from everything
+        # chosen, a note among the pictures put each picture after it
+        # back the way the one before it had been
+        self.old_grayscales = [item.grayscale for item in self.items]
 
     def redo(self):
         for item in self.items:

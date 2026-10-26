@@ -865,3 +865,20 @@ def test_toggle_grayscale(view):
     command.undo()
     assert item1.grayscale is True
     assert item2.grayscale is False
+
+
+def test_toggle_grayscale_undone_with_a_note_among_the_pictures(view):
+    """Each picture back the way it was, not the way the one before it
+    in the selection was."""
+
+    note = BeeTextItem('not a picture')
+    note.grayscale = True
+    first = BeePixmapItem(QtGui.QImage())
+    first.grayscale = False
+    second = BeePixmapItem(QtGui.QImage())
+    second.grayscale = True
+    command = commands.ToggleGrayscale([note, first, second], True)
+    command.redo()
+    command.undo()
+    assert first.grayscale is False
+    assert second.grayscale is True
