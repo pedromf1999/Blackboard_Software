@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 JPEG_START = b'\xff\xd8'
 # And what a PDF has within its first kilobyte
 PDF_START = b'%PDF-'
+# How many pixels a PDF's page is drawn with for each of its points
+PDF_DETAIL = 2
 
 # How many dropped files are held open at once. A Mac lets a program
 # have 256 files open in all; the rest of a larger drop is opened as it
@@ -95,13 +97,37 @@ def image_from(data, path=None):
     it does not for every kind of file, by how the file is named.
     """
 
+    if is_pdf(data):
+        img = pdf_page(data)
+        if not img.isNull():
+            return img
     img = QtGui.QImage.fromData(data)
     suffix = os.path.splitext(path or '')[1].lstrip('.')
     if img.isNull() and suffix:
         img = QtGui.QImage.fromData(data, suffix)
-    if not img.isNull() and is_pdf(data):
-        img = on_white(img)
     return img
+
+
+def pdf_page(data):
+    """The first page of a PDF, as a picture.
+
+    Drawn at twice the size Qt's reader gives, which is a point to a
+    pixel: an A4 drawing came in 595 pixels wide, and its small print
+    blurred as soon as it was looked at closely. Null when the reader
+    cannot make anything of it.
+    """
+
+    buffer = QtCore.QBuffer()
+    buffer.setData(data)
+    buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
+    reader = QtGui.QImageReader(buffer, b'pdf')
+    size = reader.size()
+    if size.isValid():
+        reader.setScaledSize(size * PDF_DETAIL)
+    img = reader.read()
+    if img.isNull():
+        return img
+    return on_white(img)
 
 
 def is_pdf(data):

@@ -37,6 +37,14 @@ def test_a_dropped_pdf_comes_in_on_white(qapp, tmpdir):
                           img.height() - 2) == QtGui.QColor('white')
 
 
+def test_it_comes_in_with_twice_the_detail(qapp, tmpdir):
+    path = drawing_pdf(os.path.join(tmpdir, 'drawing.pdf'))
+    img, _ = load_image(path)
+    points = QtGui.QPageSize(QtGui.QPageSize.PageSizeId.A6).sizePoints()
+    assert abs(img.width() - 2 * points.width()) <= 2
+    assert abs(img.height() - 2 * points.height()) <= 2
+
+
 def test_its_lines_are_still_there(qapp, tmpdir):
     path = drawing_pdf(os.path.join(tmpdir, 'drawing.pdf'))
     img, _ = load_image(path)
