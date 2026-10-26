@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 # What every JPEG file begins with
 JPEG_START = b'\xff\xd8'
+# And what a PDF has within its first kilobyte
+PDF_START = b'%PDF-'
 
 # How many dropped files are held open at once. A Mac lets a program
 # have 256 files open in all; the rest of a larger drop is opened as it
@@ -97,7 +99,32 @@ def image_from(data, path=None):
     suffix = os.path.splitext(path or '')[1].lstrip('.')
     if img.isNull() and suffix:
         img = QtGui.QImage.fromData(data, suffix)
+    if not img.isNull() and is_pdf(data):
+        img = on_white(img)
     return img
+
+
+def is_pdf(data):
+    """Whether a file's contents are a PDF, which says so near its start."""
+
+    return PDF_START in data[:1024]
+
+
+def on_white(img):
+    """The picture laid on white.
+
+    A page of a PDF comes in see-through where nothing is printed, and
+    on a dark board a drawing in black lines all but disappeared. On
+    paper it is white, and so it is here.
+    """
+
+    flat = QtGui.QImage(img.size(), QtGui.QImage.Format.Format_RGB32)
+    flat.setDevicePixelRatio(img.devicePixelRatio())
+    flat.fill(QtGui.QColor('white'))
+    painter = QtGui.QPainter(flat)
+    painter.drawImage(0, 0, img)
+    painter.end()
+    return flat
 
 
 def exif_rotated_image(path=None, data=None):

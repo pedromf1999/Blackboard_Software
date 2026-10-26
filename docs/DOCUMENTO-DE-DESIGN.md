@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -41,6 +41,12 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 ### 3.1 Imagens
 - Entram por arrastar, colar ou Ctrl+I; chegam com metade da janela de
   tamanho.
+- **Um PDF arrastado entra sobre branco** (16.6), como em papel: o Qt lê a
+  primeira página com o seu leitor de PDF, que deixa transparente onde nada
+  está impresso, e num quadro escuro um desenho a preto mal se via. Só os
+  PDF (reconhecidos por `%PDF-` no primeiro kilobyte, `fileio/image.py`); um
+  PNG transparente continua transparente. A página entra a 72 ppp (A4 =
+  595×842 px), o tamanho que o leitor do Qt dá.
 - **Aumentar e diminuir** (13.9): os dois botões de tamanho na barra da
   imagem, ou Ctrl+= / Ctrl+-, fazem a imagem 10% maior ou menor de cada vez,
   à volta do centro (várias imagens crescem juntas, mantendo as distâncias).
