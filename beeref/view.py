@@ -3516,6 +3516,11 @@ class BeeGraphicsView(MainControlsMixin,
             QtCore.QUrl.fromLocalFile(dirname))
 
     def on_selection_changed(self):
+        if sip.isdeleted(self.scene):
+            # Closing: the board is taken down before the window, letting
+            # go of what was chosen as it goes, one item at a time, and
+            # each was an error in the log
+            return
         logger.debug('Currently selected items: %s',
                      len(self.scene.selectedItems(user_only=True)))
         self.actiongroup_set_enabled('active_when_selection',

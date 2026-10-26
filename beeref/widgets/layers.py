@@ -17,7 +17,7 @@
 
 import logging
 
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets, sip
 from PyQt6.QtCore import Qt
 
 from beeref import commands, constants
@@ -308,7 +308,9 @@ class LayersTree(QtWidgets.QTreeWidget):
     def update_selection(self):
         """Show the canvas selection in the tree."""
 
-        if self.updating:
+        if self.updating or sip.isdeleted(self.scene):
+            # The board taken down as the window closes; see
+            # BeeGraphicsView.on_selection_changed
             return
         selected = set(id(item)
                        for item in self.scene.selectedItems(user_only=True))
