@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **16.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **16.9** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -310,6 +310,22 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   para escrever um título.
 - O que está dentro escolhe-se e edita-se diretamente; o interior vazio é
   quadro (começa uma seleção por retângulo).
+- **Um grupo e o que está dentro dele nunca ficam escolhidos juntos**
+  (`let_groups_speak_for_their_contents`). Escolhidos um a seguir ao outro,
+  fica o último; escolhidos de uma vez -- por um retângulo ou Select All --
+  fica o grupo. **Corrigido na 16.9:** o retângulo escolhe tudo de novo a
+  cada movimento do rato, e era tomado por escolhas sucessivas: num
+  movimento ficava o grupo, no seguinte o que estava dentro, e onde se
+  largava o rato decidia. Num retângulo grande ficavam escolhidos os
+  subgrupos sem o grupo de fora, e Ctrl+G tirava-os do seu grupo (no BVR001:
+  232 elementos tirados do seu grupo). O que se larga também já não avisa a
+  janela um a um: cada aviso a fazia redesenhar-se, e um só movimento do
+  rato no BVR001 demorava 6 a 25 s (agora 0,1 s).
+- **Agrupar nunca tira nada do grupo onde está** (16.9,
+  `gathered_for_grouping`). Elementos de grupos diferentes, ou uns num grupo
+  e outros não, levam o grupo inteiro deles para o grupo novo, até ao
+  ponto onde se encontram; elementos todos do mesmo grupo continuam a fazer
+  um grupo dentro desse. Para tirar algo de um grupo: Alt ao arrastar.
 - **Trancar:** um grupo trancado é uma peça só.
 - Arrastar um elemento para cima de um grupo põe-no lá dentro; Alt ao
   arrastar tira-o. Colar dentro de um grupo também.

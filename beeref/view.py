@@ -1519,7 +1519,8 @@ class BeeGraphicsView(MainControlsMixin,
                 commands.ToggleGrayscale(images, checked))
 
     def on_action_group_items(self):
-        items = self.scene.selectedItems(user_only=True)
+        items = self.scene.gathered_for_grouping(
+            self.scene.selectedItems(user_only=True))
         if not items:
             return
         logger.debug(f'Grouping {len(items)} items')

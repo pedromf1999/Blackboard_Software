@@ -72,6 +72,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         # What was selected before the latest change, to tell which of a
         # group and something inside it was chosen last
         self._selected_before = set()
+        # Set while everything in an area is being chosen at once, by
+        # Select All; see let_groups_speak_for_their_contents
+        self._choosing_area = False
         # The group highlighted as the drop target during a drag
         self.drop_target = None
         # Original z values of the items being dragged
@@ -632,7 +635,11 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         path = QtGui.QPainterPath()
         path.addRect(self.itemsBoundingRect())
         # This is faster than looping through all items and calling setSelected
-        self.setSelectionArea(path)
+        self._choosing_area = True
+        try:
+            self.setSelectionArea(path)
+        finally:
+            self._choosing_area = False
         # All of the board, which the notes pinned to the window are not
         for note in self.pinned_notes():
             note.setSelected(False)
@@ -1427,23 +1434,82 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         things picked out of it rather than those things. Chosen
         together, by Select All or a selection rectangle, the group
         stays, since it carries the rest.
+
+        A rectangle chooses afresh on every move of the mouse, everything
+        under it at once, and used to be taken for one choice after
+        another: on one move the group had been chosen before and the
+        things in it looked new, so they stayed; on the next it was the
+        other way round. Where a large rectangle stopped decided which,
+        and a group could be left out while what was in it stayed
+        chosen -- and grouping the lot then took those things out of
+        their own group. Anything under a rectangle is chosen together.
+
+        What is let go is worked out first, and let go without a word
+        for each: every one of them used to tell the window the
+        selection had changed, and the window drew itself afresh each
+        time -- on a board of seven hundred items, 263 times for one
+        move of the mouse, forty seconds. The window hears of it once,
+        from the change that brought us here, which reaches it after.
         """
 
+        together = (self._choosing_area
+                    or self.active_mode == self.RUBBERBAND_MODE)
         before = self._selected_before
         selected = self.selectedItems()
+        let_go = set()
         for group in [item for item in selected
                       if getattr(item, 'TYPE', None) == 'group']:
             inside = [item for item in selected
                       if item is not group and group.isAncestorOf(item)]
             if not inside:
                 continue
-            if group in before and any(item not in before
-                                       for item in inside):
-                group.setSelected(False)
+            if (not together and group in before
+                    and any(item not in before for item in inside)):
+                let_go.add(group)
             else:
-                for item in inside:
+                let_go.update(inside)
+        if let_go:
+            told = self.blockSignals(True)
+            try:
+                for item in let_go:
                     item.setSelected(False)
+            finally:
+                self.blockSignals(told)
         self._selected_before = set(self.selectedItems())
+
+    def gathered_for_grouping(self, items):
+        """What goes into a new group made of these items.
+
+        Never anything taken out of the group it is in. An item inside a
+        group also chosen goes in with that group, as it is. Items from
+        different groups -- or some in a group and some not -- bring the
+        whole of their group in with them, up to where they all meet:
+        grouping a picture out of a group with something on the board
+        used to pull the picture out of its own group, and so did
+        grouping a selection that had left a group out by mistake. Items
+        all in one group still make a group inside that one.
+        """
+
+        items = [item for item in items
+                 if not any(other is not item and other.isAncestorOf(item)
+                            for other in items)]
+        if len({item.parentItem() for item in items}) <= 1:
+            return items
+        # The innermost group all of them are in, or the board itself
+        meet = None
+        parent = items[0].parentItem()
+        while parent is not None:
+            if all(parent.isAncestorOf(item) for item in items):
+                meet = parent
+                break
+            parent = parent.parentItem()
+        gathered = []
+        for item in items:
+            while item.parentItem() is not meet:
+                item = item.parentItem()
+            if item not in gathered:
+                gathered.append(item)
+        return gathered
 
     def item_or_group_inside_at(self, pos):
         """What a press at this point on the board lands on.
