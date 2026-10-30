@@ -1926,10 +1926,15 @@ class BeeGraphicsView(MainControlsMixin,
     # Room left round something scrolled into sight
     REVEAL_MARGIN = 40
 
-    # How much of the window's width a found word is brought up to.
-    # A third filled the window with the word and little else; half
-    # that reads as easily and keeps far more of what surrounds it.
-    MATCH_SHARE = 0.15
+    # How tall on screen a line of found words is brought up to, in
+    # pixels: easily read, with what surrounds them still in sight. It
+    # used to be a share of the window for the word's width, which put
+    # the letters of a short word close enough to fill it, and left a
+    # caption, measured by its whole band, too small to read.
+    MATCH_LINE_PIXELS = 30
+    # And how much of the window what was found may take at most, for
+    # words too long to fit at that size
+    MATCH_MOST_OF_WINDOW = 0.8
 
     def on_action_find_next(self):
         # With the bar open, the word to look for is the one in it, even
@@ -2054,8 +2059,9 @@ class BeeGraphicsView(MainControlsMixin,
         """Go to the word itself, not merely to the note holding it.
 
         Centring on the note left a word on a large board still too
-        small to read. This brings the word up to a readable size while
-        keeping what surrounds it in sight; see MATCH_SHARE.
+        small to read. This brings its letters to the same size on
+        screen whatever is found, keeping what surrounds them in sight;
+        see MATCH_LINE_PIXELS.
         """
 
         word = item.search_rect(self.text_search_query)
@@ -2066,11 +2072,14 @@ class BeeGraphicsView(MainControlsMixin,
         view = self.viewport().rect()
         if view.isEmpty():
             return
-        width = word.width() / self.MATCH_SHARE
-        # Given the viewport's own proportions, so fitting the box puts
-        # the word at exactly that share of the width
-        height = width * view.height() / view.width()
-        box = QtCore.QRectF(0, 0, width, height)
+        line = item.search_line_height(self.text_search_query)
+        scale = min(
+            self.MATCH_LINE_PIXELS / (line if line > 0 else word.height()),
+            view.width() * self.MATCH_MOST_OF_WINDOW / word.width(),
+            view.height() * self.MATCH_MOST_OF_WINDOW / word.height())
+        # In the viewport's own proportions, so that fitting the box
+        # comes to exactly that scale
+        box = QtCore.QRectF(0, 0, view.width() / scale, view.height() / scale)
         box.moveCenter(word.center())
         self.fit_rect(box)
 

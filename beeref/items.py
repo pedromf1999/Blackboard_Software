@@ -235,6 +235,14 @@ def size_on_screen(painter, size):
     return size * math.hypot(transform.m11(), transform.m12())
 
 
+def scene_scale_of(item):
+    """How many units of the board one of an item's own stands for,
+    with the scale of any group it is in."""
+
+    transform = item.sceneTransform()
+    return math.hypot(transform.m21(), transform.m22())
+
+
 def paint_text_bars(painter, bars, color):
     """Lines of words too small to read, as a faint bar each."""
 
@@ -1337,6 +1345,12 @@ class TitleBandMixin:
 
         return self.mapToScene(self.header_rect()).boundingRect()
 
+    def title_search_line_height(self):
+        """How tall one line of the title stands on the board, for Find
+        to bring it up to a size to read."""
+
+        return self.line_height_for(self.title_size()) * scene_scale_of(self)
+
     def enter_title_edit_mode(self):
         """Open the title for writing, on the item itself."""
 
@@ -1659,6 +1673,9 @@ class BeeGroupItem(TitleBandMixin, BandTextMixin, BeeItemMixin,
         """
 
         return self.title_search_rect()
+
+    def search_line_height(self, query):
+        return self.title_search_line_height()
 
     def header_height_for(self, width):
         """The height of the title band, or nothing without a title.
@@ -2633,6 +2650,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
 
     def search_rect(self, query):
         return self.mapToScene(self.caption_rect()).boundingRect()
+
+    def search_line_height(self, query):
+        return self.caption_line_height() * scene_scale_of(self)
 
     def shows_caption(self):
         """Whether there is a band to draw.
@@ -5089,6 +5109,15 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                              origin.y() + line.y(),
                              abs(right - left), line.height())
         return self.mapToScene(rect).boundingRect()
+
+    def search_line_height(self, query):
+        """How tall the line a match sits on stands on the board, for
+        Find to bring it up to a size to read."""
+
+        if query.lower() not in self.toPlainText().lower():
+            return self.title_search_line_height()
+        word = self.search_rect(query)
+        return word.height() if word is not None else 0
 
     def selected_range(self):
         """The selected text, or all of it when nothing is selected."""

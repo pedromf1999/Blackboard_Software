@@ -214,9 +214,8 @@ def test_the_found_word_is_brought_up_to_a_readable_size(view):
     view.find_next_text_match()
 
     word = item.search_rect('brown')
-    seen = view.mapToScene(view.viewport().rect()).boundingRect()
-    assert word.width() / seen.width() == pytest.approx(
-        view.MATCH_SHARE, abs=0.03)
+    assert word.height() * view.get_scale() == pytest.approx(
+        view.MATCH_LINE_PIXELS, abs=1)
 
 
 def test_the_word_is_found_where_it_actually_sits(view):

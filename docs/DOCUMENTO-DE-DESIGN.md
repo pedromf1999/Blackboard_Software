@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.2** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.3** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -495,8 +495,16 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - **Ctrl+F** abre a barra; **F3** / Find Next / Previous percorrem os
   resultados. Procura nas notas, nos títulos de notas e grupos e nas
   descrições das imagens.
-- Cada resultado é escolhido e o zoom vai até a palavra ficar legível. Numa
-  nota afixada, abre-a sem mexer no quadro.
+- Cada resultado é escolhido e o zoom põe uma linha do texto encontrado com
+  **30 px de altura no ecrã** (`MATCH_LINE_PIXELS`, 17.3), com a palavra no
+  meio da janela. Se o texto encontrado não couber assim, afasta até ocupar
+  80% da janela (`MATCH_MOST_OF_WINDOW`). Numa nota afixada, abre-a sem mexer
+  no quadro.
+  - Era 15% da largura da janela para a largura da palavra: as letras
+    dependiam do comprimento dela. No BVR001, numa janela de 1400 px: "Add"
+    com linhas de 156 px, um título de grupo com 9 e uma descrição com 15
+    (medidas pela faixa inteira, da largura da imagem). Agora, 30 em todos.
+    Cada elemento diz a altura de uma linha sua (`search_line_height`).
 - **Go Back** (14.9): na barra de pesquisa, volta à vista (ampliação e
   centro) e à seleção de antes do primeiro salto da pesquisa, mesmo depois
   de passar por vários resultados. Fica ativo só quando há para onde
