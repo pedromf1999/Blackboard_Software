@@ -303,7 +303,14 @@ class SelectableMixin(BaseItemMixin):
         # the scene, or the scene from its window, but its
         # boundingRect is still needed. Keep the last known scaling
         # factor for that case
-        return value / getattr(self, '_view_scale', 1) / self.scale()
+        #
+        # With the scale of what it sits in, too. On its own its scale
+        # undoes that of a picture it was drawn on, so this came out wrong
+        # by the square of the picture's: a real board's pictures are
+        # scaled thousands of times, and the corners of a sketch's outline
+        # came to tens of thousands of pixels, rounding it into an ellipse.
+        return (value / getattr(self, '_view_scale', 1)
+                / self.scale() / self.parent_scale())
 
     @property
     def select_resize_size(self):

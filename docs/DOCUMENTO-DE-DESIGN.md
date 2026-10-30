@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.5** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.6** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -301,6 +301,15 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     -- uma curva ficava torta, uma linha encolhia para um ponto. A nota ou
     imagem dentro do grupo ganha ao grupo. Uma linha desenhada por cima de
     um só elemento, de um lado ao outro, não fica presa a ele.
+- **O contorno de um esboço feito sobre uma imagem** (17.6): o que fica do
+  mesmo tamanho no ecrã (cantos do contorno, pegas) era medido só com a escala
+  do próprio elemento (`fixed_length_for_viewport`). Um esboço sobre uma imagem
+  tem a escala inversa da dela, por isso o erro era o quadrado da escala da
+  imagem: no BVR001, numa imagem de escala 8761, cantos de 58 720 px em vez de
+  8, o que arredonda o retângulo numa elipse, e uma área a desenhar de 293 942
+  px para uma linha de 343. Agora conta a escala do que está à volta
+  (`parent_scale`). Vale também para as pegas de qualquer elemento dentro de um
+  grupo com escala.
 - **Traços em qualquer zoom** (16.0): o BVR001 vai de -33 a 277 milhões de
   unidades e é trabalhado a 1:450 e até 1:260 000. O Qt deixa de desenhar
   um traço cujo caminho tem milhões de unidades (medido: a partir de 1:10 000
