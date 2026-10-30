@@ -169,7 +169,10 @@ known types is what silently deleted groups and drawings twice before.
   them, and opened only at the size they are drawn, in the background; what
   is opened is let go once out of sight. Never hand a full picture to Qt's
   own `QGraphicsPixmapItem.setPixmap`: that is what kept a 126 MB board at
-  5.3 GB of memory.
+  5.3 GB of memory. Pictures are opened on several threads at once, so a
+  reader is always asked something before it reads, and a PDF is only touched
+  under `PDF_LOCK`; the top of that file says why. Breaking either hangs the
+  application for good, some of the time.
 - Drawing speed. Every item is kept drawn as it is seen (Qt's
   `DeviceCoordinateCache`, set in `SelectableMixin.init_selectable`), and a
   zoom is drawn from a picture of the board taken as it begins
@@ -193,7 +196,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **3190 passing, 0 failing**. Nine tests inherited from
+Current baseline: **3192 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

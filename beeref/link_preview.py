@@ -38,6 +38,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 from PyQt6 import QtCore, QtGui, QtNetwork, QtPdf
 
+from beeref import imagecache
+
 
 logger = logging.getLogger(__name__)
 
@@ -322,9 +324,9 @@ def is_pdf(url, content_type=''):
     return urlparse(url or '').path.lower().endswith('.pdf')
 
 
-def pdf_first_page(data, width=PDF_WIDTH):
-    """The first page of a PDF, drawn this wide on white; or a null
-    picture, for a PDF that cannot be read (or is locked)."""
+def drawn_first_page(data, width):
+    """The first page as a PDF draws it, or a null picture. All that it
+    holds of the PDF is gone when this returns."""
 
     document = QtPdf.QPdfDocument(None)
     buffer = QtCore.QBuffer()
@@ -341,6 +343,16 @@ def pdf_first_page(data, width=PDF_WIDTH):
     height = max(1, round(width * size.height() / size.width()))
     page = document.render(0, QtCore.QSize(width, height))
     document.close()
+    return page
+
+
+def pdf_first_page(data, width=PDF_WIDTH):
+    """The first page of a PDF, drawn this wide on white; or a null
+    picture, for a PDF that cannot be read (or is locked)."""
+
+    # Asked for while other PDFs may be being opened; see imagecache
+    with imagecache.PDF_LOCK:
+        page = drawn_first_page(data, width)
     if page.isNull():
         return page
     # A page leaves where nothing is printed see-through; on paper, and

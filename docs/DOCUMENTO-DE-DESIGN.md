@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.4** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.5** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -760,6 +760,20 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **Abrir imagens em vários fios de execução ao mesmo tempo** (17.5). Um quadro
+  com PDFs entre as imagens encravava de vez ao abrir, desde a 16.8, onde
+  calhava o primeiro PDF (28% no BVR001). O Qt tem uma chave partilhada por
+  todos os leitores de imagem, que guarda enquanto descobre o que é a imagem, e
+  nesse meio lê do buffer; e um buffer feito em Python precisa de Python de
+  volta sempre que o Qt lê dele. O Python fica preso a quem está a perguntar
+  alguma coisa ao Qt, e é largado durante `read()`. Os PDFs eram os únicos a
+  deixar a descoberta para o `read()`: um fio com a chave à espera do Python,
+  outro com o Python à espera da chave. Por isso, em `imagecache.py`: **um
+  leitor pergunta sempre o tamanho antes de ler**, e **um PDF só se toca com
+  `PDF_LOCK`**, porque o leitor de PDF do Qt tem outra chave igual. O teste
+  (`tests/test_pdf_threads.py`) corre noutro processo, com limite de tempo.
+  Testar uma coisa nova que fica no ficheiro inclui voltar a abrir o quadro
+  real depois de a pôr lá: com um PDF sozinho nunca encravava.
 - **Os controlos de música do Windows nunca respondem à linha principal.**
   O Qt prepara a linha da janela de uma maneira (STA) em que as respostas
   do `winrt` só chegam pela fila de mensagens, que ninguém lê enquanto se

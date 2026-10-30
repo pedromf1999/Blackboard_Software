@@ -26,12 +26,30 @@ is drawn at -- halved as many times as that allows, so a picture seen
 at a tenth of its size is opened at an eighth -- in the background, so
 that zooming never waits for it. What has been opened is kept in a store
 of limited size and let go once it is no longer seen.
+
+Pictures are opened on several threads at once, and that has two rules,
+for what is in Qt and what is in Python each waiting for the other is a
+wait with no end. Python is held by whatever thread is asking Qt anything,
+but let go of while a picture is read; and a buffer made in Python needs
+Python back every time Qt reads from it. So:
+
+* A reader is asked something before it reads -- see ``open_image`` -- never
+  left to find out what the picture is once reading has begun. Qt finds out
+  under a lock of its own, shared by every reader, and in the middle of that
+  it reads from the buffer. Left to ``read``, that is holding the lock and
+  waiting for Python, while the next thread asking a reader anything has
+  Python and waits for the lock.
+* Only one PDF at a time; see ``PDF_LOCK``. Qt's PDF reader has a lock of its
+  own, shared by every PDF, with the same trouble.
+
+A board with PDFs among its pictures stopped opening for good on this.
 """
 
 from collections import defaultdict, OrderedDict
 import itertools
 import logging
 import math
+import threading
 import time
 import weakref
 
@@ -72,6 +90,9 @@ PDF_START = b'%PDF-'
 # Qt's reader gives one, and an A4 drawing came in 595 pixels wide, its
 # small print blurred as soon as it was looked at closely.
 PDF_DETAIL = 2
+# Held for anything at all done with a PDF, from before its reader is made
+# till after it is gone. Waited for with Python let go of.
+PDF_LOCK = threading.Lock()
 
 _keys = itertools.count(1)
 
@@ -105,31 +126,37 @@ class PdfPage:
         self.page = page
         self._count = count
 
-    def reader(self):
-        """A reader at this page, and the buffer it reads, which has to
-        be kept for as long as the reader is."""
+    def read_with(self, use):
+        """What ``use`` makes of a reader at this page.
 
-        buffer = QtCore.QBuffer()
-        buffer.setData(QtCore.QByteArray(self.data))
-        buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
-        reader = QtGui.QImageReader(buffer, b'pdf')
-        if self.page:
-            reader.jumpToImage(self.page)
-        return reader, buffer
+        The reader goes before the buffer it reads, and both before the
+        lock does: letting go of a PDF is something done with it too.
+        """
+
+        with PDF_LOCK:
+            buffer = QtCore.QBuffer()
+            buffer.setData(QtCore.QByteArray(self.data))
+            buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
+            reader = QtGui.QImageReader(buffer, b'pdf')
+            if self.page:
+                reader.jumpToImage(self.page)
+            answer = use(reader)
+            del reader
+            del buffer
+            return answer
 
     def count(self):
         """How many pages the PDF has; worked out once."""
 
         if self._count is None:
-            reader, buffer = self.reader()
-            self._count = max(1, reader.imageCount())
+            self._count = self.read_with(
+                lambda reader: max(1, reader.imageCount()))
         return self._count
 
     def size(self):
         """How big this page is drawn, which pages need not all be."""
 
-        reader, buffer = self.reader()
-        size = reader.size()
+        size = self.read_with(lambda reader: reader.size())
         if not size.isValid():
             return QtCore.QSize()
         return size * PDF_DETAIL
@@ -165,6 +192,7 @@ def on_white(image):
 def image_size(data):
     """How big a compressed picture is, without opening it."""
 
+    data = as_source(data)
     if isinstance(data, PdfPage):
         return data.size()
     buffer = QtCore.QBuffer()
@@ -176,7 +204,7 @@ def image_size(data):
 def image_format(data):
     """What a compressed picture is stored as: 'png', 'jpg' or other."""
 
-    if isinstance(data, PdfPage):
+    if isinstance(as_source(data), PdfPage):
         return 'pdf'
     buffer = QtCore.QBuffer()
     buffer.setData(QtCore.QByteArray(data))
@@ -203,24 +231,35 @@ def open_image(source, size=None):
     if isinstance(source, PdfPage):
         # Drawn afresh at the size wanted, so it is as sharp as it is
         # seen, and on white
-        reader, buffer = source.reader()
-        reader.setScaledSize(size if size is not None
-                             else reader.size() * PDF_DETAIL)
-        image = reader.read()
+        image = source.read_with(lambda reader: read_at(reader, size))
         if image.isNull():
-            logger.debug(f'Could not open a PDF: {reader.errorString()}')
+            logger.debug('Could not open a PDF')
             return image
         return on_white(image)
     buffer = QtCore.QBuffer()
     buffer.setData(QtCore.QByteArray(source))
     buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
     reader = QtGui.QImageReader(buffer)
-    if size is not None and size != reader.size():
+    # Asked even when the answer is not wanted, before reading; see the
+    # top of this file
+    own_size = reader.size()
+    if size is not None and size != own_size:
         reader.setScaledSize(size)
     image = reader.read()
     if image.isNull():
         logger.debug(f'Could not open a picture: {reader.errorString()}')
     return image
+
+
+def read_at(reader, size):
+    """A page of a PDF, at this size or at the size it is drawn."""
+
+    # Asked before reading, whatever the size wanted; see the top of this
+    # file. Of all pictures, this is what used to leave it to the reading.
+    own_size = reader.size()
+    reader.setScaledSize(size if size is not None
+                         else own_size * PDF_DETAIL)
+    return reader.read()
 
 
 def small_copy(data):
