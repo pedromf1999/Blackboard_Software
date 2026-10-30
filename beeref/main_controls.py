@@ -95,7 +95,8 @@ class MainControlsMixin:
         if mimedata.hasUrls():
             urls = mimedata.urls()
             logger.debug(f'Found dropped urls: {urls}')
-            if not self.control_target.scene.items():
+            if (not self.control_target.scene.items()
+                    and len(self.control_target.sheets) == 1):
                 # Check if we have a bee file we can open directly
                 path = urls[0]
                 if (path.isLocalFile()

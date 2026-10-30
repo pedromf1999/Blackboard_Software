@@ -41,11 +41,12 @@ from PyQt6 import QtCore, QtGui
 from beeref import constants, imagecache
 from beeref.items import (
     BeePixmapItem, BeeErrorItem, without_pointless_alpha)
+from beeref.scene import BeeGraphicsScene
 from .errors import BeeFileIOError, IMG_LOADING_ERROR_MSG
 from .schema import (SCHEMA, USER_VERSION, MIGRATIONS, APPLICATION_ID,
                      META_TABLE, META_VERSION_KEY,
                      META_THUMBNAIL_KEY, META_LEGEND_KEY, META_PINS_TAB_KEY,
-                     META_SAVE_MARK_KEY)
+                     META_SAVE_MARK_KEY, META_SHEETS_KEY, ITEM_SHEETS_TABLE)
 
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,14 @@ def handle_sqlite_errors(func):
 class SQLiteIO:
 
     def __init__(self, filename, scene, create_new=False, readonly=False,
-                 worker=None, thumbnail=None, legend=None, mark=None):
+                 worker=None, thumbnail=None, legend=None, mark=None,
+                 book=None):
+        # The first page's scene, with a ``book`` of the board's pages;
+        # see beeref/sheets.py. Without one, this scene is all there is.
         self.scene = scene
+        self.book = book
+        # Which page each item read goes to, by its id
+        self.item_sheets = {}
         self.thumbnail = thumbnail
         self.legend = legend
         # Left in the file by this save; see fileio/ondisk.py
@@ -113,6 +120,13 @@ class SQLiteIO:
 
     def __del__(self):
         self._close_connection()
+
+    def scenes(self):
+        """Every scene that goes into the file."""
+
+        if self.book is not None:
+            return [sheet.scene for sheet in self.book]
+        return [self.scene]
 
     def _close_connection(self):
         if hasattr(self, '_connection'):
@@ -131,7 +145,8 @@ class SQLiteIO:
             os.remove(self.filename)
 
         if self.create_new:
-            self.scene.clear_save_ids()
+            for scene in self.scenes():
+                scene.clear_save_ids()
 
         uri = pathlib.Path(self.filename).resolve().as_uri()
         if self.readonly:
@@ -241,6 +256,93 @@ class SQLiteIO:
                 'INSERT OR REPLACE INTO blackboard_meta (key, value) '
                 'VALUES (?, ?)',
                 (META_SAVE_MARK_KEY, self.mark))
+        if self.book is not None:
+            sheets = self.book.to_save()
+            if sheets is None:
+                self.ex('DELETE FROM blackboard_meta WHERE key=?',
+                        (META_SHEETS_KEY,))
+            else:
+                self.ex(
+                    'INSERT OR REPLACE INTO blackboard_meta (key, value) '
+                    'VALUES (?, ?)',
+                    (META_SHEETS_KEY, json.dumps(sheets)))
+
+    def write_item_sheets(self):
+        """Note which page each item is on, once they all have an id."""
+
+        if self.book is None:
+            return
+        if self.book.is_plain():
+            self.ex('DROP TABLE IF EXISTS blackboard_item_sheets')
+            return
+        self.ex(ITEM_SHEETS_TABLE)
+        self.ex('DELETE FROM blackboard_item_sheets')
+        for sheet in self.book.sheets[1:]:
+            ids = [item.save_id for item in sheet.scene.items_for_save()]
+            ids += [item.original_save_id for item
+                    in sheet.scene.items_by_type(BeeErrorItem.TYPE)]
+            self.cursor.executemany(
+                'INSERT OR REPLACE INTO blackboard_item_sheets '
+                '(item_id, sheet_id) VALUES (?, ?)',
+                [(item_id, sheet.id) for item_id in ids
+                 if item_id is not None])
+
+    def read_item_sheets(self):
+        table = self.fetchone(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='blackboard_item_sheets'")
+        if not table:
+            return {}
+        return dict(self.fetchall(
+            'SELECT item_id, sheet_id FROM blackboard_item_sheets'))
+
+    def read_sheets(self):
+        """What the file says about its pages, or None if nothing.
+
+        Anything not understood is left out, so that whatever else is
+        wrong with it the board can be opened. Its first page is always
+        there: it is where the items not marked as elsewhere go.
+        """
+
+        table = self.fetchone(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='blackboard_meta'")
+        if not table:
+            return None
+        row = self.fetchone(
+            'SELECT value FROM blackboard_meta WHERE key=?',
+            (META_SHEETS_KEY,))
+        if not row or not row[0]:
+            return None
+        try:
+            saved = json.loads(row[0])
+            entries = saved['sheets']
+        except (ValueError, TypeError, KeyError):
+            logger.debug(f'Unreadable pages in {self.filename}')
+            return None
+        sheets = []
+        seen = set()
+        for entry in entries if isinstance(entries, list) else []:
+            if (not isinstance(entry, dict)
+                    or not isinstance(entry.get('id'), int)
+                    or entry['id'] in seen):
+                continue
+            seen.add(entry['id'])
+            color = entry.get('color')
+            valid = (isinstance(color, list) and len(color) == 4
+                     and all(isinstance(c, int) for c in color))
+            sheets.append({
+                'id': entry['id'],
+                'name': str(entry.get('name') or f'Page {len(sheets) + 1}'),
+                'color': tuple(color) if valid else None,
+                'legend': self.legend_from(entry.get('legend')),
+                'pins_tab': self.pins_tab_from(
+                    entry.get('pins_tab'),
+                    copy.deepcopy(BeeGraphicsScene.PINS_TAB)),
+            })
+        if not sheets:
+            return None
+        return {'current': saved.get('current'), 'sheets': sheets}
 
     def read_thumbnail(self):
         """The picture of the board saved with it, or None."""
@@ -279,6 +381,10 @@ class SQLiteIO:
         except ValueError:
             logger.debug(f'Unreadable legend in {self.filename}')
             return []
+        return self.legend_from(rows)
+
+    @staticmethod
+    def legend_from(rows):
         if not isinstance(rows, list):
             return []
         return [{'color': tuple(entry.get('color') or (255, 255, 255, 255)),
@@ -309,6 +415,10 @@ class SQLiteIO:
         except ValueError:
             logger.debug(f'Unreadable pins tab in {self.filename}')
             return state
+        return self.pins_tab_from(saved, state)
+
+    @staticmethod
+    def pins_tab_from(saved, state):
         if not isinstance(saved, dict):
             return state
         for key in ('corner', 'offset'):
@@ -436,6 +546,8 @@ class SQLiteIO:
         self.scene.legend = self.read_legend()
         if hasattr(self.scene, 'PINS_TAB'):
             self.scene.pins_tab = self.read_pins_tab(self.scene.PINS_TAB)
+        if self.book is not None:
+            self.item_sheets = self.read_item_sheets()
         if self.worker:
             self.worker.begin_processing.emit(self.count_rows())
 
@@ -499,7 +611,7 @@ class SQLiteIO:
                     data['type'] = BeeErrorItem.TYPE
                 data['item'] = item
 
-        self.scene.add_item_later(data)
+        self.scene_of(row[0]).add_item_later(data)
 
         if self.worker:
             logger.trace(f'Emit progress: {i}')
@@ -511,6 +623,16 @@ class SQLiteIO:
             if (i + 1) % self.ITEMS_PER_PAUSE == 0:
                 time.sleep(self.PAUSE_SECONDS)
         return True
+
+    def scene_of(self, item_id):
+        """The scene of the page an item is on."""
+
+        sheet_id = self.item_sheets.get(item_id)
+        if sheet_id is not None and self.book is not None:
+            sheet = self.book.by_id(sheet_id)
+            if sheet is not None:
+                return sheet.scene
+        return self.scene
 
     @handle_sqlite_errors
     def write(self):
@@ -537,12 +659,13 @@ class SQLiteIO:
         self.write_blackboard_meta()
         to_delete = {row[0] for row in self.fetchall('SELECT id from ITEMS')}
         # We don't want to touch existing items that are displayed as errors:
-        keep = {item.original_save_id
-                for item in self.scene.items_by_type(BeeErrorItem.TYPE)}
+        keep = {item.original_save_id for scene in self.scenes()
+                for item in scene.items_by_type(BeeErrorItem.TYPE)}
         logger.debug(f'Not saving error items: {keep}')
         to_delete = to_delete - keep
 
-        to_save = list(self.scene.items_for_save())
+        to_save = [item for scene in self.scenes()
+                   for item in scene.items_for_save()]
         if self.worker:
             self.worker.begin_processing.emit(len(to_save))
         for i, item in enumerate(to_save):
@@ -561,6 +684,7 @@ class SQLiteIO:
                 if self.worker.canceled:
                     break
         self.delete_items(to_delete)
+        self.write_item_sheets()
         # Everything above is one transaction, committed here. Committing
         # per item makes saving a large file needlessly slow.
         self.connection.commit()

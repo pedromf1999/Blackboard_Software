@@ -38,22 +38,32 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def load_bee(filename, scene, worker=None):
+def load_bee(filename, scene, worker=None, book=None):
     """Load BeeRef native file."""
     logger.info(f'Loading from file {filename}...')
-    io = SQLiteIO(filename, scene, readonly=True, worker=worker)
+    io = SQLiteIO(filename, scene, readonly=True, worker=worker, book=book)
     return io.read()
 
 
 def save_bee(filename, scene, create_new=False, worker=None,
-             thumbnail=None, legend=None, mark=None):
+             thumbnail=None, legend=None, mark=None, book=None):
     """Save BeeRef native file."""
     logger.info(f'Saving to file {filename}...')
     logger.debug(f'Create new: {create_new}')
     io = SQLiteIO(filename, scene, create_new, worker=worker,
-                  thumbnail=thumbnail, legend=legend, mark=mark)
+                  thumbnail=thumbnail, legend=legend, mark=mark, book=book)
     io.write()
     logger.info('End save')
+
+
+def read_sheets(filename):
+    """What a board's file says about its pages, or None if nothing."""
+
+    try:
+        return SQLiteIO(filename, None, readonly=True).read_sheets()
+    except Exception:
+        logger.debug(f'Could not read the pages of {filename}')
+        return None
 
 
 def read_thumbnail(filename):

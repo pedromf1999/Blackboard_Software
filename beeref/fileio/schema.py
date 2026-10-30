@@ -59,6 +59,20 @@ META_PINS_TAB_KEY = 'pins_tab'
 # A number made up for each save, so that a window can tell its own save
 # from one made on another computer; see fileio/ondisk.py
 META_SAVE_MARK_KEY = 'save_mark'
+# The pages of a board, as JSON: their names, colours, and the legend and
+# pinned notes tab of each but the first, which has those where they
+# always were. Only in a file with something to say about them.
+META_SHEETS_KEY = 'sheets'
+
+# Which page each item is on, for every page but the first: an item with
+# no row here is on the first, so a version that knows nothing of pages
+# leaves the file as it was, and what it adds lands on the first page.
+ITEM_SHEETS_TABLE = """
+    CREATE TABLE IF NOT EXISTS blackboard_item_sheets (
+        item_id INTEGER PRIMARY KEY,
+        sheet_id INTEGER NOT NULL
+    )
+"""
 
 
 MIGRATIONS = {

@@ -145,6 +145,11 @@ known types is what silently deleted groups and drawings twice before.
 - `beeref/__main__.py` — application entry point, main window, menu bar assembly.
 - `beeref/view.py` — `BeeGraphicsView`: zoom, panning, mouse/keyboard handling.
 - `beeref/scene.py` — `BeeGraphicsScene`: the canvas, selection, z-ordering.
+- `beeref/sheets.py` — the pages of a board (called sheets in the code, since
+  a page is a page of a PDF): each its own scene and undo stack.
+  `view.scene` and `view.undo_stack` are the current page's, so anything that
+  holds on to either past a page change has to be told; whether there is
+  anything to save is `view.sheets.is_clean()`, not the undo stack's.
 - `beeref/items.py` — item classes (`BeePixmapItem` for images, the text item),
   including transform handles, crop, opacity, grayscale.
 - `beeref/spelling.py` — spelling in up to two languages at once, chosen
@@ -188,7 +193,7 @@ Scope both commands explicitly. `setup.cfg` excludes only `squashfs-root`,
 `build` and `dist`, so a bare `flake8 .` lints everything inside `.venv` and
 buries real errors under thousands from third-party source.
 
-Current baseline: **3135 passing, 0 failing**. Nine tests inherited from
+Current baseline: **3190 passing, 0 failing**. Nine tests inherited from
 upstream used to fail on Windows. Each assumed something only a Linux test run
 gives — a read-only folder refusing new files, the window sitting in the top
 left corner of the screen, `/` in paths, patches on `QWidget` being seen from

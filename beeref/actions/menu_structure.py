@@ -66,6 +66,10 @@ menu_structure = [
     {
         'menu': '&View',
         'items': [
+            'new_sheet',
+            'next_sheet',
+            'previous_sheet',
+            MENU_SEPARATOR,
             'fit_scene',
             'fit_selection',
             MENU_SEPARATOR,

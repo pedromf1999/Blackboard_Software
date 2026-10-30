@@ -162,6 +162,17 @@ class LayersTree(QtWidgets.QTreeWidget):
 
         return tuple(describe(self.get_items()))
 
+    def set_scene(self, scene):
+        """Show another page of the board."""
+
+        self.scene.changed.disconnect(self.schedule_refresh)
+        self.scene.selectionChanged.disconnect(self.update_selection)
+        self.forget_items()
+        self.scene = scene
+        self.scene.changed.connect(self.schedule_refresh)
+        self.scene.selectionChanged.connect(self.update_selection)
+        self.schedule_refresh()
+
     def forget_items(self):
         """Let go of every item: the board they are on is being put away.
 

@@ -40,7 +40,7 @@ from beeref.items import (
     BeeDrawItem, BeeGroupItem, BeePixmapItem, BeeTextItem,
     in_reading_order, passages, without_pointless_alpha)
 from beeref.main_controls import MainControlsMixin
-from beeref.scene import BeeGraphicsScene
+from beeref.sheets import SheetBook
 from beeref.spelling import speller
 from beeref.nowplaying import NowPlaying
 from beeref.utils import get_file_extension_from_format, qcolor_to_hex
@@ -172,11 +172,12 @@ class BeeGraphicsView(MainControlsMixin,
         # fetches them, made when first needed
         self.link_previews = []
         self.network = None
-        self.undo_stack = QtGui.QUndoStack(self)
-        self.undo_stack.setUndoLimit(100)
-        self.undo_stack.canRedoChanged.connect(self.on_can_redo_changed)
-        self.undo_stack.canUndoChanged.connect(self.on_can_undo_changed)
-        self.undo_stack.cleanChanged.connect(self.on_undo_clean_changed)
+        # The pages of the board. ``scene`` and ``undo_stack`` are the
+        # current one's: all there is to the rest of the application.
+        self.sheets = SheetBook(self)
+        self.scene = self.sheets.current.scene
+        self.undo_stack = self.sheets.current.undo_stack
+        self.watch_sheet(self.sheets.current)
 
         self.filename = None
         # The board's file as this window last read or wrote it, to know
@@ -194,8 +195,10 @@ class BeeGraphicsView(MainControlsMixin,
         # and when told "not now"
         self.elsewhere_seen = None
         self.elsewhere_dismissed = None
-        # How the board was being looked at, for after it is read again
+        # How the board was being looked at, for after it is read again,
+        # and on which page
         self.view_after_loading = None
+        self.sheet_after_loading = None
         self.previous_transform = None
         # Where the board was, and what was selected, before a search
         # first moved it: what Go Back in the find bar returns to
@@ -243,11 +246,7 @@ class BeeGraphicsView(MainControlsMixin,
         self.draw_color = QtGui.QColor(*BeeDrawItem.DEFAULT_COLOR)
         self.draw_width = BeeDrawItem.DEFAULT_WIDTH
 
-        self.scene = BeeGraphicsScene(self.undo_stack)
-        self.scene.changed.connect(self.on_scene_changed)
-        self.scene.selectionChanged.connect(self.on_selection_changed)
-        self.scene.cursor_changed.connect(self.on_cursor_changed)
-        self.scene.cursor_cleared.connect(self.on_cursor_cleared)
+        self.connect_current_sheet()
         self.setScene(self.scene)
 
         # Built before the actions, since the toggle acts on it as soon
@@ -278,7 +277,6 @@ class BeeGraphicsView(MainControlsMixin,
         self.draw_toolbar.show()
         # Under it, when the board was saved somewhere else
         self.elsewhere_bar = widgets.elsewhere_bar.ElsewhereBar(self, self)
-        self.undo_stack.cleanChanged.connect(self.on_clean_for_elsewhere)
         application = QtGui.QGuiApplication.instance()
         if application is not None:
             # Coming back to the window is when a newer version has most
@@ -307,6 +305,10 @@ class BeeGraphicsView(MainControlsMixin,
 
         # A reminder of the shortcuts, until the user dismisses it
         self.shortcuts_hint.show_if_wanted()
+
+        # The pages of the board, along the top of the window
+        self.sheet_tabs = widgets.sheet_tabs.SheetTabs(parent, self)
+        parent.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.sheet_tabs)
 
     @property
     def filename(self):
@@ -340,7 +342,7 @@ class BeeGraphicsView(MainControlsMixin,
         # and the only way to tell which build a window belongs to used
         # to be opening Help - About
         app = f'{constants.APPNAME} {constants.VERSION}'
-        clean = self.undo_stack.isClean()
+        clean = self.sheets.is_clean()
         if clean and not self.filename:
             title = app
         else:
@@ -1056,10 +1058,21 @@ class BeeGraphicsView(MainControlsMixin,
         if not self.scene.items():
             logger.debug('No items in scene')
             self.setTransform(QtGui.QTransform())
-            self.welcome_overlay.setFocus()
-            self.clearFocus()
-            self.welcome_overlay.show()
             self.actiongroup_set_enabled('active_when_items_in_scene', False)
+            if len(self.sheets) == 1:
+                self.welcome_overlay.setFocus()
+                self.clearFocus()
+                self.welcome_overlay.show()
+            else:
+                # A page with nothing on it yet, of a board that has
+                # others. Opening a board from the welcome list would
+                # replace them all; and there is something to save.
+                self.setFocus()
+                self.welcome_overlay.clearFocus()
+                self.welcome_overlay.hide()
+                if self.sheets.any_items():
+                    for action in ('save', 'save_as'):
+                        actions.actions[action].qaction.setEnabled(True)
         else:
             self.setFocus()
             self.welcome_overlay.clearFocus()
@@ -1075,6 +1088,200 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_undo_clean_changed(self, clean):
         self.update_window_title()
+
+    # The pages of the board; see beeref/sheets.py
+
+    def watch_sheet(self, sheet):
+        """Whether it has changes counts whichever page is shown."""
+
+        sheet.undo_stack.cleanChanged.connect(self.on_undo_clean_changed)
+        sheet.undo_stack.cleanChanged.connect(self.on_clean_for_elsewhere)
+
+    def connect_current_sheet(self):
+        self.scene.changed.connect(self.on_scene_changed)
+        self.scene.selectionChanged.connect(self.on_selection_changed)
+        self.scene.cursor_changed.connect(self.on_cursor_changed)
+        self.scene.cursor_cleared.connect(self.on_cursor_cleared)
+        self.undo_stack.canRedoChanged.connect(self.on_can_redo_changed)
+        self.undo_stack.canUndoChanged.connect(self.on_can_undo_changed)
+
+    def disconnect_current_sheet(self):
+        self.scene.changed.disconnect(self.on_scene_changed)
+        self.scene.selectionChanged.disconnect(self.on_selection_changed)
+        self.scene.cursor_changed.disconnect(self.on_cursor_changed)
+        self.scene.cursor_cleared.disconnect(self.on_cursor_cleared)
+        self.undo_stack.canRedoChanged.disconnect(self.on_can_redo_changed)
+        self.undo_stack.canUndoChanged.disconnect(self.on_can_undo_changed)
+
+    def busy_with_file(self):
+        worker = getattr(self, 'worker', None)
+        return worker is not None and worker.isRunning()
+
+    def choose_sheet(self, sheet):
+        """Go to a page; not while the board is being read or written,
+        which has what is on the page to hand."""
+
+        if not self.busy_with_file():
+            self.show_sheet(sheet)
+
+    def show_sheet(self, sheet):
+        """Put another page in the window, as it was last looked at."""
+
+        current = self.sheets.current
+        if sheet is current:
+            return
+        logger.debug(f'Going to page {sheet.name}')
+        self.leave_current_sheet()
+        current.view_state = (
+            QtGui.QTransform(self.transform()),
+            self.mapToScene(self.viewport().rect().center()))
+        # Copied here, pasted there
+        sheet.scene.internal_clipboard = self.scene.internal_clipboard
+
+        self.disconnect_current_sheet()
+        self.sheets.current = sheet
+        self.scene = sheet.scene
+        self.undo_stack = sheet.undo_stack
+        self.connect_current_sheet()
+        self.setScene(self.scene)
+        self.layers_dock.tree.set_scene(self.scene)
+
+        if sheet.view_state is not None:
+            transform, center = sheet.view_state
+            self.recalc_scene_rect()
+            self.setTransform(transform)
+            self.centerOn(center)
+        elif self.scene.items():
+            self.on_action_fit_scene()
+        else:
+            self.setTransform(QtGui.QTransform())
+        self.scene.on_view_scale_change()
+
+        # Nothing that signals when another page's history is put in
+        self.on_can_undo_changed(self.undo_stack.canUndo())
+        self.on_can_redo_changed(self.undo_stack.canRedo())
+        self.on_selection_changed()
+        self.on_scene_changed(None)
+        self.refresh_legend()
+        self.place_pinned_notes()
+        self.refresh_sheet_tabs()
+
+    def leave_current_sheet(self):
+        """Finish whatever is under way on the page being left."""
+
+        self.cancel_active_modes()
+        self.end_quick_zoom()
+        self.zoom_timer.stop()
+        self.pending_zoom = 0
+        self.previous_transform = None
+        self.snap_preview = None
+        if self.drawing_item is not None:
+            self.finish_drawing()
+        if getattr(self, 'find_bar', None) is not None:
+            self.forget_before_search()
+        self.text_search_index = -1
+        # What is being written is kept, as on clicking away from it
+        if self.scene.edit_item:
+            self.scene.edit_item.exit_edit_mode()
+        if self.scene.title_item is not None:
+            self.scene.title_item.exit_title_edit_mode()
+        if self.scene.caption_item is not None:
+            self.scene.caption_item.exit_caption_edit_mode()
+        self.scene.deselect_all_items()
+        self.scene.clearFocus()
+
+    def refresh_sheet_tabs(self):
+        tabs = getattr(self, 'sheet_tabs', None)
+        if tabs is not None:
+            tabs.refresh()
+
+    def sheets_changed(self):
+        """Something about the pages to save, with no history to show."""
+
+        self.sheets.changed = True
+        self.update_window_title()
+        self.refresh_sheet_tabs()
+
+    def on_action_new_sheet(self):
+        if self.busy_with_file():
+            return
+        sheet = self.sheets.add()
+        self.watch_sheet(sheet)
+        self.sheets_changed()
+        self.choose_sheet(sheet)
+
+    def step_sheet(self, step):
+        count = len(self.sheets)
+        index = self.sheets.sheets.index(self.sheets.current)
+        self.choose_sheet(self.sheets.sheets[(index + step) % count])
+
+    def on_action_next_sheet(self):
+        self.step_sheet(1)
+
+    def on_action_previous_sheet(self):
+        self.step_sheet(-1)
+
+    def rename_sheet(self, sheet, name):
+        name = name.strip()
+        if name and name != sheet.name:
+            sheet.name = name
+            self.sheets_changed()
+
+    def move_sheet(self, start, end):
+        self.sheets.move(start, end)
+        self.sheets_changed()
+
+    def pick_sheet_color(self, sheet):
+        """Colour a page's tab, and nothing else: the board keeps the
+        colour it has."""
+
+        before = sheet.color
+
+        def preview(color):
+            sheet.color = color.getRgb() if color.isValid() else None
+            self.refresh_sheet_tabs()
+
+        initial = QtGui.QColor(*before) if before else QtGui.QColor(
+            *constants.COLORS['Active:Highlight'])
+        color = self.pick_color_live(
+            'Page colour', initial, preview, alpha=False,
+            none_label='No colour')
+        sheet.color = before
+        if color is not None:
+            chosen = color.getRgb() if color.isValid() else None
+            if chosen != before:
+                sheet.color = chosen
+                self.sheets_changed()
+        self.refresh_sheet_tabs()
+
+    def delete_sheet(self, sheet):
+        """Take a page away, with all that is on it. There is no history
+        that could bring it back, so it is asked first when anything
+        would be lost."""
+
+        if len(self.sheets) < 2:
+            return
+        if sheet.scene.items() or not sheet.undo_stack.isClean():
+            button = QtWidgets.QMessageBox.StandardButton
+            answer = QtWidgets.QMessageBox.question(
+                self,
+                'Delete page?',
+                f'Delete "{sheet.name}" and everything on it? '
+                'This cannot be undone.',
+                button.Yes | button.Cancel,
+                button.Cancel)
+            if answer != button.Yes:
+                return
+        if self.busy_with_file():
+            return
+        if sheet is self.sheets.current:
+            index = self.sheets.sheets.index(sheet)
+            neighbour = self.sheets.sheets[index + 1 if index == 0
+                                           else index - 1]
+            self.show_sheet(neighbour)
+        self.sheets.remove(sheet)
+        self.sheets_changed()
+        self.on_scene_changed(None)
 
     def get_text_item_at(self, point):
         """The topmost text item at the given view position, if any.
@@ -1280,6 +1487,8 @@ class BeeGraphicsView(MainControlsMixin,
         logging.debug('Clearing scene...')
         self.cancel_active_modes()
         self.end_quick_zoom()
+        if self.sheets.current is not self.sheets.first:
+            self.show_sheet(self.sheets.first)
         # Before the items go: the layers panel holds on to each of them
         dock = getattr(self, 'layers_dock', None)
         if dock is not None:
@@ -1293,6 +1502,9 @@ class BeeGraphicsView(MainControlsMixin,
             preview.cancel()
         self.link_previews = []
         self.scene.clear()
+        # Back to the one page a new board has
+        self.sheets.reset()
+        self.refresh_sheet_tabs()
         # Nothing of the old board's pictures is wanted any more
         imagecache.opened_pictures().clear()
         self.refresh_legend()
@@ -1351,7 +1563,7 @@ class BeeGraphicsView(MainControlsMixin,
         """
 
         confirm = self.settings.valueOrDefault('Save/confirm_close_unsaved')
-        if not confirm or self.undo_stack.isClean():
+        if not confirm or self.sheets.is_clean():
             return True
 
         button = QtWidgets.QMessageBox.StandardButton
@@ -1385,7 +1597,7 @@ class BeeGraphicsView(MainControlsMixin,
         if worker.isRunning():
             waiting.exec()
         # Saving marks the undo stack clean; a failed save does not
-        return self.undo_stack.isClean()
+        return self.sheets.is_clean()
 
     def on_action_new_scene(self):
         confirm = self.get_confirmation_unsaved_changes(
@@ -2634,7 +2846,8 @@ class BeeGraphicsView(MainControlsMixin,
 
     def on_items_loaded(self, value):
         logger.debug('On items loaded: add queued items')
-        self.scene.add_queued_items()
+        for sheet in self.sheets:
+            sheet.scene.add_queued_items()
 
     def on_loading_finished(self, filename, errors):
         self.loading_overlay.hide()
@@ -2647,17 +2860,30 @@ class BeeGraphicsView(MainControlsMixin,
         else:
             self.filename = filename
             self.on_disk.remember(filename)
-            self.scene.add_queued_items()
-            if self.scene.items_awaiting_group:
-                # Only reachable if a file names a group it does not
-                # contain; the items stay where they are, loose
-                logger.warning(
-                    f'{len(self.scene.items_awaiting_group)} items name a '
-                    'group that is not in this file')
-                self.scene.items_awaiting_group = []
-            # Loading adds images before everything else, which reverses
-            # items that share a z value; put them back as they were
-            self.scene.restack_as_saved()
+            for sheet in self.sheets:
+                scene = sheet.scene
+                scene.add_queued_items()
+                if scene.items_awaiting_group:
+                    # Only reachable if a file names a group it does not
+                    # contain; the items stay where they are, loose
+                    logger.warning(
+                        f'{len(scene.items_awaiting_group)} items name a '
+                        'group that is not in this file')
+                    scene.items_awaiting_group = []
+                # Loading adds images before everything else, which
+                # reverses items that share a z value; put them back as
+                # they were
+                scene.restack_as_saved()
+            # The page it was saved on, or being looked at if read again
+            sheet = (self.sheets.by_id(self.sheet_after_loading)
+                     or self.sheets.by_id(self.sheets.saved_current))
+            self.sheet_after_loading = None
+            if sheet is not None:
+                self.show_sheet(sheet)
+            for other in self.sheets:
+                # None seen yet: each is fitted when first gone to
+                other.view_state = None
+            self.on_scene_changed(None)
             if self.view_after_loading is not None:
                 # Read again: looked at where it was being looked at
                 transform, center = self.view_after_loading
@@ -2699,11 +2925,16 @@ class BeeGraphicsView(MainControlsMixin,
     def open_from_file(self, filename):
         logger.info(f'Opening file {filename}')
         self.clear_scene()
+        # The pages it has, ready for what comes to them
+        self.sheets.set_up(fileio.read_sheets(filename))
+        for sheet in self.sheets.sheets[1:]:
+            self.watch_sheet(sheet)
+        self.refresh_sheet_tabs()
         # A board arrives item by item, and the view is looking at
         # wherever it was left; cover that up until it is whole
         self.loading_overlay.start()
         self.worker = fileio.ThreadedIO(
-            fileio.load_bee, filename, self.scene)
+            fileio.load_bee, filename, self.scene, book=self.sheets)
         self.worker.progress.connect(self.on_items_loaded)
         self.worker.finished.connect(self.on_loading_finished)
         self.progress = widgets.BeeProgressDialog(
@@ -2742,7 +2973,8 @@ class BeeGraphicsView(MainControlsMixin,
             self.filename = filename
             self.on_disk.remember(filename, self.saving_mark)
             self.forget_elsewhere()
-            self.undo_stack.setClean()
+            self.sheets.set_clean()
+            self.update_window_title()
 
     def thumbnail(self):
         """A picture of the board as it is being looked at right now.
@@ -2787,11 +3019,13 @@ class BeeGraphicsView(MainControlsMixin,
         # Left in the file, so that this save can be told apart from one
         # made somewhere else
         self.saving_mark = new_mark()
+        first = self.sheets.first.scene
         self.worker = fileio.ThreadedIO(
-            fileio.save_bee, filename, self.scene, create_new=create_new,
+            fileio.save_bee, filename, first, create_new=create_new,
             thumbnail=self.thumbnail(),
-            legend=self.scene.legend,
-            mark=self.saving_mark)
+            legend=first.legend,
+            mark=self.saving_mark,
+            book=self.sheets)
         self.worker.finished.connect(self.on_saving_finished)
         self.progress = widgets.BeeProgressDialog(
             f'Saving {filename}',
@@ -2819,7 +3053,7 @@ class BeeGraphicsView(MainControlsMixin,
         if not self.filename:
             self.on_action_save_as()
             return
-        if not self.undo_stack.isClean():
+        if not self.sheets.is_clean():
             QtWidgets.QMessageBox.information(
                 self,
                 'Save first',
@@ -2978,15 +3212,16 @@ class BeeGraphicsView(MainControlsMixin,
             return
         if self.on_disk.changed_elsewhere():
             logger.info(f'{self.filename} was saved somewhere else')
-            self.elsewhere_bar.open(not self.undo_stack.isClean())
+            self.elsewhere_bar.open(not self.sheets.is_clean())
 
     def on_application_state_for_elsewhere(self, state):
         if state == Qt.ApplicationState.ApplicationActive:
             self.check_elsewhere()
 
     def on_clean_for_elsewhere(self, clean):
-        if not self.elsewhere_bar.isHidden():
-            self.elsewhere_bar.refresh(not clean)
+        bar = getattr(self, 'elsewhere_bar', None)
+        if bar is not None and not bar.isHidden():
+            bar.refresh(not self.sheets.is_clean())
 
     def forget_elsewhere(self):
         self.elsewhere_seen = None
@@ -3014,9 +3249,11 @@ class BeeGraphicsView(MainControlsMixin,
         filename = self.filename
         view_now = (QtGui.QTransform(self.transform()),
                     self.mapToScene(self.viewport().rect().center()))
+        sheet_now = self.sheets.current.id
         self.elsewhere_bar.hide()
         self.open_from_file(filename)
         self.view_after_loading = view_now
+        self.sheet_after_loading = sheet_now
 
     def save_copy_of_mine(self):
         """Keep the changes made here, in a copy beside the board."""

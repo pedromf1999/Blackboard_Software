@@ -608,6 +608,24 @@ actions = ActionList([
         callback='on_action_new_scene',
     ),
     Action(
+        id='new_sheet',
+        text='New &Page',
+        shortcuts=['Ctrl+Shift+N'],
+        callback='on_action_new_sheet',
+    ),
+    Action(
+        id='next_sheet',
+        text='Ne&xt Page',
+        shortcuts=['Ctrl+PgDown'],
+        callback='on_action_next_sheet',
+    ),
+    Action(
+        id='previous_sheet',
+        text='Pre&vious Page',
+        shortcuts=['Ctrl+PgUp'],
+        callback='on_action_previous_sheet',
+    ),
+    Action(
         id='fit_scene',
         text='&Fit Board',
         shortcuts=['1'],

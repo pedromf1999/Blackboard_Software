@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.3** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.4** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -340,6 +340,42 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 - Cada grupo guarda quando foi criado e editado (aparece no painel de
   camadas).
 
+### 3.5 Páginas
+Um ficheiro pode ter várias páginas (17.4), cada uma um quadro novo do zero,
+com um separador numa faixa no topo da janela. No código chamam-se *sheets*
+(`beeref/sheets.py`), porque "página" já é a de um PDF.
+
+- **O que é de cada página:** os elementos, o desfazer, as notas afixadas e o
+  separador Pins, a legenda, e onde se estava a olhar (zoom e posição). A cor
+  de fundo e a grelha são do programa, iguais em todas.
+- **Separadores:** clique muda de página, arrastar muda a ordem, duplo clique
+  dá nome. Botão direito: nome, **cor do separador**, nova página, apagar. O
+  "+" acrescenta uma. Ctrl+Shift+N nova; Ctrl+PgDown e Ctrl+PgUp seguinte e
+  anterior. Muitas páginas deslizam em vez de se esconderem num menu.
+- **A cor é só do separador:** não toca no fundo nem em nada da página.
+- **Mudar de página** termina o que estava a ser escrito (fica guardado, como
+  ao clicar fora) e larga a seleção. O que se copia pode colar-se noutra página
+  (o quadro de colagem interno passa de uma para a outra).
+- **Apagar uma página não se desfaz:** por isso pergunta, se tiver alguma coisa.
+  Dar nome, cor ou ordem também não têm desfazer, mas contam como alterações
+  por gravar (`sheets.changed`). Mudar de página não conta.
+- **Numa página vazia** não aparece a lista de ficheiros recentes nem um `.blk`
+  largado abre diretamente, porque substituiriam o ficheiro todo. Gravar
+  continua disponível, se outra página tiver alguma coisa.
+- **Só a página atual:** a pesquisa, o painel de camadas e as exportações
+  trabalham na página que se vê.
+- **Abre** na página em que foi gravado; as outras ajustam-se ao ecrã quando se
+  vai lá a primeira vez.
+- **No ficheiro:** um ficheiro de uma só página, sem nome nem cor, fica
+  exatamente como antes. Com páginas: `sheets` em `blackboard_meta` (nomes, cores,
+  legenda e Pins de cada uma menos a primeira, que os tem onde sempre teve) e
+  a tabela `blackboard_item_sheets` (em que página está cada elemento das
+  outras páginas). Um elemento sem linha nessa tabela está na primeira.
+- **Versões anteriores à 17.4 e o BeeRef** abrem o ficheiro com os elementos de
+  **todas as páginas misturados num só quadro**. Não se perde nada, e gravar lá
+  mantém a página de cada um; o que lá se acrescentar fica na primeira. Mas
+  um "Save As" numa versão antiga junta tudo de vez.
+
 ## 4. Ver e navegar
 - **Zoom** com a roda (invertido de origem), suavizado ao longo de alguns
   frames; Ctrl + botão do meio para zoom arrastado. 1 = ver tudo, 2 = ver a
@@ -664,6 +700,7 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | `beeref/__main__.py` | Arranque, janela principal, menus |
 | `beeref/view.py` | A vista: zoom, scroll, ferramentas, barras, Pins, pesquisa, zoom rápido |
 | `beeref/scene.py` | O quadro: seleção, ordem, grupos, arrastar, encaixes |
+| `beeref/sheets.py` e `beeref/widgets/sheet_tabs.py` | As páginas de um ficheiro e os separadores delas |
 | `beeref/items.py` | Imagens, notas, grupos, desenhos, títulos, descrições, tarefas, tabelas |
 | `beeref/selection.py` | Pegas, redimensionar, rodar, esticar, contorno de seleção |
 | `beeref/imagecache.py` | Imagens comprimidas e abertas ao tamanho visto |
@@ -694,6 +731,8 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
 | Ctrl+G / Ctrl+Shift+G | Agrupar / desagrupar |
 | PgUp / PgDown | Levar ao topo / ao fundo |
 | Ctrl+F / F3 | Pesquisar / resultado seguinte |
+| Ctrl+Shift+N | Nova página |
+| Ctrl+PgDown / Ctrl+PgUp | Página seguinte / anterior |
 | Ctrl+P / Ctrl+Shift+P | Afixar nota / recolher separador Pins |
 | Ctrl+J / Ctrl+L | Painel de camadas / legenda |
 | Ctrl+Shift+M | Leitor do Spotify |
