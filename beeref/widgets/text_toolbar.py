@@ -64,10 +64,10 @@ class TextToolBar(PinnedToolBar):
             'task_numbers',
             'Number these lines, or the tasks; or take the numbers off',
             view.on_action_text_task_numbers)
-        # Pressed in while the note's lines stand apart
+        # Pressed in while the lines it acts on stand apart
         self.line_spacing = self.add_button(
             'line_spacing',
-            'Space the lines out, as if with an empty line between them',
+            'Space these lines out, as if with an empty line between them',
             view.on_action_text_line_spacing)
         self.line_spacing.setCheckable(True)
         self.title = self.add_button(
@@ -119,7 +119,7 @@ class TextToolBar(PinnedToolBar):
         # Alignment means nothing until there is a title to align
         for button in (self.align_left, self.align_center):
             button.setEnabled(item.shows_header())
-        self.line_spacing.setChecked(item.lines_spaced)
+        self.line_spacing.setChecked(item.spaced_lines_chosen())
         self.pin.setChecked(item.is_pinned)
         self.pin.setToolTip(
             'Unpin: back onto the board (Ctrl+P)' if item.is_pinned

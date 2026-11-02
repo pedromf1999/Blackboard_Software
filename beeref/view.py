@@ -2633,21 +2633,31 @@ class BeeGraphicsView(MainControlsMixin,
         self.undo_stack.endMacro()
 
     def on_action_text_line_spacing(self):
-        """Stand the lines of the notes apart, or close them up again.
+        """Stand lines apart from the next, or close them up again.
 
-        The whole of a note, tasks and words alike: the note being written,
-        or those chosen, going by the first so that they end up alike.
+        In the note being written, the lines the selection touches, or the
+        one the cursor is on. Notes chosen on the board, the whole of them,
+        going by the first so that they end up alike. A second press takes
+        it off again.
         """
 
         writing = self.scene.edit_item
         if writing is not None and getattr(writing, 'TYPE', None) == 'text':
-            notes = [writing]
+            lines = writing.chosen_lines()
+            wanted = not writing.lines_are_spaced(lines)
+            self.change_note(
+                writing, lambda: writing.space_lines(lines, wanted))
         else:
             notes = self.scene.selected_text_items()
-        if notes:
-            self.undo_stack.push(commands.ChangeLineSpacing(
-                notes, not notes[0].lines_spaced))
-            self.update_text_toolbar()
+            if not notes:
+                return
+            wanted = not notes[0].lines_are_spaced(notes[0].all_lines())
+            old_htmls = [note.toHtml() for note in notes]
+            for note in notes:
+                note.space_lines(note.all_lines(), wanted)
+            self.undo_stack.push(commands.ChangeTextFormat(
+                notes, [note.toHtml() for note in notes], old_htmls))
+        self.update_text_toolbar()
 
     def on_action_text_tasks(self):
         """Put boxes on the lines being written, or take them off."""

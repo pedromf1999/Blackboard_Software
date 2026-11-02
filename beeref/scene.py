@@ -714,6 +714,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         for view in self.views():
             view.update_table_actions()
             view.update_table_toolbar()
+            # Whether the lines it is on are spaced shows on the bar
+            view.update_text_toolbar()
 
     def selected_draw_items(self):
         """The currently selected sketches, lines, curves and arrows."""
