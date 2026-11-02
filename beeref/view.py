@@ -2632,6 +2632,23 @@ class BeeGraphicsView(MainControlsMixin,
                 others, [note.toHtml() for note in others], old_htmls))
         self.undo_stack.endMacro()
 
+    def on_action_text_line_spacing(self):
+        """Stand the lines of the notes apart, or close them up again.
+
+        The whole of a note, tasks and words alike: the note being written,
+        or those chosen, going by the first so that they end up alike.
+        """
+
+        writing = self.scene.edit_item
+        if writing is not None and getattr(writing, 'TYPE', None) == 'text':
+            notes = [writing]
+        else:
+            notes = self.scene.selected_text_items()
+        if notes:
+            self.undo_stack.push(commands.ChangeLineSpacing(
+                notes, not notes[0].lines_spaced))
+            self.update_text_toolbar()
+
     def on_action_text_tasks(self):
         """Put boxes on the lines being written, or take them off."""
 

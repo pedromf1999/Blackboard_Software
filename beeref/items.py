@@ -4152,7 +4152,7 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
     def __init__(self, text=None, html=None, box_color=None,
                  text_width=None, title=None, header_color=None,
                  title_align=None, title_size=None, tasks_collapsed=None,
-                 tasks_numbered=None, pin=None, **kwargs):
+                 tasks_numbered=None, lines_spaced=None, pin=None, **kwargs):
         super().__init__(text or "Text")
         self.save_id = None
         # What the note's lines hold, counted once for each change of
@@ -4204,6 +4204,9 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         # Whether the tasks still to do carry a number, 1 to however
         # many, in the order they stand in
         self.tasks_numbered = bool(tasks_numbered)
+        # Whether the note's lines stand apart, as if with an empty line
+        # between each; see refresh_line_gaps
+        self.lines_spaced = bool(lines_spaced)
         # The task under the mouse, whose grip shows, and the one being
         # dragged by it -- both kept as where its line starts
         self.hovered_task = None
@@ -4328,6 +4331,8 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
             data['tasks_collapsed'] = False
         if self.has_tasks() and self.tasks_numbered:
             data['tasks_numbered'] = True
+        if self.lines_spaced:
+            data['lines_spaced'] = True
         data.update(self.title_save_data())
         if self._title_size:
             data['title_size'] = self._title_size
@@ -5597,6 +5602,7 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                            box_color=self.box_color.getRgb(),
                            tasks_collapsed=self.tasks_collapsed,
                            tasks_numbered=self.tasks_numbered,
+                           lines_spaced=self.lines_spaced,
                            text_width=(self.textWidth()
                                        if self.textWidth() > 0 else None),
                            title=self.title,
@@ -5934,6 +5940,8 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         # Numbered lines need room for their numbers just the same, and
         # this is where every way of putting text into a note comes by
         self.refresh_numbers()
+        # Last, once it is settled which lines are in sight
+        self.refresh_line_gaps()
         if changed:
             document.markContentsDirty(0, document.characterCount())
         self.update()
@@ -5980,6 +5988,88 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
 
         self.tasks_numbered = bool(numbered)
         self.refresh_tasks()
+
+    def set_lines_spaced(self, spaced):
+        """Stand the note's lines apart, or close them up again."""
+
+        # Put right first for the size the words are now, which is what
+        # tells the room kept for this from any other
+        self.refresh_line_gaps()
+        self.lines_spaced = bool(spaced)
+        self.refresh_tasks()
+
+    def refresh_line_gaps(self):
+        """Keep the room between the lines of a note whose lines are spaced.
+
+        As much as an empty line there would take, so a line of big
+        letters is followed by a big gap: as if each had an empty line
+        after it, without one to delete, to tick off or to get in the way
+        of a task being dragged. It is kept below each line but the last in
+        sight, or the strip of finished tasks would stand off from the words
+        and the note grow by a line it does not show. A table's cells keep
+        to their rows.
+
+        It stays in the text like any other formatting, so that a version
+        knowing nothing of it still shows it; the same goes for putting it
+        back with the text, which is how it comes to be there with the note
+        no longer spaced. So room of this size goes when the note is not:
+        a line pasted in with room of its own, of another size, keeps it.
+        """
+
+        document = self.document()
+        blocks = []
+        block = document.begin()
+        while block.isValid():
+            blocks.append(block)
+            block = block.next()
+        if not self.lines_spaced and not any(
+                block.blockFormat().bottomMargin() > 0 for block in blocks):
+            # Every other note, whenever anything is written in it
+            return
+        lines = [block for block in blocks
+                 if QtGui.QTextCursor(block).currentTable() is None]
+        in_sight = [block.position() for block in lines if block.isVisible()]
+        last = in_sight[-1] if in_sight else None
+        # Measured before any is changed: changing one lays out all those
+        # after it over again, for each of them
+        rooms = {}
+        for block in lines:
+            margin = block.blockFormat().bottomMargin()
+            if self.lines_spaced or margin > 0:
+                rooms[block.position()] = (
+                    self.line_height_of(block) if block.isVisible() else 0)
+        for block in lines:
+            margin = block.blockFormat().bottomMargin()
+            room = rooms.get(block.position(), 0)
+            if self.lines_spaced:
+                wanted = room if block.position() != last else 0
+            elif margin > 0 and (not block.isVisible()
+                                 or abs(margin - room) < 0.5):
+                wanted = 0
+            else:
+                continue
+            if abs(margin - wanted) > 0.01:
+                self.set_room_below(block, wanted)
+
+    def line_height_of(self, block):
+        """How tall the first line of a block stands."""
+
+        self.document().documentLayout().blockBoundingRect(block)
+        layout = block.layout()
+        return layout.lineAt(0).height() if layout.lineCount() else 0
+
+    def set_room_below(self, block, room):
+        fmt = block.blockFormat()
+        fmt.setBottomMargin(room)
+        cursor = QtGui.QTextCursor(block)
+        if not self.edit_mode:
+            cursor.setBlockFormat(fmt)
+            return
+        # Part of what was just typed, for undoing while writing: as a step
+        # of its own, undoing it would only have it put back again
+        cursor.joinPreviousEditBlock()
+        cursor.setBlockFormat(fmt)
+        cursor.endEditBlock()
 
     def setHtml(self, html):
         # Every way of putting text back into a note comes through here
@@ -6911,6 +7001,10 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
             else:
                 # And so does a tenth numbered line
                 self.refresh_numbers()
+        if self.lines_spaced:
+            # A new line has to stand apart too, and the one before it
+            # no longer is the last
+            self.refresh_line_gaps()
         if word_end is not None:
             self.word_finished(word_end)
         self.cursor_may_have_moved()

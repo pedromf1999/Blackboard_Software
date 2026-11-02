@@ -746,6 +746,24 @@ class ChangeTaskNumbers(QtGui.QUndoCommand):
             item.set_tasks_numbered(numbered)
 
 
+class ChangeLineSpacing(QtGui.QUndoCommand):
+    """Stand the lines of notes apart, or close them up again."""
+
+    def __init__(self, items, spaced):
+        super().__init__('Space out lines')
+        self.items = list(items)
+        self.spaced = spaced
+        self.old = [item.lines_spaced for item in self.items]
+
+    def redo(self):
+        for item in self.items:
+            item.set_lines_spaced(self.spaced)
+
+    def undo(self):
+        for item, spaced in zip(self.items, self.old):
+            item.set_lines_spaced(spaced)
+
+
 class PinNotes(QtGui.QUndoCommand):
     """Fasten notes to the window, or put them back on the board.
 

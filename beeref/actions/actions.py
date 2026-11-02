@@ -418,6 +418,12 @@ actions = ActionList([
         group='active_when_text_selection',
     ),
     Action(
+        id='text_line_spacing',
+        text='&Space Out Lines',
+        callback='on_action_text_line_spacing',
+        group='active_when_text_selection',
+    ),
+    Action(
         id='table_row_insert_above',
         text='Insert Row &Above',
         callback='on_action_table_row_insert_above',

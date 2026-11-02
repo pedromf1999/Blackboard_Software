@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.6** (outubro de 2026). Este documento descreve o que o
+Estado na versão **17.7** (outubro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -231,6 +231,16 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     "N completed", recolhida ou aberta, fica aí. Na 16.4 a faixa ficava
     logo a seguir às tarefas, no meio do texto; o dono preferiu-a sempre
     no fundo.
+  - **Espaçar as linhas** (17.7): botão na barra da nota e Text → Space Out
+    Lines. Uma opção da nota inteira, tarefas e palavras, guardada com ela
+    (`lines_spaced`), com Ctrl+Z. Fica como se houvesse uma linha vazia
+    entre cada duas, sem haver: nada a apagar, a marcar ou a atrapalhar ao
+    arrastar uma tarefa. É uma margem por baixo de cada linha, da altura da
+    primeira linha dela, por isso letras grandes dão um espaço grande
+    (`refresh_line_gaps`). Não há margem depois da última linha à vista, ou a
+    faixa das concluídas ficava afastada; nem nas células de tabelas. As
+    versões antigas mostram o espaço, porque está no texto, mas não sabem da
+    opção; gravado por elas, ao abrir aqui volta a fechar-se.
   - **Desmarcar devolve a tarefa ao sítio onde estava** entre as que
     faltam (lembrado pelas palavras dela, em `task_places`; não fica no
     ficheiro, e uma marcada antes de abrir o quadro volta para o fim).
