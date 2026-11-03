@@ -123,7 +123,9 @@ class BaseItemMixin:
         """Whether dragging an edge rewraps rather than stretches.
 
         Text items override this: squashing letters out of shape is not
-        what dragging the side of a text box means anywhere else.
+        what dragging the side of a text box means anywhere else. One
+        that does says how wide it is with wrap_width, and is made a
+        width with set_wrap_width.
         """
 
         return False
@@ -682,8 +684,7 @@ class SelectableMixin(BaseItemMixin):
         # its scale, and any group's around it -- or, for a note pinned
         # to the window, its scale less the zoom it ignores
         self.wrap_unit = length
-        self.wrap_orig = {item: (item.textWidth() if item.textWidth() > 0
-                                 else item.width)
+        self.wrap_orig = {item: item.wrap_width()
                           for item in self.selection_action_items()
                           if item.reflows_text()}
 

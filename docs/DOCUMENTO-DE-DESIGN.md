@@ -111,6 +111,13 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
     abre o link. Virado, a imagem passa para o outro lado e as letras não
     ficam ao espelho. Cortar (Shift+C) escolhe na imagem inteira o que o
     quadrado mostra. Num cartão não se escreve legenda.
+  - **Largura do cartão** (18.1): arrastar um lado do cartão alarga ou
+    estreita só a faixa do texto, como numa nota; a imagem fica quadrada.
+    Antes esticava o cartão todo e a imagem ficava deformada. Não há
+    arestas em cima e em baixo: a altura é a da imagem, e o tamanho muda-se
+    pelos cantos. A faixa vai de 1,5 a 12 vezes a altura e fica guardada
+    (`link_card_band`, só quando não é a de origem, 3,2); a 18.0 e
+    anteriores desenham a largura de origem.
   - **Título**: o que a página oferece para partilhas (og:title,
     twitter:title), senão o `<title>` dela; no YouTube vem do endereço
     público oEmbed (sem página, sem cookies); no GrabCAD do nome do modelo;

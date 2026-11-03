@@ -4,8 +4,10 @@ shows them."""
 
 import json
 import os
+from unittest.mock import MagicMock
 
 from PyQt6 import QtCore, QtGui, QtNetwork, QtWidgets
+from PyQt6.QtCore import Qt
 import pytest
 
 from beeref import commands, link_preview
@@ -465,3 +467,93 @@ def test_a_card_goes_back_to_a_note_like_the_picture_did(view):
     notes = [item for item in view.scene.items()
              if isinstance(item, BeeTextItem)]
     assert [note.toPlainText() for note in notes] == [URL]
+
+
+# Its sides make room for the words (18.1)
+
+def mouse_at(item, pos):
+    event = MagicMock()
+    event.pos.return_value = pos
+    event.scenePos.return_value = item.mapToScene(pos)
+    event.button.return_value = Qt.MouseButton.LeftButton
+    event.modifiers.return_value = Qt.KeyboardModifier.NoModifier
+    return event
+
+
+def drag_right_side(item, by):
+    edge = [edge for edge in item.get_edge_bounds()
+            if not edge['vertical']][-1]
+    start = edge['rect'].center()
+    item.mousePressEvent(mouse_at(item, start))
+    end = start + QtCore.QPointF(by, 0)
+    item.mouseMoveEvent(mouse_at(item, end))
+    item.mouseReleaseEvent(mouse_at(item, end))
+    return end
+
+
+def test_dragging_the_side_widens_the_band_not_the_picture(view):
+    item = card(view, size=(300, 200))
+    square = item.card_picture_rect()
+    end = drag_right_side(item, 400)
+    # Not pulled out of shape
+    assert item.stretch == (1, 1)
+    assert item.card_picture_rect() == square
+    # The band reaches to where the side was let go
+    assert item.card_rect().right() == pytest.approx(end.x(), abs=1)
+
+
+def test_a_card_has_no_top_and_bottom_to_drag(view):
+    item = card(view)
+    assert [edge['vertical'] for edge in item.get_edge_bounds()] == [
+        False, False]
+    item.link_card = False
+    assert len(item.get_edge_bounds()) == 4
+
+
+def test_widening_the_band_is_one_step_of_undo(view):
+    item = card(view, size=(300, 200))
+    before = item.card_rect().width()
+    drag_right_side(item, 400)
+    assert view.scene.undo_stack.count() == 1
+    view.scene.undo_stack.undo()
+    assert item.card_rect().width() == pytest.approx(before)
+    view.scene.undo_stack.redo()
+    assert item.card_rect().width() > before
+
+
+def test_the_band_is_kept_between_a_narrowest_and_a_widest():
+    item = card(size=(300, 200))
+    item.set_wrap_width(10)
+    assert item.card_band_ratio == item.CARD_BAND_MIN
+    item.set_wrap_width(1e6)
+    assert item.card_band_ratio == item.CARD_BAND_MAX
+
+
+def test_the_band_grows_with_the_card_when_cropped():
+    item = card(size=(300, 200))
+    item.set_card_band_ratio(5)
+    item.crop = QtCore.QRectF(0, 0, 100, 100)
+    assert item.card_band_rect().width() == pytest.approx(500)
+
+
+def test_the_band_is_saved_copied_and_opened_again(view):
+    item = card(view)
+    item.set_card_band_ratio(6)
+    data = item.get_extra_save_data()
+    assert data['link_card_band'] == 6
+    opened = BeePixmapItem.create_from_data(
+        item=card(as_card=False, title=''), data=data)
+    assert opened.card_band_ratio == 6
+    assert item.create_copy().card_band_ratio == 6
+
+
+def test_a_card_of_the_usual_width_saves_no_width():
+    assert 'link_card_band' not in card().get_extra_save_data()
+
+
+def test_a_width_that_makes_no_sense_is_the_usual_one():
+    data = card().get_extra_save_data()
+    data['link_card_band'] = 'wide'
+    item = BeePixmapItem.create_from_data(item=card(as_card=False),
+                                          data=data)
+    assert item.card_band_ratio == item.CARD_BAND_RATIO

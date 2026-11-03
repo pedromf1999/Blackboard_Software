@@ -2426,6 +2426,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         # see shows_card
         self._link_card = False
         self.link_title = ''
+        # How wide the card's band is, for its height; see card_band_rect
+        self.card_band_ratio = self.CARD_BAND_RATIO
         self.caption_color = QtGui.QColor(*self.DEFAULT_CAPTION_COLOR)
         self.caption_editing = False
         self.caption_editor = None
@@ -2460,6 +2462,11 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
                 QtCore.QByteArray.fromBase64(data['link_icon'].encode()))
         item.link_title = data.get('link_title') or ''
         item.link_card = bool(data.get('link_card'))
+        try:
+            band = float(data.get('link_card_band') or item.CARD_BAND_RATIO)
+        except (TypeError, ValueError):
+            band = item.CARD_BAND_RATIO
+        item.set_card_band_ratio(band)
         color = data.get('caption_color')
         if color:
             item.caption_color = QtGui.QColor(*color)
@@ -3172,6 +3179,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
             data['link_title'] = self.link_title
         if self.link_card:
             data['link_card'] = True
+        if self.card_band_ratio != self.CARD_BAND_RATIO:
+            # Read by nothing before 18.1, which draws the usual width
+            data['link_card_band'] = self.card_band_ratio
         data.update(self.pin_save_data())
         return data
 
@@ -3492,6 +3502,7 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         item.link_icon = self.link_icon
         item.link_title = self.link_title
         item.link_card = self.link_card
+        item.card_band_ratio = self.card_band_ratio
         for child in self.childItems():
             if hasattr(child, 'save_id'):
                 copy = child.create_copy()
@@ -3874,7 +3885,11 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
     # many times as wide as the card is tall, so that cards the same
     # height are the same width and line up into a list; the words are a
     # share of the height, so a card made bigger reads the same.
+    # Dragging a side makes the band wider or narrower, between these,
+    # and leaves the picture square (18.1).
     CARD_BAND_RATIO = 3.2
+    CARD_BAND_MIN = 1.5
+    CARD_BAND_MAX = 12
     CARD_RADIUS_FRACTION = 0.07
     CARD_PADDING_FRACTION = 0.14
     CARD_TITLE_FRACTION = 0.115
@@ -3915,8 +3930,32 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
 
         square = self.card_picture_rect()
         return QtCore.QRectF(square.right(), square.top(),
-                             square.width() * self.CARD_BAND_RATIO,
+                             square.width() * self.card_band_ratio,
                              square.height())
+
+    def set_card_band_ratio(self, ratio):
+        self.prepareGeometryChange()
+        self.card_band_ratio = min(self.CARD_BAND_MAX,
+                                   max(self.CARD_BAND_MIN, ratio))
+        self.update()
+
+    def reflows_text(self):
+        """A card's sides make room for its words, as a note's do: the
+        band grows, and the picture stays square. Stretching pulled the
+        picture out of shape along with it."""
+
+        return self.shows_card()
+
+    def wrap_width(self):
+        return self.card_rect().width()
+
+    def set_wrap_width(self, width):
+        """Make the card this wide, in item coordinates, with the room
+        going to the band."""
+
+        side = self.card_picture_rect().width()
+        if side > 0:
+            self.set_card_band_ratio((width - side) / side)
 
     def card_rect(self):
         """The whole card: the picture and the band."""
@@ -5864,6 +5903,11 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         """Dragging an edge rewraps the text rather than stretching it."""
 
         return True
+
+    def wrap_width(self):
+        """The width the text wraps at now, in item coordinates."""
+
+        return self.textWidth() if self.textWidth() > 0 else self.width
 
     def set_wrap_width(self, width):
         """Set the width the text wraps at, in item coordinates."""
