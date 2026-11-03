@@ -2261,6 +2261,11 @@ class BeeGraphicsView(MainControlsMixin,
             if item.is_minimized:
                 self.set_pinned_note_minimized(item, False)
             item.setSelected(True)
+            # And scrolled into sight, in a tab too tall for the window
+            word = item.search_rect(self.text_search_query)
+            if word is not None:
+                self.keep_in_pins_sight(
+                    self.mapFromScene(word).boundingRect())
         else:
             item.setSelected(True)
             self.zoom_to_match(item)
@@ -4327,6 +4332,8 @@ class BeeGraphicsView(MainControlsMixin,
             spacemouse.ignore_wheel()
             event.accept()
             return
+        if self.scroll_pins_by_wheel(event):
+            return
         action, inverted\
             = self.keyboard_settings.mousewheel_action_for_event(event)
 
@@ -4519,8 +4526,12 @@ class BeeGraphicsView(MainControlsMixin,
         if (avoid is None and not tab.isEmpty()
                 and all(getattr(item, 'is_pinned', False) for item in items)):
             # Beside the tab, level with what it acts on: above it, the
-            # bar covered whatever stood above that in the tab
-            self.beside_pins_tab(toolbar, items[0].screen_rect(self), tab)
+            # bar covered whatever stood above that in the tab. With the
+            # tab scrolled, level with what is in sight of it.
+            seen = self.pinned_seen_rect(items[0])
+            if seen.isEmpty():
+                seen = items[0].screen_rect(self)
+            self.beside_pins_tab(toolbar, seen, tab)
         else:
             rect = items[0].sceneBoundingRect()
             for item in items[1:]:
@@ -5006,6 +5017,7 @@ class BeeGraphicsView(MainControlsMixin,
         tab = self.pins_tab_item(bool(notes))
         self.pin_slots = []
         if tab is None:
+            self.pins_clip = None
             return
 
         folded = bool(self.scene.pins_tab.get('minimized'))
@@ -5033,6 +5045,8 @@ class BeeGraphicsView(MainControlsMixin,
                 sizes[note] = note.screen_rect(self).size()
         rects = self.pin_layout(notes, anchors, sizes)
 
+        scrolled = None
+        scroll = 0
         if folded:
             width = tab.folded_width()
             height = tab.HEADER
@@ -5040,8 +5054,20 @@ class BeeGraphicsView(MainControlsMixin,
             width = max(tab.MIN_WIDTH,
                         max(rect.right() for rect in rects.values())
                         + 2 * pad)
-            height = (tab.HEADER + 2 * pad
-                      + max(rect.bottom() for rect in rects.values()))
+            content = max(rect.bottom() for rect in rects.values())
+            height = tab.HEADER + 2 * pad + content
+            limit = self.pins_tab_height_limit()
+            if height > limit:
+                # Too tall for the window: as tall as it can be, showing
+                # what is scrolled into sight; see scroll_pins
+                height = limit
+                visible = height - tab.HEADER - 2 * pad
+                scroll = max(0, min(self.scene.pins_scroll,
+                                    content - visible))
+                scrolled = (scroll, content, visible)
+            # Kept within what there is to scroll; folded away, the tab
+            # keeps how far down it was for when it is opened again
+            self.scene.pins_scroll = scroll
         held = any(self.pinned_note_held(note) for note in notes)
         if held and not self.pins_tab_rect().isEmpty():
             # Something in the tab is in hand: the tab stays put and
@@ -5050,15 +5076,24 @@ class BeeGraphicsView(MainControlsMixin,
             top_left = self.pins_tab_rect().topLeft()
         else:
             top_left = self.pins_tab_top_left(QtCore.QSizeF(width, height))
-        tab.set_look(width, height, len(notes), folded)
+        tab.set_look(width, height, len(notes), folded, scrolled)
         if not held and not any(made[note][1].dragging for note in notes):
             # Nothing in hand, so nothing to show the way to
             tab.set_drop_hint(None)
             self.pin_drop_plan = None
         self.put_on_screen(tab, QtCore.QPointF(0, 0), top_left)
 
+        # What of the window the notes show in: under the header, down to
+        # the bottom of the tab, and across all of the window, so that a
+        # note being made wider is not cut short
+        self.pins_clip = None
+        if scrolled is not None:
+            self.pins_clip = QtCore.QRectF(
+                0, top_left.y() + tab.HEADER,
+                self.viewport().width(), height - tab.HEADER)
         # Kept for working out where a note let go of would go
-        self.pin_origin = top_left + QtCore.QPointF(pad, tab.HEADER + pad)
+        self.pin_origin = top_left + QtCore.QPointF(
+            pad, tab.HEADER + pad - scroll)
         self.pin_anchors = anchors
         self.pin_sizes = sizes
         for note in notes:
@@ -5066,6 +5101,144 @@ class BeeGraphicsView(MainControlsMixin,
             self.pin_slots.append((note, slot))
             self.place_pinned_note(note, slot, folded)
         self.update_pinned_controls()
+
+    def pins_tab_height_limit(self):
+        """How tall the tab of pinned notes may be: from where its corner
+        puts it to the far side of the window, a gap short of it.
+
+        Never less than half the window, so that a tab dragged most of
+        the way down still shows enough to work in; it is then moved up
+        to fit, as a tab too tall always was.
+        """
+
+        area = self.viewport().rect()
+        try:
+            away = max(0, float(self.scene.pins_tab['offset'][1]))
+        except (KeyError, IndexError, TypeError, ValueError):
+            away = 0
+        return max(area.height() - away - self.PINS_GAP,
+                   area.height() / 2)
+
+    # How far a pinned note scrolls for each line a turn of the wheel
+    # scrolls a page
+    PINS_WHEEL_LINE = 20
+
+    def scroll_pins_by_wheel(self, event):
+        """A turn of the wheel over a tab of pinned notes too tall for
+        the window goes up or down it, as in any list too long to show
+        whole. Says whether it did.
+
+        Only while there is more to see: otherwise the wheel does there
+        what it does on the rest of the board. And only with no key held,
+        leaving those to the board's own zoom and moves.
+        """
+
+        tab = getattr(self, 'pins_tab', None)
+        if (tab is None or sip.isdeleted(tab) or tab.scrolled is None
+                or tab.folded
+                or event.modifiers() != Qt.KeyboardModifier.NoModifier
+                or not self.pins_tab_rect().contains(event.position())):
+            return False
+        pixels = event.pixelDelta().y()
+        if pixels:
+            down = -pixels
+        else:
+            down = (-event.angleDelta().y() / 120
+                    * QtWidgets.QApplication.wheelScrollLines()
+                    * self.PINS_WHEEL_LINE)
+        if down:
+            self.scroll_pins_to(self.scene.pins_scroll + down)
+        event.accept()
+        return True
+
+    def scroll_pins_to(self, offset):
+        """Scroll the tab of pinned notes this far down, in pixels.
+
+        Rearranging the window, not the board: not a step to undo, nor
+        kept in the file -- the board opens with the tab at the top.
+        """
+
+        if abs(offset - self.scene.pins_scroll) < 0.01:
+            return
+        self.scene.pins_scroll = offset
+        self.update_pinned_toolbars()
+
+    def keep_in_pins_sight(self, rect):
+        """Scroll the tab of pinned notes so that this, in the window's
+        pixels, is in sight: what a search found, or where the cursor is
+        being written at."""
+
+        clip = getattr(self, 'pins_clip', None)
+        if clip is None or rect is None:
+            return
+        margin = self.PINS_GAP
+        if rect.top() < clip.top() + margin or rect.height() > clip.height():
+            down = rect.top() - clip.top() - margin
+        elif rect.bottom() > clip.bottom() - margin:
+            down = rect.bottom() - clip.bottom() + margin
+        else:
+            return
+        self.scroll_pins_to(self.scene.pins_scroll + down)
+
+    def pinned_cursor_moved(self):
+        """The cursor moved in a note being written in: if the note is
+        pinned, keep the line it is on in sight in the tab.
+
+        Once the key that moved it has been dealt with, and the note
+        laid out afresh: a line just started is only there then.
+        """
+
+        QtCore.QTimer.singleShot(0, self.keep_pinned_cursor_in_sight)
+
+    def keep_pinned_cursor_in_sight(self):
+        note = self.scene.edit_item
+        if (note is None or not getattr(note, 'is_pinned', False)
+                or note.is_minimized or not hasattr(note, 'words_rect')):
+            return
+        rect = note.words_rect(note.textCursor().position())
+        if rect is not None:
+            self.keep_in_pins_sight(note.deviceTransform(
+                self.viewportTransform()).mapRect(rect))
+
+    def clip_pinned_note(self, note):
+        """Show of a pinned note only what is in the tab's sight."""
+
+        clip = getattr(self, 'pins_clip', None)
+        if clip is None or self.pinned_note_held(note):
+            note.set_pin_clip(None)
+            return
+        on_screen = note.deviceTransform(self.viewportTransform())
+        if clip.contains(on_screen.mapRect(note.boundingRect())):
+            note.set_pin_clip(None)
+            return
+        to_note, invertible = on_screen.inverted()
+        note.set_pin_clip(to_note.mapRect(clip) if invertible else None)
+
+    def clip_pinned_widget(self, widget):
+        """Show only the part of a label, or of a note's buttons, in the
+        tab's sight. Says whether any of it is."""
+
+        clip = getattr(self, 'pins_clip', None)
+        geometry = QtCore.QRectF(widget.geometry())
+        if clip is None or clip.contains(geometry):
+            if not widget.mask().isEmpty():
+                widget.clearMask()
+            return True
+        seen = clip.intersected(geometry)
+        if seen.isEmpty():
+            return False
+        widget.setMask(QtGui.QRegion(
+            seen.translated(-geometry.topLeft()).toAlignedRect()))
+        return True
+
+    def pinned_seen_rect(self, note):
+        """What of a pinned note is in sight, in the window's pixels."""
+
+        rect = note.screen_rect(self)
+        clip = getattr(self, 'pins_clip', None)
+        if clip is None or self.pinned_note_held(note):
+            return rect
+        return rect.intersected(clip)
 
     def place_pinned_note(self, note, slot, folded):
         """Put one pinned note in its slot of the tab -- or its label
@@ -5082,9 +5255,17 @@ class BeeGraphicsView(MainControlsMixin,
             return
         if note.is_minimized:
             note.setVisible(False)
-            if not label.dragging:
-                # A label being dragged goes where the mouse takes it
+            if label.dragging:
+                # A label being dragged goes where the mouse takes it,
+                # all of it in sight
+                if not label.mask().isEmpty():
+                    label.clearMask()
+            else:
                 label.move(round(slot.x()), round(slot.y()))
+                if not self.clip_pinned_widget(label):
+                    # Scrolled out of the tab's sight
+                    label.hide()
+                    return
             self.bring_into_sight(label)
             return
         note.setVisible(True)
@@ -5096,6 +5277,7 @@ class BeeGraphicsView(MainControlsMixin,
                     note, note.pin_rect().topLeft(), slot.topLeft())
             finally:
                 note.placing = False
+        self.clip_pinned_note(note)
 
     def update_pinned_controls(self, point=None):
         """Show the buttons of the pinned note under the mouse, and no
@@ -5116,10 +5298,16 @@ class BeeGraphicsView(MainControlsMixin,
             if (folded or not note.is_pinned or note.is_minimized
                     or note.scene() is not self.scene
                     or self.pinned_note_held(note)
-                    or not note.screen_rect(self).contains(point)):
+                    or not self.pinned_seen_rect(note).contains(point)):
                 controls.hide()
                 continue
             self.place_pinned_controls(note, controls)
+            clip = getattr(self, 'pins_clip', None)
+            if clip is not None and not clip.contains(
+                    QtCore.QRectF(controls.geometry())):
+                # The band they sit in is scrolled out of sight
+                controls.hide()
+                continue
             self.bring_into_sight(controls)
 
     # The bars of buttons that float over whatever is chosen

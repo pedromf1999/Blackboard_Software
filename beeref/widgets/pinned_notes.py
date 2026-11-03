@@ -75,6 +75,11 @@ class PinsTab(QtWidgets.QGraphicsItem):
     RADIUS = 8
     MIN_WIDTH = 150
     ICON = 14
+    # The bar showing how far down a tab too tall for the window is
+    # scrolled: this wide, in the padding on its right, which is where
+    # it can be taken hold of. And no shorter than this.
+    SCROLLBAR = 4
+    SCROLLBAR_MIN = 24
 
     # So that what looks at the board's items can tell this one apart,
     # and leave it alone
@@ -100,6 +105,12 @@ class PinsTab(QtWidgets.QGraphicsItem):
         # where to show it -- see BeeGraphicsView.pin_drop
         self.drop_kind = None
         self.drop_rect = None
+        # How far down it is scrolled, how tall what it holds is and how
+        # much of that it shows, in the window's pixels; None while all
+        # of it shows. And, while its bar is dragged, how far down the
+        # bar the mouse took hold of it.
+        self.scrolled = None
+        self.scrollbar_held = None
 
     def boundingRect(self):
         rect = self.rect.adjusted(-1, -1, 1, 1)
@@ -109,7 +120,7 @@ class PinsTab(QtWidgets.QGraphicsItem):
             rect = rect.united(self.drop_rect.adjusted(-2, -2, 2, 2))
         return rect
 
-    def set_look(self, width, height, count, folded):
+    def set_look(self, width, height, count, folded, scrolled=None):
         if (QtCore.QSizeF(width, height) != self.rect.size()
                 or count != self.count or folded != self.folded):
             self.prepareGeometryChange()
@@ -117,6 +128,53 @@ class PinsTab(QtWidgets.QGraphicsItem):
             self.count = count
             self.folded = folded
             self.update()
+        if scrolled != self.scrolled:
+            self.scrolled = scrolled
+            self.update()
+
+    def scrollbar_track(self):
+        """Where the bar can go: down the padding on the right."""
+
+        return QtCore.QRectF(
+            self.rect.width() - (self.PADDING + self.SCROLLBAR) / 2,
+            self.HEADER + self.PADDING / 2, self.SCROLLBAR,
+            max(0, self.rect.height() - self.HEADER - self.PADDING))
+
+    def scrollbar_rect(self):
+        """Where the bar is, as long as what it shows of what it holds,
+        or None while it shows all of it."""
+
+        if self.scrolled is None or self.folded:
+            return None
+        offset, content, visible = self.scrolled
+        track = self.scrollbar_track()
+        room = content - visible
+        if room <= 0 or content <= 0:
+            return None
+        length = min(track.height(), max(self.SCROLLBAR_MIN,
+                                         track.height() * visible / content))
+        top = track.top() + (track.height() - length) * offset / room
+        return QtCore.QRectF(track.left(), top, track.width(), length)
+
+    def scrollbar_grip(self):
+        """Where a press takes hold of the bar: the padding it is in."""
+
+        if self.scrollbar_rect() is None:
+            return None
+        return QtCore.QRectF(self.rect.width() - self.PADDING, self.HEADER,
+                             self.PADDING, self.rect.height() - self.HEADER)
+
+    def scroll_to_bar(self, top):
+        """Scroll for the bar to stand with its top here."""
+
+        bar = self.scrollbar_rect()
+        if bar is None:
+            return
+        offset, content, visible = self.scrolled
+        track = self.scrollbar_track()
+        travel = track.height() - bar.height()
+        share = (top - track.top()) / travel if travel > 0 else 0
+        self.view.scroll_pins_to(share * (content - visible))
 
     def set_drop_hint(self, kind, rect=None):
         """Show where a note being dragged would go, or nothing."""
@@ -184,6 +242,17 @@ class PinsTab(QtWidgets.QGraphicsItem):
             painter.drawLine(QtCore.QPointF(1, header.bottom()),
                              QtCore.QPointF(self.rect.right() - 1,
                                             header.bottom()))
+            bar = self.scrollbar_rect()
+            if bar is not None:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QtGui.QBrush(PANEL_EDGE))
+                track = self.scrollbar_track()
+                painter.drawRoundedRect(track, track.width() / 2,
+                                        track.width() / 2)
+                words = QtGui.QColor(PANEL_WORDS)
+                words.setAlpha(160 if self.scrollbar_held is None else 230)
+                painter.setBrush(QtGui.QBrush(words))
+                painter.drawRoundedRect(bar, bar.width() / 2, bar.width() / 2)
             self.paint_drop_hint(painter)
         painter.restore()
 
@@ -219,6 +288,19 @@ class PinsTab(QtWidgets.QGraphicsItem):
             self.scene().cursor_cleared.emit()
 
     def mousePressEvent(self, event):
+        grip = self.scrollbar_grip()
+        if (event.button() == Qt.MouseButton.LeftButton
+                and grip is not None and grip.contains(event.pos())):
+            # Taken hold of where it was pressed; pressed beside it, it
+            # first comes to stand with its middle there
+            bar = self.scrollbar_rect()
+            if not (bar.top() <= event.pos().y() <= bar.bottom()):
+                self.scroll_to_bar(event.pos().y() - bar.height() / 2)
+                bar = self.scrollbar_rect()
+            self.scrollbar_held = event.pos().y() - bar.top()
+            self.update()
+            event.accept()
+            return
         if (event.button() != Qt.MouseButton.LeftButton
                 or not self.header_rect().contains(event.pos())):
             # The inside of the tab, between the notes: taken, so that a
@@ -231,6 +313,10 @@ class PinsTab(QtWidgets.QGraphicsItem):
         event.accept()
 
     def mouseMoveEvent(self, event):
+        if self.scrollbar_held is not None:
+            self.scroll_to_bar(event.pos().y() - self.scrollbar_held)
+            event.accept()
+            return
         if self.pressed_at is None:
             return
         # The screen is counted in whole pixels, the tab's place in parts
@@ -246,6 +332,11 @@ class PinsTab(QtWidgets.QGraphicsItem):
         event.accept()
 
     def mouseReleaseEvent(self, event):
+        if self.scrollbar_held is not None:
+            self.scrollbar_held = None
+            self.update()
+            event.accept()
+            return
         if self.pressed_at is not None and not self.dragging:
             # A click, not a drag: on the folded tab it opens it, and on
             # the open tab's button it folds it away

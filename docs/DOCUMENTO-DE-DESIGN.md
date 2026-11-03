@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **18.3** (novembro de 2026). Este documento descreve o que o
+Estado na versão **18.4** (novembro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -514,6 +514,29 @@ com um separador numa faixa no topo da janela. No código chamam-se *sheets*
   um pouco maior.
 - A arrumação, a posição do separador e se está recolhido ficam gravados no
   quadro.
+- **Scroll** (18.4): um separador mais alto do que a janela fica com a
+  altura que cabe -- do sítio onde o canto o põe até 8 px do outro lado da
+  janela, nunca menos de metade dela -- e o que não cabe vê-se com scroll:
+  - a **roda do rato** por cima do separador desce e sobe (3 linhas de
+    20 px por cada clique da roda; um trackpad, pelos seus próprios
+    pixels). Só enquanto há mais para ver e sem teclas carregadas; de resto,
+    a roda faz no separador o que faz no quadro;
+  - uma **barra fina** no espaço à direita mostra onde se está, e
+    arrasta-se; carregar ao lado dela salta para lá;
+  - **a escrever**, o separador acompanha a linha do cursor; **a
+    pesquisa** traz a palavra encontrada para a vista.
+  - O que sobe fica cortado por baixo do cabeçalho do separador e o que
+    desce no fundo dele, e só a parte à vista aceita o rato
+    (`ItemClipsToShape`, com `pin_clip` em `shape()`): o corte põe-se sobre
+    a imagem guardada da nota, por isso o scroll não volta a desenhá-la.
+    As etiquetas das notas minimizadas são cortadas da mesma maneira
+    (`setMask`) e os botões de uma nota escondem-se se a faixa do título
+    estiver fora da vista. A barra de botões de uma nota afixada fica à
+    altura do que se vê dela.
+  - Quanto desceu é de cada página e não fica no ficheiro: recolher o
+    separador guarda-o, e um separador que volta a caber recomeça em cima.
+    Medido no BVR001 com a nota "Shell" (1425 px num separador de
+    728 px): ~15 ms por clique da roda, com a janela desenhada.
 - **Imagens afixadas** (15.8): qualquer imagem -- sobretudo a de um link,
   como a primeira página de um PDF -- afixa-se como uma nota: Ctrl+P, ou o
   pino na barra da imagem. Fica no mesmo separador, ao lado das notas, com
@@ -833,6 +856,15 @@ Os atalhos podem ser mudados em Settings → Keyboard & Mouse.
 não executar nenhum — está por resolver.
 
 ## 14. Armadilhas já conhecidas
+- **O Qt mexe o quadro para mostrar o cursor de uma nota afixada** (18.4).
+  O `QGraphicsTextItem` traz o cursor para a vista calculando onde ele está
+  como se a nota estivesse no quadro, ao zoom do quadro. Numa nota afixada
+  isso está errado, e com o topo da nota fora da janela (separador com
+  scroll) o quadro deslizava a cada tecla. A nota segue a janela, por isso
+  mexer o quadro nunca a aproxima. Enquanto se escreve numa nota afixada,
+  `sceneEvent` põe as barras do quadro de volta onde estavam
+  (`board_kept_still`); quem acompanha o cursor é o separador. A 100% o
+  cálculo do Qt acerta, por isso o teste corre a 25% e a 400%.
 - **Abrir imagens em vários fios de execução ao mesmo tempo** (17.5). Um quadro
   com PDFs entre as imagens encravava de vez ao abrir, desde a 16.8, onde
   calhava o primeiro PDF (28% no BVR001). O Qt tem uma chave partilhada por

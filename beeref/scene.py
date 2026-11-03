@@ -107,6 +107,9 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
         # Where the tab they sit in is, and whether it is folded away:
         # saved with the board, like the legend
         self.pins_tab = copy.deepcopy(self.PINS_TAB)
+        # How far down that tab is scrolled, when it is too tall for the
+        # window; not saved
+        self.pins_scroll = 0
         self.internal_clipboard = []
         self.rubberband_item = RubberbandItem()
         self.multi_select_item = MultiSelectItem()
@@ -716,6 +719,8 @@ class BeeGraphicsScene(QtWidgets.QGraphicsScene):
             view.update_table_toolbar()
             # Whether the lines it is on are spaced shows on the bar
             view.update_text_toolbar()
+            # A pinned note's line may be out of the tab's sight
+            view.pinned_cursor_moved()
 
     def selected_draw_items(self):
         """The currently selected sketches, lines, curves and arrows."""

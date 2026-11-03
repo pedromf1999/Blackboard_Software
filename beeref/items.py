@@ -18,6 +18,7 @@ text).
 """
 
 from collections import defaultdict
+import contextlib
 import datetime
 from functools import cached_property
 import html
@@ -2186,10 +2187,72 @@ class PinnableMixin:
 
     # Set before anything can give the item a place in the stack
     pin = None
+    # The part of it the tab shows, in its own coordinates, while the tab
+    # is too tall for the window and scrolled; None when all of it shows.
+    # See BeeGraphicsView.clip_pinned_note.
+    pin_clip = None
 
     @property
     def is_pinned(self):
         return self.pin is not None
+
+    def set_pin_clip(self, clip):
+        """Show only this part of the item, and take the mouse only there.
+
+        Qt's own clipping to the shape does both, and leaves the picture
+        it keeps of the item as it is: the clip is laid over that picture
+        as it is drawn, so scrolling the tab does not draw the item again.
+        """
+
+        old = self.pin_clip
+        if clip is None and old is None:
+            return
+        if (clip is not None and old is not None
+                and all(abs(a - b) < 0.01 for a, b in zip(
+                    clip.getRect(), old.getRect()))):
+            return
+        self.pin_clip = None if clip is None else QtCore.QRectF(clip)
+        flags = QtWidgets.QGraphicsItem.GraphicsItemFlag
+        self.setFlag(flags.ItemClipsToShape, clip is not None)
+        self.setFlag(flags.ItemClipsChildrenToShape, clip is not None)
+        scene = self.scene()
+        if scene is not None:
+            scene.update(self.sceneBoundingRect())
+
+    @contextlib.contextmanager
+    def board_kept_still(self):
+        """Leave the board where it is through what Qt does to an item
+        pinned to the window.
+
+        Qt's text item scrolls the board to bring the cursor being
+        written at into sight, working out where the cursor is as if the
+        note were on the board. A pinned note follows the window, so the
+        board moving never brings the cursor any nearer: with the note's
+        top scrolled up out of the window, the board slid away at every
+        key. The tab scrolls instead; see
+        BeeGraphicsView.keep_pinned_cursor_in_sight.
+        """
+
+        scene = self.scene()
+        bars = []
+        for view in (scene.views() if scene is not None else []):
+            for bar in (view.horizontalScrollBar(), view.verticalScrollBar()):
+                bars.append((bar, bar.value()))
+        try:
+            yield
+        finally:
+            for bar, value in bars:
+                if bar.value() != value:
+                    bar.setValue(value)
+
+    def clipped_to_pins(self, path):
+        """A shape cut down to what the tab of pinned notes shows of it."""
+
+        if self.pin is None or self.pin_clip is None:
+            return path
+        seen = QtGui.QPainterPath()
+        seen.addRect(self.pin_clip)
+        return path.intersected(seen)
 
     @property
     def is_minimized(self):
@@ -2231,6 +2294,9 @@ class PinnableMixin:
         """
 
         self.prepareGeometryChange()
+        if not pin:
+            # Back on the board, all of it in sight
+            self.set_pin_clip(None)
         self.pin = dict(pin) if pin else None
         flags = QtWidgets.QGraphicsItem.GraphicsItemFlag
         self.setFlag(flags.ItemIgnoresTransformations, self.pin is not None)
@@ -2872,7 +2938,7 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         path = super().shape()
         if self.shows_caption():
             path.addRect(self.caption_rect())
-        return path
+        return self.clipped_to_pins(path)
 
     def paint_caption(self, painter):
         """Draw the caption band and the words in it."""
@@ -4931,7 +4997,7 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
         # inside the words once the finished tasks are opened out --
         # so pressing it to fold them away again did nothing at all.
         path.setFillRule(Qt.FillRule.WindingFill)
-        return path
+        return self.clipped_to_pins(path)
 
     def update_document_margin(self):
         """Keep the gap around the text in proportion to the text.
@@ -5409,25 +5475,36 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
                 # the band is what there is to go to
                 return self.title_search_rect()
             return None
+        rect = self.words_rect(start, len(query))
+        if rect is None:
+            return None
+        return self.mapToScene(rect).boundingRect()
+
+    def words_rect(self, start, length=0):
+        """Where a stretch of the words sits on its line, in the note's
+        own coordinates: for a length of none, where the cursor stands
+        there. None for a line not laid out."""
+
         cursor = QtGui.QTextCursor(self.document())
-        cursor.setPosition(start)
+        cursor.setPosition(
+            max(0, min(start, self.document().characterCount() - 1)))
         block = cursor.block()
+        # Laid out now, if it is not yet
+        origin = self.document().documentLayout().blockBoundingRect(
+            block).topLeft()
         layout = block.layout()
         if layout is None:
             return None
-        offset = start - block.position()
+        offset = cursor.position() - block.position()
         line = layout.lineForTextPosition(offset)
         if not line.isValid():
             return None
         left = line.cursorToX(offset)[0]
-        right = line.cursorToX(min(offset + len(query),
+        right = line.cursorToX(min(offset + length,
                                    block.length() - 1))[0]
-        origin = self.document().documentLayout().blockBoundingRect(
-            block).topLeft()
-        rect = QtCore.QRectF(origin.x() + min(left, right),
+        return QtCore.QRectF(origin.x() + min(left, right),
                              origin.y() + line.y(),
-                             abs(right - left), line.height())
-        return self.mapToScene(rect).boundingRect()
+                             max(abs(right - left), 1), line.height())
 
     def search_line_height(self, query):
         """How tall the line a match sits on stands on the board, for
@@ -7623,6 +7700,9 @@ class BeeTextItem(PinnableMixin, TitleBandMixin, BeeItemMixin,
             event.accept()
             self.cursor_may_have_moved()
             return True
+        if self.pin is not None and self.edit_mode:
+            with self.board_kept_still():
+                return super().sceneEvent(event)
         return super().sceneEvent(event)
 
     def add_to_mimedata(self, mimedata):
