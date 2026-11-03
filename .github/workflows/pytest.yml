@@ -4,7 +4,10 @@ on: [push, pull_request]
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: that became Ubuntu 26.04, for which GitHub offers
+    # no Python 3.9, and pyproject.toml still allows 3.9. When 24.04 is
+    # retired, drop 3.9 here and raise requires-python together.
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
