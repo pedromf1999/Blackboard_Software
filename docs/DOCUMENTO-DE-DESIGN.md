@@ -1,6 +1,6 @@
 # Blackboard — Documento de Design
 
-Estado na versão **17.8** (outubro de 2026). Este documento descreve o que o
+Estado na versão **18.3** (novembro de 2026). Este documento descreve o que o
 Blackboard faz, como cada coisa se comporta e porquê. Serve para continuar o
 desenvolvimento noutro computador, e para o Claude perceber o programa antes
 de lhe mexer.
@@ -610,6 +610,16 @@ com um separador numa faixa no topo da janela. No código chamam-se *sheets*
   voltar. Abrir a barra de novo começa uma pesquisa nova; fechá-la esquece
   o caminho de volta. Uma nota apagada entretanto não volta a ser
   selecionada.
+- **Onde procurar** (18.3): um menu na barra, a seguir à caixa do texto --
+  **Everywhere**, **Only pinned** (só o que está no separador Pins, notas
+  e imagens afixadas) ou **Not pinned** (só o quadro). Mudar de opção com
+  uma palavra escrita salta logo para o primeiro resultado dessa opção e
+  recomeça a contagem; sem palavra, só fica escolhida. A escolha é da
+  barra, como a palavra: fica ao fechá-la, ao mudar de página ou de
+  quadro, até a aplicação fechar, e não se grava no ficheiro. Com a barra
+  fechada, o F3 usa-a e a notificação diz "(only pinned)" ou
+  "(not pinned)", porque não há menu à vista que o diga
+  (`text_search_scope`, `in_text_search_scope`).
 
 ## 8. Copiar e colar
 - Copiar texto para outros programas leva o título e as listas com as caixas

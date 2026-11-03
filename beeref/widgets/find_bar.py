@@ -37,6 +37,14 @@ class FindBar(QtWidgets.QWidget):
 
     MARGIN = 16
 
+    # Where to look, as the view names it: everything, only what is in
+    # the Pins tab, or only what is on the board
+    SCOPES = (
+        ('Everywhere', 'all'),
+        ('Only pinned', 'pinned'),
+        ('Not pinned', 'board'),
+    )
+
     def __init__(self, parent, view):
         super().__init__(parent)
         self.view = view
@@ -58,6 +66,17 @@ class FindBar(QtWidgets.QWidget):
         # eventFilter
         self.input.installEventFilter(self)
         self.input.textChanged.connect(self.on_text_changed)
+
+        # The pinned notes are what is kept at hand, the board what is
+        # kept for good; a word is often looked for in one of them only
+        self.scope = QtWidgets.QComboBox(self)
+        for text, scope in self.SCOPES:
+            self.scope.addItem(text, scope)
+        self.scope.setToolTip(
+            'Look everywhere, only in what is pinned, or only on the board')
+        # As the buttons: the typing stays where it was
+        self.scope.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.scope.currentIndexChanged.connect(self.on_scope_changed)
 
         self.previous_button = self.add_button(
             'Previous', 'Go to the previous match (Shift+Enter)',
@@ -88,6 +107,7 @@ class FindBar(QtWidgets.QWidget):
         layout.setContentsMargins(10, 6, 6, 6)
         layout.setSpacing(6)
         layout.addWidget(self.input)
+        layout.addWidget(self.scope)
         layout.addWidget(self.previous_button)
         layout.addWidget(self.next_button)
         layout.addWidget(self.back_button)
@@ -137,6 +157,11 @@ class FindBar(QtWidgets.QWidget):
         self.previous_button.setEnabled(bool(text))
         # A count belongs to the word it was made for
         self.count.setText('')
+
+    def on_scope_changed(self, index):
+        self.count.setText('')
+        self.view.set_text_search_scope(self.scope.itemData(index))
+        self.input.setFocus()
 
     def on_next(self):
         self.view.find_from_bar(self.input.text())

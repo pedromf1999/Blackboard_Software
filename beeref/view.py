@@ -241,6 +241,8 @@ class BeeGraphicsView(MainControlsMixin,
         QtGui.QPixmapCache.setCacheLimit(self.DRAWN_ITEMS_MB * 1024)
         self.text_search_query = ''
         self.text_search_index = -1
+        # 'all', 'pinned' or 'board'; see in_text_search_scope
+        self.text_search_scope = 'all'
 
         # Drawing tools
         self.draw_tool = None
@@ -2138,6 +2140,41 @@ class BeeGraphicsView(MainControlsMixin,
             self.text_search_index = -1
         self.find_next_text_match(step)
 
+    def set_text_search_scope(self, scope):
+        """Look everywhere, only in what is pinned, or only on the board.
+
+        The matches are others then, so the search starts again from the
+        first of them -- straight away, if the bar holds a word to look
+        for, as the scope was chosen to see what it finds.
+        """
+
+        if scope == self.text_search_scope:
+            return
+        logger.debug(f'Searching {scope}')
+        self.text_search_scope = scope
+        self.text_search_index = -1
+        if not self.find_bar.isHidden() and self.find_bar.input.text():
+            self.find_from_bar(self.find_bar.input.text())
+
+    def in_text_search_scope(self, item):
+        """Whether the search looks at this item.
+
+        Pinned is anything in the Pins tab: a picture pinned there is
+        kept at hand as a note is.
+        """
+
+        if self.text_search_scope == 'all':
+            return True
+        pinned = getattr(item, 'is_pinned', False)
+        return pinned == (self.text_search_scope == 'pinned')
+
+    # Said after the word in a notification, the bar being closed
+    TEXT_SEARCH_SCOPE_WORDS = {
+        'all': '',
+        'pinned': ' (only pinned)',
+        'board': ' (not pinned)',
+    }
+
     # Room left round something scrolled into sight
     REVEAL_MARGIN = 40
 
@@ -2166,13 +2203,15 @@ class BeeGraphicsView(MainControlsMixin,
 
         Notes, tables inside them, the titles of groups and the
         captions on pictures: all of it is writing on the board, so all
-        of it is looked through. Ordered top to bottom so that cycling
+        of it is looked through -- unless the search is kept to what is
+        pinned, or to what is not. Ordered top to bottom so that cycling
         through them is predictable.
         """
 
         query = self.text_search_query.lower()
         matches = [item for item in self.scene.items()
                    if hasattr(item, 'search_text')
+                   and self.in_text_search_scope(item)
                    and query in item.search_text().lower()]
         return sorted(
             matches,
@@ -2189,13 +2228,16 @@ class BeeGraphicsView(MainControlsMixin,
 
         matches = self.get_text_search_matches()
         bar_open = not self.find_bar.isHidden()
+        # The bar shows where it looks; a notification has to say it
+        scope = self.TEXT_SEARCH_SCOPE_WORDS[self.text_search_scope]
         if not matches:
             self.text_search_index = -1
             if bar_open:
                 self.find_bar.show_count(-1, 0)
             else:
                 widgets.BeeNotification(
-                    self, f'No text matching "{self.text_search_query}"')
+                    self,
+                    f'No text matching "{self.text_search_query}"{scope}')
             return
 
         if self.text_search_index < 0 and step < 0:
@@ -2228,7 +2270,8 @@ class BeeGraphicsView(MainControlsMixin,
             widgets.BeeNotification(
                 self,
                 f'Match {self.text_search_index + 1} of {len(matches)}'
-                f' for "{self.text_search_query}" -- F3 to cycle through')
+                f' for "{self.text_search_query}"{scope}'
+                ' -- F3 to cycle through')
 
     def remember_before_search(self):
         """Keep where the board is, for Go Back, unless a search already
