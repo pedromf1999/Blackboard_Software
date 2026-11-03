@@ -61,9 +61,14 @@ def test_a_caption_band_is_brought_into_sight_too(view):
     asked is that all of its height is in sight.
     """
 
-    img = QtGui.QImage(60000, 40000, QtGui.QImage.Format.Format_ARGB32)
+    # A small picture scaled up to 60000 across rather than one that
+    # size: that would be 9.6 GB of pixels, more memory than GitHub's
+    # test machines have, and the whole online run died here. The band
+    # is measured from the picture, so it comes out the same either way.
+    img = QtGui.QImage(600, 400, QtGui.QImage.Format.Format_ARGB32)
     img.fill(QtGui.QColor(90, 140, 190))
     item = BeePixmapItem(img)
+    item.setScale(100)
     view.scene.addItem(item)
     fit_to(view, item)
     item.enter_caption_edit_mode()
