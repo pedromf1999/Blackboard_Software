@@ -76,6 +76,8 @@ def youtube_here(tmpdir, monkeypatch):
         folder + '/{}-maxres.png', folder + '/{}-hq.png'))
     monkeypatch.setattr(link_preview, 'YOUTUBE_ICONS', (
         folder + '/icon.png',))
+    monkeypatch.setattr(link_preview, 'YOUTUBE_TITLE',
+                        folder + '/{}-title.json')
     return tmpdir
 
 
@@ -102,6 +104,34 @@ def test_without_its_icon_the_still_still_comes(qtbot, youtube_here):
     image, icon, reason = fetch(qtbot, f'https://youtu.be/{VIDEO}')
     assert not image.isNull()
     assert icon.isNull()
+
+
+def fetch_with_title(qtbot, url):
+    preview = LinkPreview(url, QtNetwork.QNetworkAccessManager())
+    result = {}
+    preview.finished.connect(lambda image, icon, reason: result.update(
+        image=image, reason=reason))
+    preview.start()
+    qtbot.waitUntil(lambda: bool(result), timeout=10000)
+    return preview, result['image']
+
+
+def test_a_video_brings_its_title(qtbot, youtube_here):
+    png_url(youtube_here, f'{VIDEO}-maxres.png', 'red', (128, 72))
+    with open(os.path.join(str(youtube_here), f'{VIDEO}-title.json'), 'w',
+              encoding='utf-8') as f:
+        f.write('{"title": "How injection molds are made", '
+                '"author_name": "Someone"}')
+    preview, image = fetch_with_title(qtbot, f'https://youtu.be/{VIDEO}')
+    assert not image.isNull()
+    assert preview.title == 'How injection molds are made'
+
+
+def test_without_its_title_the_still_still_comes(qtbot, youtube_here):
+    png_url(youtube_here, f'{VIDEO}-maxres.png', 'red', (128, 72))
+    preview, image = fetch_with_title(qtbot, f'https://youtu.be/{VIDEO}')
+    assert not image.isNull()
+    assert preview.title == ''
 
 
 def test_without_any_still_the_page_is_read(qtbot, youtube_here):

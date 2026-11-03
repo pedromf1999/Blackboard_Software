@@ -29,7 +29,7 @@ import re
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt
 
-from beeref import commands, imagecache
+from beeref import commands, imagecache, link_preview
 from beeref.assets import BeeAssets
 from beeref.config import BeeSettings
 from beeref.constants import COLORS, CORNER_RADIUS
@@ -2422,6 +2422,10 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         # corner; null for any other picture
         self._link_icon = QtGui.QImage()
         self._link_icon_pixmap = None
+        # A link's picture shown as a card, and what its page is called;
+        # see shows_card
+        self._link_card = False
+        self.link_title = ''
         self.caption_color = QtGui.QColor(*self.DEFAULT_CAPTION_COLOR)
         self.caption_editing = False
         self.caption_editor = None
@@ -2454,6 +2458,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         if data.get('link_icon'):
             item.link_icon = QtGui.QImage.fromData(
                 QtCore.QByteArray.fromBase64(data['link_icon'].encode()))
+        item.link_title = data.get('link_title') or ''
+        item.link_card = bool(data.get('link_card'))
         color = data.get('caption_color')
         if color:
             item.caption_color = QtGui.QColor(*color)
@@ -2464,6 +2470,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         return (f'Image "{self.filename}" {size.width()} x {size.height()}')
 
     def get_default_name(self):
+        if self.link_title:
+            return self.link_title
         if self.filename:
             return os.path.basename(self.filename)
         return 'Image'
@@ -2540,6 +2548,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
             # The whole picture, with the half pixel Qt's own picture
             # item leaves round it
             return self.whole_rect().adjusted(-0.5, -0.5, 0.5, 0.5)
+        elif self.shows_card():
+            # The card is the item: chosen, sized and lined up whole
+            return self.card_rect()
         else:
             return self.crop
 
@@ -2562,6 +2573,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         """What of the picture is laid out in the tab: what is left of
         it after the crop, and the caption hanging under it."""
 
+        if self.shows_card():
+            return self.card_rect()
         rect = QtCore.QRectF(self.crop)
         if self.shows_caption():
             rect = rect.united(self.caption_rect())
@@ -2575,9 +2588,12 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         return width if width > 0 else self.PINNED_WIDTH
 
     def pin_label_text(self):
-        """What its label says it is, folded away: its caption -- the
-        address, for a link's picture -- or its file's name."""
+        """What its label says it is, folded away: a link's title, its
+        caption -- the address, for a link's picture -- or its file's
+        name."""
 
+        if self.link_title:
+            return self.link_title
         if self.caption.strip():
             return self.caption.strip().splitlines()[0]
         return self.get_default_name()
@@ -2590,7 +2606,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         """Its buttons go in the picture's top right corner, on a tile
         of the caption's colour so that they show on any picture."""
 
-        return QtCore.QRectF(self.crop), self.pin_label_color(), False
+        rect = self.card_rect() if self.shows_card() else self.crop
+        return QtCore.QRectF(rect), self.pin_label_color(), False
 
     def has_selection_handles(self):
         # Pinned, it keeps the width it is shown at and its angle: the
@@ -2641,27 +2658,36 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         self.update()
 
     def search_text(self):
-        """What Find looks through: the caption along the bottom."""
+        """What Find looks through: the caption along the bottom, and
+        what a link's page is called."""
 
-        return self.caption
+        return passages([self.link_title, self.caption])
 
     def text_for_other_programs(self):
-        return self.caption
+        return passages([self.link_title, self.caption])
 
     def search_rect(self, query):
-        return self.mapToScene(self.caption_rect()).boundingRect()
+        band = (self.card_band_rect() if self.shows_card()
+                else self.caption_rect())
+        return self.mapToScene(band).boundingRect()
 
     def search_line_height(self, query):
+        if self.shows_card():
+            line = (self.card_picture_rect().height()
+                    * self.CARD_TITLE_FRACTION * 1.4)
+            return line * scene_scale_of(self)
         return self.caption_line_height() * scene_scale_of(self)
 
     def shows_caption(self):
         """Whether there is a band to draw.
 
         A caption being written counts, even before the first letter:
-        the band has to be there to type into.
+        the band has to be there to type into. A card has none: its
+        words are in the card.
         """
 
-        return bool(self._caption) or self.caption_editing
+        return ((bool(self._caption) or self.caption_editing)
+                and not self.shows_card())
 
     def caption_size(self):
         """How big the caption's letters are, for this picture.
@@ -2804,6 +2830,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
     def framed_rect(self):
         """The picture and its caption together."""
 
+        if self.shows_card():
+            return self.card_rect()
         rect = QtCore.QRectF(self.crop)
         rect.setHeight(rect.height() + self.caption_height())
         return rect
@@ -3003,6 +3031,12 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
     def caption_url_at(self, pos):
         """The web address in the caption under this point, if any."""
 
+        if self.shows_card():
+            # Anywhere on the card: it stands for the link whole
+            found = web_addresses(self._caption)
+            if found and self.card_rect().contains(pos):
+                return found[0][2]
+            return None
         if (not self._caption or self.caption_editing
                 or not web_addresses(self._caption)):
             return None
@@ -3038,6 +3072,9 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
     def enter_caption_edit_mode(self):
         """Open the caption for writing, on the picture itself."""
 
+        if self.shows_card():
+            # Its words are the link's, not a caption's
+            return
         if self.caption_editor is not None:
             self.caption_editor.setFocus()
             return
@@ -3129,6 +3166,12 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
             # Small, so kept with the rest rather than as a picture of
             # its own; a version that knows nothing of it passes it by
             data['link_icon'] = image_to_base64_png(self.link_icon)
+        # Both passed by in a version before 18.0, which shows the whole
+        # picture with the address under it
+        if self.link_title:
+            data['link_title'] = self.link_title
+        if self.link_card:
+            data['link_card'] = True
         data.update(self.pin_save_data())
         return data
 
@@ -3447,6 +3490,8 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         item.caption_color = QtGui.QColor(self.caption_color)
         item.band_scale = self.band_scale
         item.link_icon = self.link_icon
+        item.link_title = self.link_title
+        item.link_card = self.link_card
         for child in self.childItems():
             if hasattr(child, 'save_id'):
                 copy = child.create_copy()
@@ -3719,6 +3764,10 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
             for handle in self.crop_handles():
                 self.draw_crop_rect(painter, handle())
             self.draw_crop_rect(painter, self.crop_temp)
+        elif self.shows_card():
+            self.paint_card(painter, picture)
+            self.paint_outline(painter)
+            self.paint_selectable(painter, option, widget)
         else:
             # The crop, in the pixels of whichever version is drawn
             fx = picture.width() / whole.width() if whole.width() else 1
@@ -3790,10 +3839,17 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         tile = self.link_icon_rect((across, down), flip)
         if tile is None or across <= 0 or down <= 0:
             return
+        painter.save()
+        painter.scale(flip / across, 1 / down)
+        self.paint_link_icon_tile(painter, tile)
+        painter.restore()
+
+    def paint_link_icon_tile(self, painter, tile):
+        """The site's icon on its white tile, filling ``tile``."""
+
         if self._link_icon_pixmap is None:
             self._link_icon_pixmap = QtGui.QPixmap.fromImage(self._link_icon)
         painter.save()
-        painter.scale(flip / across, 1 / down)
         painter.setRenderHint(
             QtGui.QPainter.RenderHint.SmoothPixmapTransform)
         # A faint edge, so that the tile still shows on a white picture
@@ -3811,6 +3867,222 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
         drawn.moveCenter(room.center())
         painter.drawPixmap(drawn, icon, QtCore.QRectF(icon.rect()))
         painter.restore()
+
+    # A link shown as a card (18.0): the square in the middle of its
+    # picture, and a band beside it with what the page is called and
+    # where it is, as a list of saved links shows them. The band is so
+    # many times as wide as the card is tall, so that cards the same
+    # height are the same width and line up into a list; the words are a
+    # share of the height, so a card made bigger reads the same.
+    CARD_BAND_RATIO = 3.2
+    CARD_RADIUS_FRACTION = 0.07
+    CARD_PADDING_FRACTION = 0.14
+    CARD_TITLE_FRACTION = 0.115
+    CARD_ADDRESS_FRACTION = 0.092
+    CARD_TITLE_LINES = 2
+    # How strong the address is, against the title
+    CARD_ADDRESS_ALPHA = 0.7
+
+    @property
+    def link_card(self):
+        return self._link_card
+
+    @link_card.setter
+    def link_card(self, value):
+        self.prepareGeometryChange()
+        self._link_card = bool(value)
+        self.update()
+
+    def shows_card(self):
+        """Whether the picture is shown as a card. Not while it is being
+        cropped: the crop is chosen on the whole picture."""
+
+        return self._link_card and not self.crop_mode
+
+    def card_picture_rect(self):
+        """The part of the picture on the card: the square in the middle
+        of what the crop leaves, where it is in the picture. So the card
+        starts where its picture is, and cropping chooses what it shows.
+        """
+
+        crop = self.crop
+        side = min(crop.width(), crop.height())
+        return QtCore.QRectF(crop.center().x() - side / 2,
+                             crop.center().y() - side / 2, side, side)
+
+    def card_band_rect(self):
+        """The band beside the picture, for the words."""
+
+        square = self.card_picture_rect()
+        return QtCore.QRectF(square.right(), square.top(),
+                             square.width() * self.CARD_BAND_RATIO,
+                             square.height())
+
+    def card_rect(self):
+        """The whole card: the picture and the band."""
+
+        return self.card_picture_rect().united(self.card_band_rect())
+
+    def card_radius(self):
+        return self.card_picture_rect().height() * self.CARD_RADIUS_FRACTION
+
+    def card_title(self):
+        """What the card is called: the page's title, or the site's name
+        when the page gave none, or failing that the address."""
+
+        return (self.link_title or link_preview.site_name(self.caption)
+                or link_preview.short_address(self.caption))
+
+    def paint_card(self, painter, picture):
+        """Draw the link as a card: the band in the caption's colour,
+        and the picture's square over its left end, rounded only on the
+        outside."""
+
+        square = self.card_picture_rect()
+        radius = self.card_radius()
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        # Under the picture too: two edges meeting side by side leave the
+        # canvas showing faintly through the seam
+        painter.setBrush(QtGui.QBrush(self.caption_color))
+        painter.drawRoundedRect(self.card_rect(), radius, radius)
+        whole = self.whole_rect()
+        if (not picture.isNull() and not square.isEmpty()
+                and whole.width() and whole.height()):
+            # The picture laid over the item's own coordinates, whichever
+            # version of it is drawn, so that the square shows the part
+            # of it that is there
+            brush = QtGui.QBrush(picture)
+            brush.setTransform(QtGui.QTransform.fromScale(
+                whole.width() / picture.width(),
+                whole.height() / picture.height()))
+            painter.setBrush(brush)
+            rounded = QtGui.QPainterPath()
+            rounded.addRoundedRect(square, radius, radius)
+            inner = QtGui.QPainterPath()
+            inner.addRect(square.adjusted(square.width() / 2, 0, 0, 0))
+            painter.drawPath(rounded.united(inner))
+        painter.restore()
+        self.paint_card_words(painter)
+
+    def paint_card_words(self, painter):
+        """The title and the address, upright and unstretched however
+        the card is flipped or pulled, as the site's icon is."""
+
+        across, down = self.stretch
+        if across <= 0 or down <= 0:
+            return
+        flip = self.flip()
+        band = self.card_band_rect()
+        band = QtCore.QRectF(
+            QtCore.QPointF(band.left() * across * flip, band.top() * down),
+            QtCore.QPointF(band.right() * across * flip,
+                           band.bottom() * down)).normalized()
+        height = band.height()
+        if height <= 0:
+            return
+        painter.save()
+        painter.scale(flip / across, 1 / down)
+        padding = height * self.CARD_PADDING_FRACTION
+        room = band.adjusted(padding, padding, -padding, -padding)
+        title_size = height * self.CARD_TITLE_FRACTION
+        room, size = text_at_screen_size(painter, room, title_size)
+        address_size = height * self.CARD_ADDRESS_FRACTION * size / title_size
+        seen = size_on_screen(painter, size)
+        if seen < UNREADABLE_SIZE or room.width() <= 0:
+            # Twice: this painter is saved here and again in there
+            painter.restore()
+            painter.restore()
+            return
+        color = readable_grey(self.visible_caption_color())
+        lines, icon = self.card_lines(room, size, address_size)
+        if seen < READABLE_SIZE:
+            # Too small to read; see READABLE_SIZE
+            paint_text_bars(painter, [bar_for(rect) for rect, *_ in lines],
+                            color)
+            painter.restore()
+            painter.restore()
+            return
+        if icon is not None:
+            self.paint_link_icon_tile(painter, icon)
+        for rect, words, font, strength in lines:
+            shade = QtGui.QColor(color)
+            shade.setAlphaF(strength)
+            painter.setPen(shade)
+            painter.setFont(font)
+            painter.drawText(
+                rect, Qt.AlignmentFlag.AlignLeft
+                | Qt.AlignmentFlag.AlignVCenter, words)
+        painter.restore()
+        painter.restore()
+
+    def card_lines(self, room, title_size, address_size):
+        """Where the card's words go in ``room``: the title on up to two
+        lines, cut short with an ellipsis if it runs on, and the address
+        on one line under it, after the site's icon. Returns (rect,
+        words, font, strength) for each line, and the icon's tile or
+        None. The lines together are centred down the room.
+        """
+
+        title_font = QtGui.QFont(QtWidgets.QApplication.font())
+        title_font.setPointSizeF(title_size)
+        title_font.setWeight(QtGui.QFont.Weight.DemiBold)
+        address_font = QtGui.QFont(QtWidgets.QApplication.font())
+        address_font.setPointSizeF(address_size)
+        title_metrics = QtGui.QFontMetricsF(title_font)
+        address_metrics = QtGui.QFontMetricsF(address_font)
+        width = room.width()
+
+        title = self.card_title()
+        layout = QtGui.QTextLayout(title, title_font)
+        option = QtGui.QTextOption()
+        option.setWrapMode(
+            QtGui.QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(option)
+        spans = []
+        layout.beginLayout()
+        while len(spans) < self.CARD_TITLE_LINES:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(width)
+            spans.append((line.textStart(), line.textLength()))
+        layout.endLayout()
+        titles = [title[start:start + length].strip()
+                  for start, length in spans]
+        if spans and sum(spans[-1]) < len(title):
+            # More than fits: the last line runs on into an ellipsis
+            titles[-1] = title_metrics.elidedText(
+                title[spans[-1][0]:].strip(), Qt.TextElideMode.ElideRight,
+                width)
+
+        title_line = title_metrics.height()
+        address_line = address_metrics.height()
+        gap = address_line * 0.4
+        total = len(titles) * title_line + gap + address_line
+        top = room.top() + max(0, (room.height() - total) / 2)
+        lines = []
+        for number, words in enumerate(titles):
+            lines.append((QtCore.QRectF(room.left(),
+                                        top + number * title_line,
+                                        width, title_line),
+                          words, title_font, 1.0))
+        top += len(titles) * title_line + gap
+        left = room.left()
+        icon = None
+        if not self._link_icon.isNull():
+            side = address_line * 1.1
+            icon = QtCore.QRectF(left, top + (address_line - side) / 2,
+                                 side, side)
+            left += side + address_line * 0.4
+        address = address_metrics.elidedText(
+            link_preview.short_address(self.caption),
+            Qt.TextElideMode.ElideRight, max(0, room.right() - left))
+        lines.append((QtCore.QRectF(left, top, max(0, room.right() - left),
+                                    address_line),
+                      address, address_font, self.CARD_ADDRESS_ALPHA))
+        return lines, icon
 
     # Which page of a PDF of several is shown, in the bottom right corner
     # of the picture: always in sight, so that a PDF can be told from a
@@ -3892,8 +4164,13 @@ class BeePixmapItem(PinnableMixin, BandTextMixin, BeeItemMixin,
             return
         # A contour goes round the picture and its caption together:
         # a frame that stopped above the words would leave them hanging
-        # outside it
-        path = self.rounded_bottom_path(self.framed_rect())
+        # outside it. Round a card, as the card is rounded.
+        if self.shows_card():
+            path = QtGui.QPainterPath()
+            radius = self.card_radius()
+            path.addRoundedRect(self.card_rect(), radius, radius)
+        else:
+            path = self.rounded_bottom_path(self.framed_rect())
         # A stretched picture keeps an even contour; see even_stroke
         stretch = self.even_stroke(painter)
         if stretch is not None:

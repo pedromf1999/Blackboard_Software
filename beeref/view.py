@@ -80,6 +80,9 @@ class BeeGraphicsView(MainControlsMixin,
     # used to come in at their own pixel size, so a small one landed
     # too small to see and had to be scaled up by hand every time.
     NEW_IMAGE_SHARE = 0.5
+    # How tall a link's card arrives, in pixels on the screen: a line of
+    # a list, its title about the size of a note's words
+    NEW_CARD_HEIGHT = 84
 
     # How often, in milliseconds, to look whether the board's file was
     # saved somewhere else. A look is one question to the disk, of a
@@ -3660,9 +3663,13 @@ class BeeGraphicsView(MainControlsMixin,
             logger.info(f'Preview of {url} not wanted any more')
             return
         item = BeePixmapItem(without_pointless_alpha(image))
-        item.setScale(item.fit_scale_to(self.new_image_size()))
         item.caption = preview.caption
         item.link_icon = icon
+        item.link_title = preview.title or ''
+        # As a card, a line of a list rather than a picture taking half
+        # the window; the button beside it shows the whole picture
+        item.link_card = True
+        item.setScale(self.card_scale(item))
         self.replace_with([(note, item)], 'Show link preview')
         logger.info(f'Pasted a preview of {url}')
 
@@ -3672,6 +3679,62 @@ class BeeGraphicsView(MainControlsMixin,
 
         return [item for item in self.scene.selected_images()
                 if link_preview.link_in(item.caption)]
+
+    def card_scale(self, item):
+        """The scale that brings a link's card in NEW_CARD_HEIGHT pixels
+        tall at this zoom, inside whatever groups it is in. So cards made
+        together are the same size, and line up."""
+
+        side = item.card_picture_rect().height()
+        if side <= 0:
+            return 1
+        if item.is_pinned:
+            return self.pinned_scale(item)
+        return self.NEW_CARD_HEIGHT / (
+            side * self.get_scale() * item.parent_scale())
+
+    def picture_scale(self, item):
+        """The scale that brings a link's whole picture in as a pasted
+        picture comes in, at this zoom."""
+
+        crop = item.crop
+        size = self.new_image_size()
+        if crop.isEmpty() or size.isEmpty():
+            return 1
+        if item.is_pinned:
+            return self.pinned_scale(item)
+        return min(size.width() / crop.width(),
+                   size.height() / crop.height()) / item.parent_scale()
+
+    def show_links_as_card(self, card):
+        """Show the selected links' pictures as cards, or whole."""
+
+        pictures = [item for item in self.selected_link_previews()
+                    if item.link_card != card]
+        if not pictures:
+            return
+        if self.scene.caption_item in pictures:
+            # Its band is about to go into the card
+            self.scene.caption_item.exit_caption_edit_mode()
+        self.undo_stack.push(commands.ShowLinkAsCard(
+            pictures, card,
+            self.card_scale if card else self.picture_scale))
+        if any(item.is_pinned for item in pictures):
+            self.place_pinned_notes()
+        self.update_image_toolbar()
+
+    def on_action_link_as_card(self):
+        self.show_links_as_card(True)
+
+    def on_action_link_as_picture(self):
+        self.show_links_as_card(False)
+
+    def on_action_link_card(self):
+        """The button: cards when not all of them are, else pictures."""
+
+        pictures = self.selected_link_previews()
+        self.show_links_as_card(
+            not pictures or not all(item.link_card for item in pictures))
 
     def selected_link_notes(self):
         """The selected notes that are a web address and nothing else.
@@ -4564,7 +4627,7 @@ class BeeGraphicsView(MainControlsMixin,
         """
 
         if getattr(note, 'TYPE', None) == BeePixmapItem.TYPE:
-            across = note.crop.width()
+            across = note.pin_rect().width()
             if across <= 0:
                 return 1
             return min(max(note.pinned_width() / across,

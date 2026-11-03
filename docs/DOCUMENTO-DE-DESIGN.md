@@ -98,6 +98,36 @@ Quem o usa é um designer de produto/industrial, que trabalha num quadro grande
   selecionado. Um site sem imagem, ou que recusa programas que não são
   browsers (Amazon, Behance), deixa a nota, com um aviso. Desliga-se em Settings → Images & Items. Só o colar
   vai à internet; nada mais é descarregado. Ver `beeref/link_preview.py`.
+  - **Cartão** (18.0): o link chega como um cartão, à maneira da lista do
+    Raindrop: o quadrado do meio da imagem à esquerda, recortado, e uma
+    faixa à direita com o título da página (negrito, até duas linhas,
+    cortado com "…") e o endereço por baixo, numa linha, sem "https://" nem
+    "www.", com o ícone do site à frente. Entra com 84 px de altura no
+    ecrã, e a faixa tem sempre 3,2 vezes a altura, por isso cartões feitos
+    ao mesmo zoom têm o mesmo tamanho e alinham-se numa lista. A faixa é da
+    cor da legenda (a mesma escolha de cor); as letras são uma parte da
+    altura, por isso um cartão maior lê-se igual, e de muito longe passam
+    a barras, como nas legendas. Ctrl+clique em qualquer sítio do cartão
+    abre o link. Virado, a imagem passa para o outro lado e as letras não
+    ficam ao espelho. Cortar (Shift+C) escolhe na imagem inteira o que o
+    quadrado mostra. Num cartão não se escreve legenda.
+  - **Título**: o que a página oferece para partilhas (og:title,
+    twitter:title), senão o `<title>` dela; no YouTube vem do endereço
+    público oEmbed (sem página, sem cookies); no GrabCAD do nome do modelo;
+    num PDF do título que o próprio PDF traz, senão do nome do ficheiro;
+    numa imagem ligada diretamente, do nome do ficheiro. Sem título, o
+    cartão mostra o nome do site. Fica guardado (`link_title`) e entra na
+    pesquisa, no nome da camada e na etiqueta de uma imagem afixada.
+  - **Cartão ou imagem grande**: com o cartão selecionado, o botão ao lado
+    da corrente (premido enquanto é cartão) mostra a imagem inteira, como
+    antes, a crescer a partir do canto de cima à esquerda do cartão; outro
+    clique volta ao cartão. Também em Images → Show Link as Card / Show
+    Link as Big Picture. Vários de uma vez num só passo de desfazer: se
+    nem todos forem cartões, ficam todos cartões. As imagens grandes de
+    quadros antigos continuam grandes até se carregar no botão.
+  - Ficheiro: `link_card` e `link_title` nos dados da imagem. Uma versão
+    anterior a 18.0 não os conhece e abre o cartão como a imagem grande
+    com o endereço por baixo, sem perder nada.
   - **YouTube** (14.5): na Europa, o YouTube mostra muitas vezes uma página
     de consentimento de cookies em vez do vídeo, e essa página não tem
     imagem. Para vídeos (link normal, youtu.be, Shorts, diretos, YouTube

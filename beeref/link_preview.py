@@ -13,8 +13,8 @@
 # You should have received a copy of the GNU General Public License
 # along with BeeRef.  If not, see <https://www.gnu.org/licenses/>.
 
-"""The picture a web page offers for showing a link to it, and the
-site's icon.
+"""The picture a web page offers for showing a link to it, the
+site's icon, and the page's title.
 
 Sites name a picture for whoever shows a link to them -- a chat, a
 social network -- in the page's head: Open Graph's "og:image", Twitter's
@@ -50,6 +50,11 @@ LINK_RE = re.compile(r'^(?:https?://|www\.)\S+$', re.IGNORECASE)
 # Where a page names its picture, best first
 IMAGE_PROPERTIES = ('og:image:secure_url', 'og:image', 'og:image:url',
                     'twitter:image', 'twitter:image:src')
+# And its title for a link to it, best first. Ahead of the page's own
+# title, which often trails the shop's name and a slogan after it.
+TITLE_PROPERTIES = ('og:title', 'twitter:title')
+# Longer than any title worth showing on a card, which shows two lines
+MAX_TITLE = 300
 
 # How long to wait for a site, and how much of it to take. A page names
 # its picture in its head, near the start, and a picture for a link is
@@ -89,6 +94,12 @@ YOUTUBE_ICONS = (
     'https://www.gstatic.com/youtube/img/branding/favicon/'
     'favicon_144x144.png',
     'https://www.youtube.com/favicon.ico')
+# Where YouTube tells a video's title to whoever shows a link to it,
+# with no page and so no question about cookies in the way. The video's
+# code goes at the end of its watch page's address, written out as a
+# part of this one.
+YOUTUBE_TITLE = ('https://www.youtube.com/oembed?format=json'
+                 '&url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3D{}')
 
 
 def youtube_video(url):
@@ -224,9 +235,69 @@ def link_in(text):
     return text
 
 
+def clean_title(text):
+    """A title on one line, without the spaces round it, and not
+    impossibly long."""
+
+    text = ' '.join((text or '').split())
+    if len(text) > MAX_TITLE:
+        text = text[:MAX_TITLE].rstrip() + '\u2026'
+    return text
+
+
+def site_name(url):
+    """The site a link is to, as a card shows it when there is no
+    title: the host, without the "www." in front."""
+
+    try:
+        host = urlparse(url or '').hostname or ''
+    except ValueError:
+        return ''
+    return host[4:] if host.startswith('www.') else host
+
+
+def short_address(url):
+    """A link as a card shows it: without the "https://" and the "www."
+    every link has, which only push the part that tells links apart off
+    the end of the line."""
+
+    text = (url or '').strip()
+    text = re.sub(r'^[a-z][a-z0-9+.-]*://', '', text, flags=re.IGNORECASE)
+    if text.lower().startswith('www.'):
+        text = text[4:]
+    return text.rstrip('/')
+
+
+def file_title(url):
+    """The name of the file a link is to, for a PDF or a picture
+    linked to directly, which have no page to take a title from."""
+
+    try:
+        path = urlparse(url or '').path
+    except ValueError:
+        return ''
+    name = QtCore.QUrl.fromPercentEncoding(
+        path.rstrip('/').rsplit('/', 1)[-1].encode())
+    return clean_title(name)
+
+
+def pdf_title(data):
+    """The title a PDF gives itself, or nothing."""
+
+    document = QtPdf.QPdfDocument(None)
+    buffer = QtCore.QBuffer()
+    buffer.setData(data)
+    buffer.open(QtCore.QIODevice.OpenModeFlag.ReadOnly)
+    with imagecache.PDF_LOCK:
+        document.load(buffer)
+        title = document.metaData(QtPdf.QPdfDocument.MetaDataField.Title)
+        document.close()
+    return clean_title(title if isinstance(title, str) else '')
+
+
 class PageReader(HTMLParser):
-    """Reads a page for the picture it offers, its icons, and the
-    pictures in it."""
+    """Reads a page for the picture it offers, its icons, its title,
+    and the pictures in it."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -239,6 +310,8 @@ class PageReader(HTMLParser):
         self.structured = []
         # The data a page built by script is built from, as text
         self.page_data = []
+        # What the page's own title says, as text
+        self.titles = []
         self._reading = None
 
     def handle_data(self, data):
@@ -246,7 +319,7 @@ class PageReader(HTMLParser):
             self._reading[-1] += data
 
     def handle_endtag(self, tag):
-        if tag == 'script':
+        if tag in ('script', 'title'):
             self._reading = None
 
     def handle_starttag(self, tag, attrs):
@@ -260,9 +333,15 @@ class PageReader(HTMLParser):
                                   or attrs.get('id') == '__NEXT_DATA__'):
             self._reading = self.page_data
             self.page_data.append('')
+        elif tag == 'title' and not self.titles:
+            # The first only: a drawing in the page can have a title of
+            # its own
+            self._reading = self.titles
+            self.titles.append('')
         elif tag == 'meta':
             name = (attrs.get('property') or attrs.get('name') or '').lower()
-            if name in IMAGE_PROPERTIES and attrs.get('content'):
+            if (name in IMAGE_PROPERTIES + TITLE_PROPERTIES
+                    and attrs.get('content')):
                 self.found.setdefault(name, attrs['content'].strip())
         elif tag == 'link' and attrs.get('href'):
             rel = (attrs.get('rel') or '').lower().split()
@@ -276,9 +355,19 @@ class PageReader(HTMLParser):
                     (attrs.get('type') or '').lower()))
 
 
+def page_title(reader):
+    """The title a page gives for a link to it, or its own."""
+
+    for name in TITLE_PROPERTIES:
+        title = clean_title(reader.found.get(name))
+        if title:
+            return title
+    return clean_title(reader.titles[0] if reader.titles else '')
+
+
 def read_page(html, page_url):
-    """What a page offers: where its picture may be, best first, and
-    where its icon may be."""
+    """What a page offers: where its picture may be, best first, where
+    its icon may be, and its title."""
 
     reader = PageReader()
     try:
@@ -312,7 +401,7 @@ def read_page(html, page_url):
         for each in (picture, readable_format(picture)):
             if each and each not in tried:
                 tried.append(each)
-    return tried, icon_urls(reader.icons, page_url)
+    return tried, icon_urls(reader.icons, page_url), page_title(reader)
 
 
 def is_pdf(url, content_type=''):
@@ -689,7 +778,8 @@ class LinkPreview(QtCore.QObject):
 
     Emits ``finished`` once: the picture, or a null one; the site's
     icon, or a null one -- the picture is worth having without it; and
-    why there is no picture, if there is none.
+    why there is no picture, if there is none. The page's title is in
+    ``title`` by then, empty if it has none.
     """
 
     finished = QtCore.pyqtSignal(QtGui.QImage, QtGui.QImage, str)
@@ -713,6 +803,10 @@ class LinkPreview(QtCore.QObject):
         self.icon_asked = False
         # The address the picture is shown with, in its caption
         self.caption = url
+        # What the link is called, for the card it is shown as. None
+        # while it is still being asked for, which only a YouTube video
+        # does on its own: anything else has it with the page.
+        self.title = ''
 
     def start(self):
         model = grabcad_model(self.url)
@@ -744,6 +838,9 @@ class LinkPreview(QtCore.QObject):
             self.image_addresses = [
                 still.format(video) for still in YOUTUBE_STILLS]
             self.icon_addresses = list(YOUTUBE_ICONS)
+            self.title = None
+            self.request(YOUTUBE_TITLE.format(video), self.on_title,
+                         MAX_ICON_BYTES, ICON_TIMEOUT_MS)
             # A stream that is no longer live has no still there; its
             # page may still have one
             self.page_after = True
@@ -753,12 +850,25 @@ class LinkPreview(QtCore.QObject):
             return
         self.request(self.url, self.on_page, self.page_limit, TIMEOUT_MS)
 
+    def on_title(self, reply):
+        title = ''
+        if not self.failed(reply):
+            try:
+                title = json.loads(bytes(reply.readAll())).get('title')
+            except (ValueError, AttributeError):
+                title = ''
+        self.title = clean_title(title if isinstance(title, str) else '')
+        self.finish_when_both_are_in()
+
     def on_grabcad(self, reply):
         picture = None
         if not self.failed(reply):
             try:
-                picture = json.loads(bytes(reply.readAll())).get(
-                    'preview_image')
+                model = json.loads(bytes(reply.readAll()))
+                picture = model.get('preview_image')
+                name = model.get('name')
+                if isinstance(name, str):
+                    self.title = clean_title(name)
             except (ValueError, AttributeError):
                 picture = None
         if not isinstance(picture, str) or 'missing' in picture:
@@ -838,6 +948,7 @@ class LinkPreview(QtCore.QObject):
             # The link was to a picture itself
             self.image = QtGui.QImage.fromData(data)
             icons = [urljoin(page_url, '/favicon.ico')]
+            self.title = self.title or file_title(page_url)
         elif is_pdf(page_url, content_type) or data.startswith(b'%PDF'):
             # A document: its first page, as it would be printed
             self.image = pdf_first_page(data)
@@ -845,9 +956,12 @@ class LinkPreview(QtCore.QObject):
                 self.finish(self.image, 'The PDF could not be read')
                 return
             icons = [urljoin(page_url, '/favicon.ico')]
+            self.title = (self.title or pdf_title(data)
+                          or file_title(page_url))
         else:
-            pictures, icons = read_page(
+            pictures, icons, title = read_page(
                 page_text(data, content_type), page_url)
+            self.title = self.title or title
             if not pictures:
                 self.finish(QtGui.QImage(), 'The page offers no picture')
                 return
@@ -903,7 +1017,7 @@ class LinkPreview(QtCore.QObject):
         self.finish_when_both_are_in()
 
     def finish_when_both_are_in(self):
-        if self.image is None or self.icon is None:
+        if self.image is None or self.icon is None or self.title is None:
             return
         if self.image.isNull():
             self.finish(self.image, 'The picture could not be read')

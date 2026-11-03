@@ -917,6 +917,47 @@ class ChangeCaption(QtGui.QUndoCommand):
             item.caption = caption
 
 
+class ShowLinkAsCard(QtGui.QUndoCommand):
+    """Show links' pictures as cards, or as the whole pictures.
+
+    Each keeps its top left corner where it was, so a card opened up
+    into its picture grows out from where the card was, and back. How
+    big each comes out is asked of ``scale_for`` once its new shape is
+    in, the first time only: a redo puts back what was done.
+    """
+
+    def __init__(self, items, card, scale_for):
+        super().__init__('Show link as card' if card
+                         else 'Show link as picture')
+        self.items = list(items)
+        self.card = card
+        self.scale_for = scale_for
+        self.scales = None
+        self.old = [(item.link_card, item.scale(), item.pos())
+                    for item in self.items]
+
+    def redo(self):
+        scales = []
+        for number, item in enumerate(self.items):
+            corner = item.mapToParent(
+                item.bounding_rect_unselected().topLeft())
+            item.link_card = self.card
+            scale = (self.scales[number] if self.scales is not None
+                     else self.scale_for(item))
+            scales.append(scale)
+            item.setScale(scale)
+            moved = item.mapToParent(
+                item.bounding_rect_unselected().topLeft())
+            item.setPos(item.pos() + corner - moved)
+        self.scales = scales
+
+    def undo(self):
+        for item, (card, scale, pos) in zip(self.items, self.old):
+            item.link_card = card
+            item.setScale(scale)
+            item.setPos(pos)
+
+
 class ChangeTitle(QtGui.QUndoCommand):
     """Set an item's title and the colour of the band it sits in.
 

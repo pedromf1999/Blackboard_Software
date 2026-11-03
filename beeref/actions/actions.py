@@ -579,6 +579,19 @@ actions = ActionList([
         callback='on_action_link_as_text',
         group='active_when_image_selection',
     ),
+    # A link's picture as a card, a line of a list, and back
+    Action(
+        id='link_as_card',
+        text='Show Link as Car&d',
+        callback='on_action_link_as_card',
+        group='active_when_image_selection',
+    ),
+    Action(
+        id='link_as_picture',
+        text='Show Link as Big &Picture',
+        callback='on_action_link_as_picture',
+        group='active_when_image_selection',
+    ),
     # The size buttons size the image itself, so the contour's width is
     # changed from here
     Action(

@@ -66,6 +66,11 @@ class ImageToolBar(PinnedToolBar):
         # the link as a note
         self.as_text = self.add_button(
             'link', 'Show as a text link', view.on_action_link_as_text)
+        # And as a card, a line of a list, or as the whole picture.
+        # Pressed while it is a card.
+        self.as_card = self.add_button(
+            'link_card', 'Show as a card', view.on_action_link_card)
+        self.as_card.setCheckable(True)
         # As on a note: fastened to the window, it stays in sight
         # wherever the board goes
         self.pin = self.add_button(
@@ -110,9 +115,16 @@ class ImageToolBar(PinnedToolBar):
         self.pin.setToolTip(
             'Unpin: back onto the board (Ctrl+P)' if pinned
             else 'Pin to the window, where it stays in sight (Ctrl+P)')
-        self.as_text.setVisible(
-            any(link_in(item.caption) for item in items))
-        self.caption.setEnabled(len(items) == 1)
+        links = [item for item in items if link_in(item.caption)]
+        self.as_text.setVisible(bool(links))
+        self.as_card.setVisible(bool(links))
+        cards = bool(links) and all(item.link_card for item in links)
+        self.as_card.setChecked(cards)
+        self.as_card.setToolTip(
+            'Show the whole picture' if cards else 'Show as a card')
+        # A card's words are the link's, not a caption to write
+        self.caption.setEnabled(
+            len(items) == 1 and not items[0].shows_card())
         self.writing_caption = any(item.caption_editing for item in items)
         outlined = [item for item in items if item.has_outline()]
         self.outline.setChecked(len(outlined) == len(items))

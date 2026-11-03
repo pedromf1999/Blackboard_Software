@@ -138,6 +138,8 @@ menu_structure = [
             'image_outline_thinner',
             'image_outline_thicker',
             'link_as_text',
+            'link_as_card',
+            'link_as_picture',
             MENU_SEPARATOR,
             'change_opacity',
             'grayscale',
